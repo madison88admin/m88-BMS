@@ -1,6 +1,6 @@
 const crypto = require('crypto');
-const { supabase } = require('../utils/supabase');
-const { sendEmail } = require('../utils/email');
+const { supabase } = require('./utils/supabase');
+const { sendEmail } = require('./utils/email');
 
 const PASSWORD_RESET_TOKEN_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || 30);
 const PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = Number(process.env.PASSWORD_RESET_RESEND_COOLDOWN_SECONDS || 60);

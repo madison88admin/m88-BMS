@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { supabase } = require('../utils/supabase');
+const { supabase } = require('./utils/supabase');
 
 const getPasswordResetSecret = () => process.env.JWT_SECRET || 'change-me';
 const getPasswordResetTokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex');

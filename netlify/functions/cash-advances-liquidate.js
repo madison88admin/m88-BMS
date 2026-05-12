@@ -1,6 +1,6 @@
-const { supabase } = require('../utils/supabase');
-const { authenticate, authorize } = require('../utils/auth');
-const { validateExpense } = require('../utils/expenseValidator');
+const { supabase } = require('./utils/supabase');
+const { authenticate, authorize } = require('./utils/auth');
+const { validateExpense } = require('./utils/expenseValidator');
 
 const toNumber = (value) => Number.parseFloat(value ?? 0) || 0;
 const toText = (value) => String(value ?? '').trim();

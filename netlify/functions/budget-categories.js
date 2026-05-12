@@ -1,17 +1,17 @@
-const { supabase } = require('../utils/supabase');
-const { authenticate, authorize } = require('../utils/auth');
-const { toNumber } = require('../utils/budget');
+const { supabase } = require('./utils/supabase');
+const { authenticate, authorize } = require('./utils/auth');
+const { toNumber } = require('./utils/budget');
 const { 
   getLatestConfiguredFiscalYear, 
   syncDepartmentBudget,
   validateFiscalYear 
-} = require('../utils/fiscal');
+} = require('./utils/fiscal');
 const { 
   validateUUID, 
   validateAmount, 
   sanitizeText,
   createErrorResponse 
-} = require('../utils/enhancedAuth');
+} = require('./utils/enhancedAuth');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') {

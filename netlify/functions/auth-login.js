@@ -1,4 +1,4 @@
-const { supabase } = require('../utils/supabase');
+const { supabase } = require('./utils/supabase');
 const { 
   checkAuthRateLimit, 
   sanitizeEmail, 
@@ -6,7 +6,7 @@ const {
   verifyPassword, 
   generateSecureToken,
   createErrorResponse 
-} = require('../utils/enhancedAuth');
+} = require('./utils/enhancedAuth');
 
 const jwt = require('jsonwebtoken');
 

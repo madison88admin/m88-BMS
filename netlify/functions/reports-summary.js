@@ -1,5 +1,5 @@
-const { supabase } = require('../utils/supabase');
-const { authenticate, authorize } = require('../utils/auth');
+const { supabase } = require('./utils/supabase');
+const { authenticate, authorize } = require('./utils/auth');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 

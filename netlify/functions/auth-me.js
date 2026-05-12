@@ -1,5 +1,5 @@
-const { supabase } = require('../utils/supabase');
-const { authenticate } = require('../utils/auth');
+const { supabase } = require('./utils/supabase');
+const { authenticate } = require('./utils/auth');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') {

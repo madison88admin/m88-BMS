@@ -1,7 +1,7 @@
-const { supabase } = require('../utils/supabase');
-const { authenticate, authorize } = require('../utils/auth');
-const { sendEmail } = require('../utils/email');
-const { adjustCategoryCommitted, adjustCategoryReleased, toNumber } = require('../utils/budget');
+const { supabase } = require('./utils/supabase');
+const { authenticate, authorize } = require('./utils/auth');
+const { sendEmail } = require('./utils/email');
+const { adjustCategoryCommitted, adjustCategoryReleased, toNumber } = require('./utils/budget');
 
 exports.handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') {

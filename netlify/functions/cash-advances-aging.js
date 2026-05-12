@@ -1,5 +1,5 @@
-const { supabase } = require('../utils/supabase');
-const { authenticate, authorize } = require('../utils/auth');
+const { supabase } = require('./utils/supabase');
+const { authenticate, authorize } = require('./utils/auth');
 
 const toNumber = (value) => Number.parseFloat(value ?? 0) || 0;
 
