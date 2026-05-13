@@ -806,6 +806,7 @@ const NewRequestForm = () => {
                     );
                   }
                 
+                  // Default case: Within Budget (when not out of budget and not low budget)
                   return (
                     <div key={catId} className="px-4 py-3 rounded-xl border border-emerald-300 bg-emerald-50 flex items-center gap-2">
                       <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
