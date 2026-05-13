@@ -1,0 +1,87 @@
+﻿
+=== BACKEND CONNECTIVITY ===
+  PASS  GET /api/system/health => 200
+  PASS  Health body has status=healthy
+
+=== AUTH: LOGIN ===
+  PASS  Employee login => 200
+  PASS  Employee token present
+  PASS  Supervisor login => 200
+  PASS  Accounting login => 200
+  PASS  Bad password => 400
+  PASS  Unknown user => 400
+
+=== AUTH: /ME ===
+  PASS  GET /api/auth/me => 200
+  PASS  Role is employee
+  PASS  department_id present
+  PASS  GET /api/auth/me no token => 401
+
+=== REQUESTS ===
+  PASS  GET /api/requests (employee) => 200
+  PASS  Returns array
+  PASS  GET /api/requests (supervisor) => 200
+  PASS  GET /api/requests (accounting) => 200
+  PASS  GET /api/requests/my => 200
+  PASS  GET /api/requests no token => 401
+  PASS  GET /api/requests/official-list => 200
+  PASS  Official list has items
+
+=== BUDGET ===
+  PASS  GET /api/budget/categories => 200
+  PASS  Returns array
+  PASS  GET /api/budget/categories all_years (accounting) => 200
+  PASS  POST /api/budget/categories (employee) => 403
+  PASS  GET /api/budget/cost-centers => 200
+
+=== DEPARTMENTS ===
+  PASS  GET /api/departments => 200
+  PASS  Has departments
+
+=== NOTIFICATIONS ===
+  PASS  GET /api/notifications => 200
+
+=== CONFIG ===
+  PASS  GET /api/config/auth-thresholds (accounting) => 200
+  PASS  Thresholds body has PHP key
+  PASS  GET /api/config/auth-thresholds (employee) => 200 or 403
+
+=== CASH ADVANCES ===
+  PASS  GET /api/cash-advances/for-liquidation/:id => 200
+  PASS  GET /api/cash-advances (accounting) => 200
+  PASS  GET /api/cash-advances no token => 401
+
+=== AUDIT LOGS ===
+  PASS  GET /api/requests/audit-logs (accounting) => 200
+  PASS  GET /api/requests/audit-logs (employee) => 403
+
+=== REPORTS ===
+  PASS  GET /api/reports (accounting) => 200 or 404
+
+=== FRONTEND ROUTES (Netlify SPA) ===
+  PASS  Netlify/ => 200
+  PASS  Netlify/login => 200
+  PASS  Netlify/tracker => 200
+  PASS  Netlify/approvals => 200
+  PASS  Netlify/requests/new => 200
+  PASS  Netlify/admin => 200
+  PASS  Netlify/accounting => 200
+  PASS  Netlify/budget-setup => 200
+  PASS  Netlify/budget-management => 200
+  PASS  Netlify/employee => 200
+  PASS  Netlify/finance => 200
+  PASS  Netlify/cash-advance-aging => 200
+  PASS  Netlify/profile => 200
+  PASS  Netlify/management => 200
+
+=== SECURITY GUARDS ===
+  PASS  PATCH /approve (employee) => 403
+  PASS  PATCH /reject (employee) => 403
+  PASS  PATCH /release (employee) => 403
+  PASS  PATCH /archive (employee) => 403
+  PASS  GET nonexistent request (accounting) => 400 or 404
+
+=============================
+  TOTAL PASS : 56
+  TOTAL FAIL : 0
+=============================

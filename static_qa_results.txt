@@ -1,0 +1,253 @@
+﻿
+=== CONSOLE.LOG/ERROR SCAN (Frontend) ===
+  WARN  ErrorBoundary.tsx
+        L25: console.error('ErrorBoundary caught an error:', error, errorInfo);
+  WARN  HealthStatus.tsx
+        L42: console.error('Health check failed:', err);
+  WARN  useExchangeRates.ts
+        L82: console.warn('[FX] Failed to fetch live rates, using fallback:', err?.message);
+  WARN  ManagementDashboard.tsx
+        L69: console.log('Super admin reports access restricted - loading other data only');
+        L522: console.error(err);
+  WARN  Reports.tsx
+        L434: console.error('PDF export error:', err);
+        L467: console.error('PDF export error:', err);
+  WARN  RequestForm.tsx
+        L80: console.error('Failed to fetch user/department data', err);
+  WARN  RequestTracker.tsx
+        L229: console.error('Upload error details:', err);
+        L344: console.error('Voucher download error:', err);
+
+=== CONSOLE.LOG/ERROR SCAN (Backend - non-intentional) ===
+  WARN  auth.ts
+        L212: console.log('Login attempt for email:', email);
+        L221: console.log('Login failed: User not found:', email);
+        L227: console.log('Login failed: Password mismatch for email:', email);
+        L237: console.log('Login successful for email:', email);
+        L649: console.log('Role validation failed for:', normalizedRole);
+  WARN  upload.ts
+        L15: console.log('Upload request received. File in req:', !!req.file);
+        L22: console.log(`Uploading file: ${originalname} (${mimetype}, ${buffer.length} bytes)`);
+        L27: console.log(`Target path: ${filePath}`);
+        L44: console.log('Upload successful in storage:', uploadData);
+        L55: console.log('Generated public URL:', publicData.publicUrl);
+  WARN  check_all_liqs.ts
+        L14: console.log(JSON.stringify(reqs, null, 2));
+  WARN  check_ca_b3b.ts
+        L14: console.log(JSON.stringify(ca, null, 2));
+  WARN  check_ca_dept.ts
+        L17: console.log('Table departments EXISTS');
+  WARN  check_ca_record.ts
+        L14: console.log(`Checking Cash Advance record for ${reqCode}...`);
+        L31: console.log('NO Cash Advance record found for this request ID.');
+        L33: console.log('Cash Advance record found:');
+  WARN  check_clashes.ts
+        L9: console.log('Existing Categories for HR:', cats);
+  WARN  check_constraint_text.ts
+        L17: console.log('Raw constraint data:', rawData || rawError);
+        L19: console.log('Constraint definition:', data);
+  WARN  check_dept_cols.ts
+        L10: console.log('Department columns:', Object.keys(data[0] || {}));
+  WARN  check_direct.ts
+        L17: console.log('Table direct_expenses EXISTS');
+  WARN  check_enums.ts
+        L14: console.log(data || error);
+  WARN  check_enums_simple.ts
+        L15: console.log(data || error);
+  WARN  check_fetch_approvals.ts
+        L21: console.log('Advances found:', advances.length);
+        L23: console.log(`- ${a.advance_code} (${a.status}) | Liqs: ${a.liquidations?.length || 0}`);
+        L24: a.liquidations?.forEach((l: any) => console.log(`  * ${l.id} : ${l.status}`));
+  WARN  check_jane.ts
+        L7: console.log('Jane Supervisor not found');
+        L10: console.log('Jane User Data:', { id: user.id, dept_id: user.department_id, role: user.role });
+        L13: console.log('Jane Department:', dept);
+        L18: console.log('Related Dept IDs:', relatedIds);
+        L25: console.log('Requests for Jane:', requests);
+  WARN  check_jc_advances.ts
+        L18: console.log(JSON.stringify(advances, null, 2));
+  WARN  check_jc_ca_requests.ts
+        L14: console.log(JSON.stringify(reqs, null, 2));
+  WARN  check_liquidations.ts
+        L13: console.log('Checking recent liquidations...');
+        L24: console.log('Recent liquidations:');
+  WARN  check_liq_b3b.ts
+        L14: console.log(data);
+  WARN  check_recent_requests.ts
+        L14: console.log(`Checking latest requests for ${email}...`);
+        L32: console.log('Latest requests:');
+  WARN  check_req_dept.ts
+        L17: console.log('FK fk_expense_requests_department_id SUCCEEDED');
+  WARN  check_req_rels.ts
+        L18: console.log('Plain users join result:', error2?.message || 'SUCCESS');
+        L20: console.log('FK fk_expense_requests_employee_id SUCCEEDED');
+  WARN  check_schema.ts
+        L19: console.log('Columns in request_liquidations:', Object.keys(data[0]));
+        L21: console.log('No data in request_liquidations');
+  WARN  check_sql_constraints.ts
+        L18: console.log(data);
+  WARN  check_status_values.ts
+        L18: console.log('Distinct statuses in DB:', distinct);
+        L20: console.log(data);
+  WARN  check_triggers.ts
+        L14: console.log(data || error);
+  WARN  debug_janes.ts
+        L6: console.log('Janes:', users);
+        L10: console.log(`Jane (${jane.id}) Department:`, dept?.name, `(Year: ${dept?.fiscal_year})`);
+        L17: console.log(`  Requests for this specific ID:`, requests);
+        L24: console.log('All Pending Supervisor Requests:', allPending);
+  WARN  debug_supervisor.ts
+        L7: console.log('Supervisors:', users?.map(u => ({ id: u.id, name: u.name, dept_id: u.department_id })));
+        L14: console.log('Pending Supervisor Requests:', requests);
+        L18: console.log('Departments:', depts);
+  WARN  debug_supervisor_short.ts
+        L6: console.log('Supervisors:', users);
+        L11: console.log('Pending Requests:', requests);
+        L14: console.log('Depts:', depts);
+  WARN  ensure_bucket.ts
+        L13: console.log('Checking storage buckets...');
+        L21: console.log('Buckets found:', buckets.map(b => `${b.name} (public: ${b.public})`));
+        L25: console.log('Bucket "attachments" NOT FOUND. Creating it...');
+        L28: else console.log('Bucket created successfully.');
+        L30: console.log('Bucket "attachments" is NOT public. Updating...');
+        L33: else console.log('Bucket updated to public.');
+        L35: console.log('Bucket "attachments" is already public.');
+  WARN  find_ca_rels.ts
+        L31: console.log(data || error);
+  WARN  find_statuses.ts
+        L15: console.log('RPC failed, trying raw query via another RPC...');
+        L18: console.log('Example data status:', qData?.[0]?.status);
+        L20: console.log(data);
+  WARN  fix_jc_final.ts
+        L14: console.log(`Fixing request ${reqCode}...`);
+        L40: else console.log('Fixed! CA Code:', ca.advance_code);
+  WARN  fix_jc_request.ts
+        L14: console.log(`Fixing request ${reqCode}...`);
+        L32: console.log('Updated request_type to cash_advance.');
+        L60: console.log('Created cash_advances record:', ca.advance_code);
+  WARN  fix_liquidations.ts
+        L13: console.log('Fetching submitted liquidations with no corresponding CA status update...');
+        L25: console.log(`Found ${liquidations.length} submitted liquidations.`);
+        L40: console.log(`Updating Cash Advance ${cashAdvance.id} status to pending_liquidation_review...`);
+        L47: else console.log(`Successfully updated CA ${cashAdvance.id}.`);
+        L49: console.log(`Cash Advance for request ${liq.request_id} is already in correct status or not found.`);
+        L53: console.log('Cleanup complete.');
+  WARN  get_constraints.ts
+        L16: console.log('RPC failed. Listing all check constraints text...');
+        L18: console.log(list || listError);
+        L20: console.log(data);
+  WARN  get_jc_info.ts
+        L14: console.log(JSON.stringify(user, null, 2));
+  WARN  inspect_liq.ts
+        L14: console.log(JSON.stringify(liq, null, 2));
+  WARN  inspect_parent.ts
+        L14: console.log(JSON.stringify(req, null, 2));
+  WARN  list_all_ca.ts
+        L14: console.log(data);
+  WARN  list_all_ca_detailed.ts
+        L14: console.log(data);
+  WARN  list_categories.ts
+        L11: console.log('Categories in database:', uniqueCats);
+  WARN  list_category_codes.ts
+        L10: console.log('Categories in database:', data);
+  WARN  list_depts.ts
+        L10: console.log('Departments in database:', data.map(d => d.name));
+  WARN  list_supervisors.ts
+        L6: console.log('Supervisors in DB:', users);
+  WARN  populate_categories.ts
+        L7: console.log('Starting category population (Revised)...');
+        L17: console.log(`Target Fiscal Year: ${fiscalYear}`);
+        L59: console.log(`Processing ${deptName}...`);
+        L89: console.log(`  Updating category name: "${byCode.category_name}" -> "${catName}" (Code: ${catCode})`);
+        L125: console.log(`Finished! Created: ${createdCount}, Updated: ${updatedCount}, Skipped: ${skippedCount}`);
+  WARN  reset_jc_password_final.ts
+        L18: console.log(`Resetting password for ${email} to ${newPassword}...`);
+        L29: console.log('Password reset successful for:', data?.[0]?.email);
+  WARN  simulate_approvals_fetch.ts
+        L13: console.log('Fetching all partially/fully liquidated advances...');
+        L29: console.log(`Found ${advances?.length} advances. Fetching details...`);
+        L32: console.log(`- Fetching detail for ${advance.advance_code} (${advance.id})...`);
+        L48: console.log(`  Detail Success for ${advance.advance_code}`);
+  WARN  test_backend_fixed.ts
+        L16: console.log('Searching for statuses:', statuses);
+        L32: console.log('Data count:', data?.length);
+        L33: data?.forEach(a => console.log(`- ${a.advance_code} : ${a.status}`));
+  WARN  test_backend_logic.ts
+        L16: console.log('Searching for statuses:', statuses);
+        L32: console.log('Data count:', data?.length);
+        L33: data?.forEach(a => console.log(`- ${a.advance_code} : ${a.status}`));
+  WARN  test_budget_logic.ts
+        L13: console.log('Testing budget logic fetch...');
+        L22: console.log('Budget Logic Success!');
+  WARN  test_closed.ts
+        L18: else console.log('Status "closed" SUCCEEDED');
+  WARN  test_detail_fixed.ts
+        L15: console.log('No advances to test detail with.');
+        L19: console.log('Testing detail for:', advance.id);
+        L36: console.log('Detail success!');
+        L37: console.log('Employee:', data.employee?.name);
+        L38: console.log('Request Code:', data.original_request?.request_code);
+  WARN  test_detail_logic.ts
+        L15: console.log('No advances to test detail with.');
+        L19: console.log('Testing detail for:', advance.id);
+        L36: console.log('Detail success!');
+        L37: console.log('Employee:', data.employee?.name);
+  WARN  test_fully.ts
+        L18: else console.log('Status "fully_liquidated" SUCCEEDED');
+  WARN  test_liquidated.ts
+        L18: else console.log('Status "liquidated" SUCCEEDED');
+  WARN  test_partial.ts
+        L18: else console.log('Status "partially_liquidated" SUCCEEDED');
+  WARN  test_pending.ts
+        L18: else console.log('Status "pending_liquidation" SUCCEEDED');
+  WARN  test_pending_simple.ts
+        L18: else console.log('Status "pending" SUCCEEDED');
+  WARN  test_status.ts
+        L26: else console.log('Status "outstanding" SUCCEEDED');
+  WARN  test_validator.ts
+        L6: console.log('Official List Length:', OFFICIAL_EXPENSE_LIST.length);
+        L7: console.log('First Item:', OFFICIAL_EXPENSE_LIST[0]);
+  WARN  verify_jc_hash.ts
+        L29: console.log(`Password match for ${email} with "Password123!": ${isMatch}`);
+        L30: console.log(`Hash in DB: ${user.password_hash}`);
+  WARN  verify_jc_state.ts
+        L15: console.log('Cash Advance Status:', ca.status);
+        L17: console.log('Liquidations found:', liqs?.length);
+        L18: liqs?.forEach(l => console.log(`- ${l.id} : ${l.status}`));
+        L20: console.log('No CA found for JC');
+  WARN  server.ts
+        L31: console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+        L140: console.log(`Server running on port ${PORT}`);
+        L141: console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+        L146: console.log('SIGTERM received. Shutting down gracefully...');
+        L148: console.log('Server closed. Process terminated.');
+        L154: console.log('SIGINT received. Shutting down gracefully...');
+        L156: console.log('Server closed. Process terminated.');
+
+=== TODO/FIXME/HACK MARKERS ===
+  NOTE  requests.ts
+        L474: // TODO: Implement proper budget-based filtering once category names are aligned
+
+=== HARDCODED SECRETS SCAN ===
+  WARN  verify_jc_hash.ts
+        L15: const password = 'Password123!';
+        L29: console.log(`Password match for ${email} with "Password123!": ${isMatch}`);
+
+=== ROUTE CONSISTENCY CHECK ===
+  WARN  navigate('/') found - possible redirect bounce: Dashboard.tsx L1412
+  WARN  navigate('/') found - possible redirect bounce: Login.tsx L149
+  WARN  navigate('/') found - possible redirect bounce: Login.tsx L199
+  WARN  navigate('/') found - possible redirect bounce: NewRequestForm.tsx L927
+  WARN  navigate('/') found - possible redirect bounce: NewRequestForm.tsx L1231
+  WARN  navigate('/') found - possible redirect bounce: NewRequestForm.tsx L1494
+  PASS  No rogue localhost references outside api.ts
+
+=== UNHANDLED PROMISE SCAN ===
+  INFO  Files with .then() chains (verify .catch() exists):
+        Approvals.tsx (2 chains)
+        ManagementDashboard.tsx (1 chains)
+
+=== ANY EMPTY CATCH BLOCKS ===
+  PASS  No empty catch blocks found
+
+=== Done ===

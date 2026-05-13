@@ -924,7 +924,7 @@ const NewRequestForm = () => {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/tracker')}
               className="btn-secondary px-8"
             >
               Cancel
@@ -1228,7 +1228,7 @@ const NewRequestForm = () => {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/tracker')}
               className="btn-secondary px-8"
             >
               Cancel
@@ -1491,7 +1491,7 @@ const NewRequestForm = () => {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/tracker')}
               className="btn-secondary px-8"
             >
               Cancel

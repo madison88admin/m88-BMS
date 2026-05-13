@@ -1,0 +1,7 @@
+﻿No /api/users endpoint, trying alternate...
+MISS: alice.accounting@madison88.com => 400
+FOUND: bob.accounting@madison88.com => role=accounting
+MISS: accounting.staff@madison88.com => 400
+MISS: acct@madison88.com => 400
+MISS: finance@madison88.com => 400
+MISS: treasurer@madison88.com => 400
