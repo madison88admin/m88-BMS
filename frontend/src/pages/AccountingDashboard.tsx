@@ -238,18 +238,31 @@ const AccountingDashboard = () => {
       return;
     }
 
-    // Filter out on-hold requests (check actual request status)
+    // Filter out on-hold requests and requests without VP/President co-approval
     const selectedArray = Array.from(selectedRequests);
     const onHoldCount = selectedArray.filter(id => pendingReleases.find(r => r.id === id)?.status === 'on_hold').length;
-    const eligibleRequests = selectedArray.filter(id => pendingReleases.find(r => r.id === id)?.status !== 'on_hold');
+    const noApprovalCount = selectedArray.filter(id => !pendingReleases.find(r => r.id === id)?.co_approved_by).length;
+    const eligibleRequests = selectedArray.filter(id => {
+      const req = pendingReleases.find(r => r.id === id);
+      return req?.status !== 'on_hold' && req?.co_approved_by;
+    });
     
     if (eligibleRequests.length === 0) {
-      toast.error('Selected requests are On Hold and cannot be released');
+      if (onHoldCount > 0 && noApprovalCount > 0) {
+        toast.error('Selected requests are either On Hold or lack VP/President approval');
+      } else if (onHoldCount > 0) {
+        toast.error('Selected requests are On Hold and cannot be released');
+      } else {
+        toast.error('Selected requests require VP/President approval before release');
+      }
       return;
     }
     
     if (onHoldCount > 0) {
       toast(`${onHoldCount} on-hold request(s) will be skipped`);
+    }
+    if (noApprovalCount > 0) {
+      toast(`${noApprovalCount} request(s) without VP/President approval will be skipped`);
     }
 
     setIsBatchReleasing(true);
@@ -733,15 +746,17 @@ const AccountingDashboard = () => {
             ) : (
               <div className="space-y-3">
                 {filteredReleases.map(req => (
-                  <div key={req.id} className="flex items-center gap-4 p-4 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]">
+                  <div key={req.id} className={`flex items-center gap-4 p-4 rounded-xl border ${!req.co_approved_by && req.status === 'pending_accounting' ? 'border-amber-300 bg-amber-50/50' : 'border-[var(--role-border)] bg-[var(--role-accent)]'}`}>
                     <input
                       type="checkbox"
                       checked={selectedRequests.has(req.id)}
                       onChange={() => toggleRequestSelection(req.id)}
-                      className="w-5 h-5 rounded border-[var(--role-border)]"
+                      disabled={req.status === 'on_hold' || !req.co_approved_by}
+                      className={`w-5 h-5 rounded border-[var(--role-border)] ${(req.status === 'on_hold' || !req.co_approved_by) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={(!req.co_approved_by && req.status === 'pending_accounting') ? 'Requires VP/President approval' : (req.status === 'on_hold' ? 'Request is On Hold' : '')}
                     />
                     <div className="flex-1">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <p className="font-medium">{req.request_code}</p>
                         <span className={`px-2 py-1 rounded-full text-xs ${
                           req.status === 'on_hold'
@@ -752,6 +767,17 @@ const AccountingDashboard = () => {
                         }`}>
                           {req.status === 'on_hold' ? 'On Hold' : req.status.replace('_', ' ')}
                         </span>
+                        {req.status === 'pending_accounting' && (
+                          req.co_approved_by ? (
+                            <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-300">
+                              VP/President Approved
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-300">
+                              Awaiting VP/President Approval
+                            </span>
+                          )
+                        )}
                       </div>
                       <p className="text-sm text-[var(--role-text)]/60">{req.item_name}</p>
                     </div>

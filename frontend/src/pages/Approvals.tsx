@@ -530,7 +530,7 @@ const Approvals = () => {
             const isActionable = request.status === 'pending_accounting' || request.status === 'on_hold';
             if (!isActionable || request.co_approved_by) return false;
             if (role === 'vp')        return amount <= threshold;
-            if (role === 'president') return amount > threshold;
+            if (role === 'president') return true; // President can approve any amount
             if (role === 'admin')     return true;
             return false;
           }
@@ -1922,7 +1922,7 @@ const Approvals = () => {
                               })()}
                             </span>
                             <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-3 py-1 text-sm font-medium text-[var(--role-text)]">
-                              {getStatusLabel(req.status)}
+                              {view === 'vp_approval' && req.status === 'pending_accounting' ? 'For Executive Review' : getStatusLabel(req.status)}
                             </span>
                           </div>
                           <h2 className="text-2xl font-bold text-[var(--role-text)]">{req.item_name}</h2>
@@ -2689,7 +2689,7 @@ const Approvals = () => {
                         {(() => {
                           const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
                           const vpThreshold = currencyThreshold.vp;
-                          return requestAmount >= vpThreshold && (
+                          return (
                           <div className="mt-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                               <div>
@@ -2713,7 +2713,7 @@ const Approvals = () => {
                                   const vpThreshold = currencyThreshold.vp;
                                   return (
                                 (user.role === 'vp' && requestAmount <= vpThreshold) || 
-                                (user.role === 'president' && requestAmount > vpThreshold) ||
+                                user.role === 'president' ||
                                 user.role === 'admin' ? (
                                   <button
                                     type="button"
@@ -2797,7 +2797,7 @@ const Approvals = () => {
                                 const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
                                 const vpThreshold = currencyThreshold.vp;
                                 return req.status === 'on_hold' ||
-                                ((user.role === 'vp' || user.role === 'president' || user.role === 'admin') && requestAmount >= vpThreshold && !req.co_approved_by);
+                                ((user.role === 'vp' || user.role === 'president' || user.role === 'admin') && !req.co_approved_by);
                               })()
                             }
                             title={
@@ -2806,7 +2806,7 @@ const Approvals = () => {
                                 const vpThreshold = currencyThreshold.vp;
                                 return req.status === 'on_hold'
                                 ? 'Cannot approve - request is On Hold'
-                                : ((user.role === 'vp' || user.role === 'president' || user.role === 'admin') && requestAmount >= vpThreshold && !req.co_approved_by)
+                                : (!req.co_approved_by && (user.role === 'vp' || user.role === 'president' || user.role === 'admin'))
                                   ? `${requestAmount <= vpThreshold ? 'VP' : 'President'} approval required`
                                   : '';
                               })()
@@ -2903,7 +2903,7 @@ const Approvals = () => {
                     {(() => {
                       const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
                       const vpThreshold = currencyThreshold.vp;
-                      const canRelease = req.co_approved_by || requestAmount < vpThreshold;
+                      const canRelease = !!req.co_approved_by;
                       
                       if (user.role === 'accounting' && canRelease) {
                         return (

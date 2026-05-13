@@ -1380,12 +1380,9 @@ router.post('/:id/co-approve', authenticate, authorize('vp', 'president', 'admin
     });
   }
   
-  // President can approve any amount above 500K
-  if (userRole === 'president' && amount <= vpThreshold) {
-    return res.status(403).json({ 
-      error: `President approval only required for requests above ${currency}${vpThreshold.toLocaleString()}. VP can approve this amount.` 
-    });
-  }
+  // President can approve any amount (threshold only limits VP)
+  // Removed the restriction that prevented President from approving small amounts
+
   
   // Check if request is in pending_accounting status
   if (request.status !== 'pending_accounting') {
