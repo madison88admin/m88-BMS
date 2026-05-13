@@ -771,8 +771,13 @@ const NewRequestForm = () => {
                   if (!selectedCat) return null;
                   
                   const remaining = Number(selectedCat.remaining_amount || 0);
-                  const isOutOfBudget = remaining <= 0;
-                  const isLowBudget = remaining > 0 && remaining < (Number(selectedCat.allocated_amount || 0) * 0.2);
+                  // Calculate total amount for this category
+                  const categoryTotalAmount = reimbursementForm.items
+                    .filter(i => i.category_id === catId)
+                    .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+                  
+                  const isOutOfBudget = remaining < categoryTotalAmount;
+                  const isLowBudget = remaining >= categoryTotalAmount && remaining > 0 && remaining < (Number(selectedCat.allocated_amount || 0) * 0.2);
                 
                   if (isOutOfBudget) {
                     return (
@@ -781,7 +786,7 @@ const NewRequestForm = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         <span className="text-red-700 font-medium">Out of Budget</span>
-                        <span className="text-red-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining)</span>
+                        <span className="text-red-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining, Requested: ₱{categoryTotalAmount.toLocaleString()})</span>
                       </div>
                     );
                   }
@@ -793,7 +798,7 @@ const NewRequestForm = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
                         <span className="text-amber-700 font-medium">Budget Running Low</span>
-                        <span className="text-amber-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining)</span>
+                        <span className="text-amber-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining, Requested: ₱{categoryTotalAmount.toLocaleString()})</span>
                       </div>
                     );
                   }
@@ -804,7 +809,7 @@ const NewRequestForm = () => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       <span className="text-emerald-700 font-medium">Within Budget</span>
-                      <span className="text-emerald-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining)</span>
+                      <span className="text-emerald-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining, Requested: ₱{categoryTotalAmount.toLocaleString()})</span>
                     </div>
                   );
                 });
