@@ -3,6 +3,6 @@ services:
     name: bms-backend
     env: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install --production=false && npm install -g typescript && tsc
     startCommand: npm start
     healthCheckPath: /api/system/health
