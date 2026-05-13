@@ -59,9 +59,13 @@ router.get('/categories', authenticate, async (req: any, res) => {
     if (department_id && department_id !== '') {
       query = query.eq('department_id', department_id);
     } else if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin' && req.user?.role !== 'accounting') {
-      // Regular users MUST provide a department_id or have one in their token
-      // If no department is provided and they aren't admin, return empty
-      return res.json([]);
+      // Regular users use their own department_id from token
+      if (req.user?.department_id) {
+        query = query.eq('department_id', req.user.department_id);
+      } else {
+        // If no department in token, return empty
+        return res.json([]);
+      }
     }
 
     const { data, error } = await query.order('category_name');
