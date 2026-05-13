@@ -83,8 +83,6 @@ const NewRequestForm = () => {
 
   // Helper: Filter items by main category
   const getItemsByMainCategory = (mainCategory: string, canUse: 'canRE' | 'canCA') => {
-    // For liquidations, don't filter by approved expense items
-    if (canUse === 'canRE') return [];
     return officialList.filter(item => 
       item.category === mainCategory && 
       item[canUse] === true
