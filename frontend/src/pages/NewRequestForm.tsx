@@ -159,7 +159,7 @@ const NewRequestForm = () => {
         const parsed = JSON.parse(rDraft);
         setReimbursementForm((prev: any) => ({ ...prev, ...parsed, receipt_files: [] }));
         // Don't toast here, wait until loadData confirms it's still valid
-      } catch (e) { console.error('Failed to parse reimbursement draft'); }
+      } catch (e) { /* invalid draft, skip */ }
     }
 
     const cDraft = localStorage.getItem('cash_advance_draft');
@@ -167,7 +167,7 @@ const NewRequestForm = () => {
       try {
         const parsed = JSON.parse(cDraft);
         setCashAdvanceForm((prev: any) => ({ ...prev, ...parsed, attachments: [] }));
-      } catch (e) { console.error('Failed to parse cash advance draft'); }
+      } catch (e) { /* invalid draft, skip */ }
     }
 
     const lDraft = localStorage.getItem('liquidation_draft');
@@ -175,7 +175,7 @@ const NewRequestForm = () => {
       try {
         const parsed = JSON.parse(lDraft);
         setLiquidationForm((prev: any) => ({ ...prev, ...parsed, attachments: [] }));
-      } catch (e) { console.error('Failed to parse liquidation draft'); }
+      } catch (e) { /* invalid draft, skip */ }
     }
   }, []);
 
@@ -334,8 +334,8 @@ const NewRequestForm = () => {
 
         setCategories(categoriesRes.data || []);
         setCostCenters(costCentersRes.data || []);
-      } catch (err) {
-        console.error('Failed to load department-specific data', err);
+      } catch (err: any) {
+        toast.error(getErrorMessage(err, 'Failed to load form data'));
       }
     };
 
@@ -368,7 +368,7 @@ const NewRequestForm = () => {
             const uploaded = await uploadSupportingFile(file);
             attachments.push(uploaded);
           } catch (uploadErr: any) {
-            console.error('Upload error:', uploadErr);
+            toast.error(getErrorMessage(uploadErr, 'Failed to upload file'));
           }
         }
       }
@@ -415,7 +415,6 @@ const NewRequestForm = () => {
       localStorage.removeItem('reimbursement_draft');
       navigate('/tracker');
     } catch (err: any) {
-      console.error('Submit error:', err);
       let errorMsg = 'Failed to Submit Expense';
       if (err.response?.data?.error) {
         errorMsg = typeof err.response.data.error === 'string' 
@@ -445,7 +444,7 @@ const NewRequestForm = () => {
             const uploaded = await uploadSupportingFile(file);
             attachments.push(uploaded);
           } catch (uploadErr: any) {
-            console.error('Upload error:', uploadErr);
+            toast.error(getErrorMessage(uploadErr, 'Failed to upload file'));
           }
         }
       }
@@ -494,8 +493,8 @@ const NewRequestForm = () => {
           try {
             const uploaded = await uploadSupportingFile(file);
             attachments.push(uploaded);
-          } catch (uploadErr) {
-            console.error('Upload error:', uploadErr);
+          } catch (uploadErr: any) {
+            toast.error(getErrorMessage(uploadErr, 'Failed to upload file'));
           }
         }
       }
