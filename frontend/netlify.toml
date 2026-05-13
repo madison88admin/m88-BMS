@@ -7,7 +7,7 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "https://m88-bms.onrender.com/:splat"
+  to = "https://m88-bms.onrender.com/api/:splat"
   status = 200
 
 [[headers]]
