@@ -141,7 +141,8 @@ const Login = () => {
     setIsSubmitting(true);
 
     try {
-      const res = await api.post('/api/auth/login', { email, password });
+      const normalizedEmail = email.trim().toLowerCase();
+      const res = await api.post('/api/auth/login', { email: normalizedEmail, password });
       localStorage.setItem('token', res.data.token);
       toast.success('Login successful!');
       await new Promise((resolve) => setTimeout(resolve, 450));
