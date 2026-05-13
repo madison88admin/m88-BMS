@@ -13,6 +13,6 @@
     "resolveJsonModule": true,
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/server.ts", "src/utils/**/*", "src/routes/**/*"],
+  "exclude": ["node_modules", "dist", "src/scratch"]
 }
