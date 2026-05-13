@@ -470,9 +470,9 @@ router.get('/official-list', authenticate, async (req: any, res) => {
     .eq('fiscal_year', activeFiscalYear);
   
   if (budgetError || !budgetCategories || budgetCategories.length === 0) {
-    // If no budget categories found, return empty list or full list based on preference
-    // Returning empty list to prevent submitting to categories without budget
-    return res.json([]);
+    // If no budget categories found, return full list for now
+    // TODO: Implement proper budget-based filtering once category names are aligned
+    return res.json(OFFICIAL_EXPENSE_LIST);
   }
   
   // Extract category names that have budget
@@ -483,6 +483,11 @@ router.get('/official-list', authenticate, async (req: any, res) => {
     // Use the item's category property directly
     return allowedCategories.includes(item.category);
   });
+  
+  // If filtering resulted in empty list, return full list as fallback
+  if (filteredList.length === 0) {
+    return res.json(OFFICIAL_EXPENSE_LIST);
+  }
   
   res.json(filteredList);
 });
