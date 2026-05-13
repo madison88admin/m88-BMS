@@ -776,6 +776,9 @@ const NewRequestForm = () => {
                     .filter(i => i.category_id === catId)
                     .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
                   
+                  // Debug: Log values to check
+                  console.log(`Budget Status Debug - Category: ${selectedCat.category_name}, Remaining: ₱${remaining.toLocaleString()}, Requested: ₱${categoryTotalAmount.toLocaleString()}`);
+                  
                   // Only show budget status if there's an actual request amount
                   if (categoryTotalAmount === 0) return null;
                   
