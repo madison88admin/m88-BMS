@@ -186,23 +186,6 @@ const Approvals = () => {
 
       .catch(() => toast.error('Failed to load approval data'));
 
-    // Real-time subscription for expense_requests
-    if (supabase) {
-      const channel = supabase
-        .channel('approvals-realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requests' }, () => {
-          // Auto-refresh when requests change
-          if (user?.role) {
-            fetchRequests(user.role);
-          }
-        })
-        .subscribe();
-
-      return () => {
-        if (supabase) supabase.removeChannel(channel);
-      };
-    }
-
   }, []);
 
 

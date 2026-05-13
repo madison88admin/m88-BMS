@@ -602,7 +602,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   // Check department projected remaining
   const { data: deptSummary, error: summaryError } = await supabase
     .from('departments')
-    .select('annual_budget, used_budget, petty_cash_balance')
+    .select('annual_budget, used_budget')
     .eq('id', targetDepartmentId)
     .single();
   
@@ -612,8 +612,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
 
   const annualBudget = toNumber(deptSummary.annual_budget);
   const usedBudget = toNumber(deptSummary.used_budget);
-  const pettyCashBalance = toNumber(deptSummary.petty_cash_balance);
-  const projectedRemaining = annualBudget - usedBudget - pettyCashBalance;
+  const projectedRemaining = annualBudget - usedBudget;
 
   // Check category remaining if category specified
   let categoryRemaining = Infinity;
@@ -1663,15 +1662,14 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
   if (targetDeptId) {
     const { data: deptSummary, error: summaryError } = await supabase
       .from('departments')
-      .select('annual_budget, used_budget, petty_cash_balance')
+      .select('annual_budget, used_budget')
       .eq('id', targetDeptId)
       .single();
     
     if (!summaryError && deptSummary) {
       const annualBudget = toNumber(deptSummary.annual_budget);
       const usedBudget = toNumber(deptSummary.used_budget);
-      const pettyCashBalance = toNumber(deptSummary.petty_cash_balance);
-      const projectedRemaining = annualBudget - usedBudget - pettyCashBalance;
+      const projectedRemaining = annualBudget - usedBudget;
 
       if (projectedRemaining < newAmount) {
         return res.status(400).json({ 
