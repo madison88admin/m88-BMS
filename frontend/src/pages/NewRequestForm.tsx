@@ -1358,13 +1358,32 @@ const NewRequestForm = () => {
                       </td>
                       {/* Sub-category Column - Only shows items from selected main category */}
                       <td className="py-2">
-                        <input
-                          type="text"
+                        <select
                           value={item.description}
-                          onChange={(e) => updateLiquidationItem(index, 'description', e.target.value)}
-                          placeholder="Enter description..."
+                          onChange={(e) => {
+                            const selectedItemValue = e.target.value;
+                            const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === selectedItemValue);
+                            updateLiquidationItem(index, 'description', selectedItemValue);
+                            if (selectedItem) {
+                              updateLiquidationItem(index, 'category_id', selectedItem.code);
+                            }
+                          }}
                           className="w-full px-2 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-                        />
+                        >
+                          <option value="">Select sub-category...</option>
+                          {item.main_category && getItemsByMainCategory(item.main_category, 'canRE')
+                            .filter(subItem => {
+                              const userDeptName = departments.find(d => d.id === liquidationForm.department_id)?.name || '';
+                              const allowedDepts = Array.isArray(subItem.dept) ? subItem.dept : [subItem.dept];
+                              const isDeptAllowed = allowedDepts.includes('All Dept') || allowedDepts.some(d => d.toLowerCase() === userDeptName.toLowerCase());
+                              return isDeptAllowed;
+                            })
+                            .map(subItem => (
+                              <option key={subItem.code} value={`${subItem.code} | ${subItem.itemName}`}>
+                                {subItem.code} | {subItem.itemName}
+                              </option>
+                            ))}
+                        </select>
                       </td>
                       <td className="py-2">
                         <div className="relative">
