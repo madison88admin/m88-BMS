@@ -11,8 +11,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "ignoreDeprecations": "6.0"
+    "resolveJsonModule": true
   },
   "include": ["src/server.ts", "src/utils/**/*", "src/routes/**/*"],
   "exclude": ["node_modules", "dist", "src/scratch"]
