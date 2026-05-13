@@ -776,6 +776,9 @@ const NewRequestForm = () => {
                     .filter(i => i.category_id === catId)
                     .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
                   
+                  // Only show budget status if there's an actual request amount
+                  if (categoryTotalAmount === 0) return null;
+                  
                   const isOutOfBudget = remaining < categoryTotalAmount;
                   const isLowBudget = remaining >= categoryTotalAmount && remaining > 0 && remaining < (Number(selectedCat.allocated_amount || 0) * 0.2);
                 
