@@ -7,9 +7,21 @@ const router = express.Router();
 // GET /api/expenses - direct expenses
 router.get('/', authenticate, async (req: any, res) => {
   let query = supabase.from('direct_expenses').select('*');
+  
+  // Filter expenses based on role
   if (req.user.role === 'supervisor') {
     query = query.eq('logged_by', req.user.id);
+  } else if (req.user.role === 'employee') {
+    // Employees can see expenses logged by their supervisor
+    query = query.eq('department_id', req.user.department_id);
+  } else if (req.user.role === 'accounting' || req.user.role === 'admin' || req.user.role === 'super_admin') {
+    // Accounting and admins can see all expenses
+    query = query;
+  } else {
+    // Other roles (management, vp, president) can see all expenses
+    query = query;
   }
+  
   const { data, error } = await query;
   if (error) return res.status(400).json({ error });
   res.json(data);

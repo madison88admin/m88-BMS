@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 
 // Production Supabase credentials
 const SUPABASE_URL = 'https://hjjpqwzmrnjquneuppeb.supabase.co';
-const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE || 'YOUR_SERVICE_ROLE_KEY_HERE'; // Replace with actual key
+const SUPABASE_SERVICE_ROLE = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqanBxd3ptcm5qcXVuZXVwcGViIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Njg3NjY1NywiZXhwIjoyMDkyNDUyNjU3fQ.FUaOt4VB8fc4rwjVaCO9IO6H5-9BZnSgxsK2IdMhV-U';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 const fiscalYear = new Date().getFullYear();
@@ -75,15 +75,22 @@ async function main() {
     department_id: user.department_name ? departmentIdByName[user.department_name] : null,
   }));
 
-  // Delete existing users
-  await supabase.from('users').delete().in('email', users.map((u) => u.email));
-  console.log('Deleted existing users');
-
-  // Insert users
-  const { error: insertError } = await supabase.from('users').insert(usersToInsert);
-  if (insertError) {
-    console.error('Failed to insert users:', insertError);
-    process.exit(1);
+  // Update existing users
+  for (const user of usersToInsert) {
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        password_hash: user.password_hash,
+        role: user.role,
+        department_id: user.department_id
+      })
+      .eq('email', user.email);
+    
+    if (updateError) {
+      console.error(`Failed to update ${user.email}:`, updateError);
+    } else {
+      console.log(`Updated ${user.email}`);
+    }
   }
 
   console.log('Successfully seeded production database!');
