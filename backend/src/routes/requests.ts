@@ -1504,19 +1504,11 @@ router.patch('/:id/release', authenticate, authorize('accounting', 'admin'), asy
     return res.status(400).json({ error: 'Only requests waiting for accounting approval can be released here.' });
   }
 
-  // Check co-approval requirement for amounts >= 500K
-  const amount = toNumber(request.amount);
-  const currency = request.metadata?.currency || 'PHP';
-  const thresholds: Record<string, number> = {
-    PHP: 500000,
-    USD: 500000,
-    IDR: 500000
-  };
-  const vpThreshold = thresholds[currency] || 500000;
-  
-  if (amount >= vpThreshold && !request.co_approved_by) {
-    return res.status(403).json({ 
-      error: `Requests ${currency}${vpThreshold.toLocaleString()} and above require VP/President co-approval before release.` 
+  // All requests require VP/President co-approval before accounting can release.
+  // VP handles amounts up to the threshold; President handles amounts above it.
+  if (!request.co_approved_by) {
+    return res.status(403).json({
+      error: 'All requests require VP or President co-approval before accounting can release.'
     });
   }
 

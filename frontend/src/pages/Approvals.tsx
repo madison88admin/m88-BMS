@@ -517,33 +517,21 @@ const Approvals = () => {
           const threshold = thresholds[currentCurrency]?.vp || 500000;
 
           if (effectiveView === 'pending') {
-            // Accounting sees requests ready for disbursement:
-            // - Small requests (below VP threshold) that don't need co-approval
-            // - Large requests (above threshold) that have already been co-approved
+            // Accounting can only release requests that have been co-approved by VP/President.
+            // All requests require co-approval regardless of amount.
             if (!(role === 'accounting' || role === 'admin')) return false;
             if (request.status !== 'pending_accounting') return false;
-            const needsCoApproval = amount >= threshold;
-            if (needsCoApproval) {
-              // Only show if already co-approved (otherwise it belongs in VP approval tab)
-              return !!request.co_approved_by;
-            }
-            return true;
+            return !!request.co_approved_by;
           }
 
           if (effectiveView === 'vp_approval') {
-            // VP sees requests <= 500K needing approval
-            // President sees requests > 500K needing approval
-            // Both see pending_accounting + on_hold requests that need their approval
+            // ALL requests awaiting accounting release need VP/President co-approval first.
+            // VP handles amounts <= threshold; President handles amounts > threshold.
             const isActionable = request.status === 'pending_accounting' || request.status === 'on_hold';
-            if (role === 'vp' && amount <= threshold && isActionable && !request.co_approved_by) {
-              return true;
-            }
-            if (role === 'president' && amount > threshold && isActionable && !request.co_approved_by) {
-              return true;
-            }
-            if (role === 'admin' && isActionable && !request.co_approved_by) {
-              return true;
-            }
+            if (!isActionable || request.co_approved_by) return false;
+            if (role === 'vp')        return amount <= threshold;
+            if (role === 'president') return amount > threshold;
+            if (role === 'admin')     return true;
             return false;
           }
 
