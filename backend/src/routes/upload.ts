@@ -5,7 +5,7 @@ import { supabase } from '../utils/supabase';
 
 interface AuthRequest extends Request {
   user?: any;
-  file?: Express.Multer.File;
+  file?: any;
 }
 
 const router = Router();
