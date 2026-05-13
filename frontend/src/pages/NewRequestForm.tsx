@@ -157,7 +157,6 @@ const NewRequestForm = () => {
     if (rDraft) {
       try {
         const parsed = JSON.parse(rDraft);
-        console.log('Restoring reimbursement draft:', parsed);
         setReimbursementForm((prev: any) => ({ ...prev, ...parsed, receipt_files: [] }));
         // Don't toast here, wait until loadData confirms it's still valid
       } catch (e) { console.error('Failed to parse reimbursement draft'); }
@@ -167,7 +166,6 @@ const NewRequestForm = () => {
     if (cDraft) {
       try {
         const parsed = JSON.parse(cDraft);
-        console.log('Restoring cash advance draft:', parsed);
         setCashAdvanceForm((prev: any) => ({ ...prev, ...parsed, attachments: [] }));
       } catch (e) { console.error('Failed to parse cash advance draft'); }
     }
@@ -176,7 +174,6 @@ const NewRequestForm = () => {
     if (lDraft) {
       try {
         const parsed = JSON.parse(lDraft);
-        console.log('Restoring liquidation draft:', parsed);
         setLiquidationForm((prev: any) => ({ ...prev, ...parsed, attachments: [] }));
       } catch (e) { console.error('Failed to parse liquidation draft'); }
     }
@@ -187,7 +184,6 @@ const NewRequestForm = () => {
     // Save whenever there is substantial content
     const hasContent = reimbursementForm.items.some(i => i.item_name && i.amount) || reimbursementForm.business_purpose;
     if (hasContent) {
-      console.log('Saving reimbursement draft...');
       const { receipt_files, ...rest } = reimbursementForm;
       localStorage.setItem('reimbursement_draft', JSON.stringify(rest));
     }
@@ -202,7 +198,6 @@ const NewRequestForm = () => {
       cashAdvanceForm.department_id !== '';
     
     if (hasAnyContent) {
-      console.log('--- SAVING CASH ADVANCE DRAFT ---', cashAdvanceForm);
       const { attachments, ...rest } = cashAdvanceForm;
       localStorage.setItem('cash_advance_draft', JSON.stringify(rest));
     }
@@ -211,7 +206,6 @@ const NewRequestForm = () => {
   useEffect(() => {
     const hasItems = liquidationForm.items.length > 0 && liquidationForm.items.some((i: LiquidationItem) => i.amount > 0 || i.description.trim().length > 0);
     if (hasItems) {
-      console.log('Saving liquidation draft...');
       const { attachments, ...rest } = liquidationForm;
       localStorage.setItem('liquidation_draft', JSON.stringify(rest));
     }
@@ -771,19 +765,17 @@ const NewRequestForm = () => {
                   if (!selectedCat) return null;
                   
                   const remaining = Number(selectedCat.remaining_amount || 0);
+                  const allocated = Number(selectedCat.allocated_amount || 0);
                   // Calculate total amount for this category
                   const categoryTotalAmount = reimbursementForm.items
                     .filter(i => i.category_id === catId)
                     .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
                   
-                  // Debug: Log values to check
-                  console.log(`Budget Status Debug - Category: ${selectedCat.category_name}, Remaining: ₱${remaining.toLocaleString()}, Requested: ₱${categoryTotalAmount.toLocaleString()}`);
-                  
                   // Only show budget status if there's an actual request amount
                   if (categoryTotalAmount === 0) return null;
                   
                   const isOutOfBudget = remaining < categoryTotalAmount;
-                  const isLowBudget = remaining >= categoryTotalAmount && remaining > 0 && remaining < (Number(selectedCat.allocated_amount || 0) * 0.2);
+                  const isLowBudget = remaining >= categoryTotalAmount && remaining > 0 && remaining < (allocated * 0.2);
                 
                   if (isOutOfBudget) {
                     return (
@@ -792,7 +784,6 @@ const NewRequestForm = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         <span className="text-red-700 font-medium">Out of Budget</span>
-                        <span className="text-red-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining, Requested: ₱{categoryTotalAmount.toLocaleString()})</span>
                       </div>
                     );
                   }
@@ -804,7 +795,6 @@ const NewRequestForm = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
                         <span className="text-amber-700 font-medium">Budget Running Low</span>
-                        <span className="text-amber-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining, Requested: ₱{categoryTotalAmount.toLocaleString()})</span>
                       </div>
                     );
                   }
@@ -816,7 +806,6 @@ const NewRequestForm = () => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       <span className="text-emerald-700 font-medium">Within Budget</span>
-                      <span className="text-emerald-600 text-sm ml-2">(₱{remaining.toLocaleString()} remaining, Requested: ₱{categoryTotalAmount.toLocaleString()})</span>
                     </div>
                   );
                 });
