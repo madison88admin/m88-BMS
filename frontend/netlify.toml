@@ -11,31 +11,6 @@
   status = 200
 
 [[redirects]]
-  from = "/login"
-  to = "/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/dashboard"
-  to = "/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/new"
-  to = "/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/tracker"
-  to = "/index.html"
-  status = 200
-
-[[redirects]]
-  from = "/budget"
-  to = "/index.html"
-  status = 200
-
-[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
