@@ -1,79 +1,84 @@
-# Email Function Troubleshooting - Madison88 BMS
+# Email Function Troubleshooting - Madison88 BMS (Brevo Only)
 
-## Common Issues and Fixes
+## Only Brevo is Used!
+This system uses **Brevo (formerly Sendinblue)** exclusively for sending emails!
 
-### 1. Environment Variables Not Set (Most Common Issue)
-**Problem**: Email functions don't work because SMTP credentials are missing in live environment.
+---
 
-**Fix**:
-- **Render/Express Backend**: Go to Render dashboard → Your backend service → Environment tab
-- **Netlify Functions**: Go to Netlify dashboard → Site settings → Environment variables
+## Step-by-Step Brevo Setup
 
-**Required Variables (Set Both!)**:
+### 1. Get Brevo SMTP Credentials
+1. Login to Brevo: https://app.brevo.com/
+2. Go to **SMTP & API** → **SMTP** (left sidebar)
+3. You'll see:
+   - **SMTP Server**: `smtp-relay.brevo.com`
+   - **Port**: `587` (STARTTLS, recommended) or `465` (SSL/TLS)
+4. Under **Login**: Use your Brevo account email (e.g., `bms.admin1@gmail.com`)
+5. Under **Master Password**:
+   - Click **Generate a new SMTP key**
+   - Name it: `Madison88 BMS Production`
+   - **Copy this key!** This is your `SMTP_PASS`
+
+---
+
+### 2. Verify Sender Email in Brevo (CRITICAL!)
+Emails will NOT send if your sender email isn't verified!
+1. In Brevo, go to **Senders** → **Create a new sender**
+2. Fill in:
+   - **From Name**: `Madison88 BMS`
+   - **From Email**: `bms.admin1@gmail.com` (or your Brevo email)
+3. Click **Save**
+4. Brevo will send a verification email to `bms.admin1@gmail.com`
+5. Open that email and click **Verify this email address**
+6. Wait 1-5 minutes for Brevo to approve it
+
+---
+
+### 3. Set Render Environment Variables
+Go to Render → Your backend service → **Environment** tab → **Add Environment Variables**:
 ```env
-# Brevo (Sendinblue) SMTP
 SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=your_brevo_smtp_user@yourdomain.com
-SMTP_PASS=your_brevo_master_password
-EMAIL_FROM=noreply@madison88.com
-
-# Alternative: Gmail (use App Password)
-# SMTP_HOST=smtp.gmail.com
-# SMTP_PORT=587
-# SMTP_SECURE=false
-# SMTP_USER=your-email@gmail.com
-# SMTP_PASS=your-gmail-app-password
-# EMAIL_FROM=your-email@gmail.com
+SMTP_USER=bms.admin1@gmail.com          (your Brevo login email)
+SMTP_PASS=YOUR_BREVO_SMTP_KEY          (from Step 1, the key you generated)
+EMAIL_FROM=bms.admin1@gmail.com         (same as SMTP_USER)
 ```
 
 ---
 
-### 2. Brevo (Sendinblue) Configuration
-**How to Get Brevo SMTP Credentials**:
-1. Login to Brevo (https://app.brevo.com/)
-2. Go to **SMTP & API** → **SMTP**
-3. Copy your SMTP User (usually your email)
-4. Click **Generate a new SMTP key**
-5. Use that key as your `SMTP_PASS`
+### 4. Test the Email System
+1. Wait for Render to auto-deploy the latest changes
+2. Try the "Forgot Password" flow in the app
+3. Check Render logs for messages starting with `[Email]`
+4. Check Brevo's **Email Logs** (Brevo → Statistics → Email Logs)
 
 ---
 
-### 3. Gmail Configuration
-**How to Use Gmail**:
-1. Enable 2FA on your Google account
-2. Go to https://myaccount.google.com/apppasswords
-3. Create an App Password (select "Mail" and "Other (Custom Name)")
-4. Use that App Password as your `SMTP_PASS`
+## Common Brevo Issues & Fixes
+
+### Issue: "Invalid login" or "Authentication failed"
+- Check that `SMTP_USER` is exactly your Brevo login email
+- Make sure `SMTP_PASS` is a **Brevo SMTP key** (not your Brevo account password)
+- Generate a new SMTP key in Brevo and try again
+
+### Issue: "Relay access denied" or "Sender invalid"
+- Your sender email (`EMAIL_FROM`) is **not verified** in Brevo
+- Go back to Step 2 and verify your sender email
+
+### Issue: No logs after "Sending email via transporter..."
+- Wait 10-15 seconds - emails send asynchronously now!
+- Check if Render restarted the service (logs show "Deploying..." or "Server running on port 5000")
+- Verify Brevo account is active and has sending credits
 
 ---
 
-### 4. Test Email Sending
-**From Backend (Express)**:
-Add a test endpoint or use curl:
-```bash
-curl -X POST https://your-backend-url.com/api/system/test-email \
-  -H "Content-Type: application/json" \
-  -d '{"to": "test@example.com"}'
-```
+## Checklist (Make sure all are done!)
+- [ ] Brevo account created and logged in
+- [ ] Brevo SMTP key generated and copied
+- [ ] Sender email (`bms.admin1@gmail.com`) verified in Brevo
+- [ ] All 6 Render environment variables set correctly
+- [ ] Latest code deployed to Render
+- [ ] Render logs checked for `[Email]` messages
+- [ ] Brevo Email Logs checked for sent emails
 
-**From Netlify Functions**:
-Check the function logs in Netlify dashboard → Functions → requests.js (or relevant function)
-
----
-
-### 5. Check Logs
-- **Express Backend (Render)**: Go to Render dashboard → Your service → Logs
-- **Netlify Functions**: Go to Netlify dashboard → Functions → Select function → Logs
-- **Brevo**: Go to Brevo dashboard → Statistics → Email Logs
-
----
-
-### Checklist for Fixing Email Issues
-- [ ] All required SMTP environment variables are set
-- [ ] SMTP credentials are correct (test in a tool like Thunderbird first)
-- [ ] `EMAIL_FROM` is a valid email address
-- [ ] Environment variables set in **both** places if using both Express and Netlify
-- [ ] Check logs for specific error messages
-- [ ] Verify your email provider allows SMTP access
