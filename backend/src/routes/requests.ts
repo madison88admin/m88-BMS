@@ -462,8 +462,25 @@ const releaseRequest = async (
   return data;
 };
 
+const createInAppNotification = async (userId: string, message: string) => {
+  try {
+    await supabase.from('notifications').insert({
+      user_id: userId,
+      message: message,
+      is_read: false,
+      created_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error creating in-app notification:', err);
+  }
+};
+
 const notifyEmployee = async (employeeId: string, requestCode: string, subject: string, message: string) => {
   try {
+    // Create in-app notification
+    await createInAppNotification(employeeId, message);
+    
+    // Send email
     const { data: employee } = await supabase.from('users').select('email, name').eq('id', employeeId).maybeSingle();
     if (employee?.email) {
       const emailContent = buildRequestStatusEmail(employee.name || 'there', requestCode, subject, message);
