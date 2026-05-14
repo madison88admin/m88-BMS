@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import api from '../api';
 import { getErrorMessage } from '../utils/format';
+import Modal from '../components/Modal';
 
 const ResetPassword = () => {
   const [searchParams] = useSearchParams();
@@ -12,21 +13,25 @@ const ResetPassword = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '' });
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!token) {
+      setErrorModal({ isOpen: true, title: 'Reset Password Error', message: 'Reset token is missing from the link.' });
       toast.error('Reset token is missing from the link.');
       return;
     }
 
     if (password.length < 8) {
+      setErrorModal({ isOpen: true, title: 'Reset Password Error', message: 'Password must be at least 8 characters' });
       toast.error('Password must be at least 8 characters');
       return;
     }
 
     if (password !== confirmPassword) {
+      setErrorModal({ isOpen: true, title: 'Reset Password Error', message: 'Passwords do not match' });
       toast.error('Passwords do not match');
       return;
     }
@@ -41,6 +46,7 @@ const ResetPassword = () => {
       console.error('Reset password error (full):', err);
       console.error('Reset password error response:', err.response);
       const errorMsg = err.response?.data?.error || err.response?.data?.details || getErrorMessage(err, 'Failed to reset password');
+      setErrorModal({ isOpen: true, title: 'Reset Password Error', message: errorMsg });
       toast.error(errorMsg);
     } finally {
       setIsSubmitting(false);
@@ -110,6 +116,15 @@ const ResetPassword = () => {
           </button>
         </form>
       </div>
+      <Modal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ ...errorModal, isOpen: false })}
+        onConfirm={() => setErrorModal({ ...errorModal, isOpen: false })}
+        title={errorModal.title}
+        message={errorModal.message}
+        type="alert"
+        confirmLabel="Close"
+      />
     </div>
   );
 };

@@ -122,6 +122,7 @@ const Login = () => {
     const normalizedEmail = forgotEmail.trim().toLowerCase();
 
     if (!normalizedEmail) {
+      setErrorModal({ isOpen: true, title: 'Reset Password Error', message: 'Enter your email first' });
       toast.error('Enter your email first');
       return;
     }
@@ -133,7 +134,9 @@ const Login = () => {
       toast.success(res.data.message || 'If the email is registered, a reset link has been sent.');
       setShowForgotPassword(false);
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to send reset link'));
+      const errorMsg = getErrorMessage(err, 'Failed to send reset link');
+      setErrorModal({ isOpen: true, title: 'Reset Password Error', message: errorMsg });
+      toast.error(errorMsg);
     } finally {
       setIsSendingReset(false);
     }
