@@ -59,9 +59,14 @@ const buildResetPasswordEmail = (name: string, resetUrl: string) => {
   };
 };
 const getPasswordResetSecret = () => process.env.JWT_SECRET || 'change-me';
-const getPasswordResetExpirySeconds = (expiresAt: string) => Math.floor(new Date(expiresAt).getTime() / 1000);
-const buildPasswordResetToken = (resetToken: { id: string; user_id: string; expires_at: string }) =>
-  jwt.sign(
+const getPasswordResetExpirySeconds = (expiresAt: string) => {
+  const date = new Date(expiresAt);
+  const seconds = Math.floor(date.getTime() / 1000);
+  console.log('Password reset token expires at:', expiresAt, '→', seconds, 'seconds since epoch');
+  return seconds;
+};
+const buildPasswordResetToken = (resetToken: { id: string; user_id: string; expires_at: string }) => {
+  const token = jwt.sign(
     {
       sub: resetToken.user_id,
       jti: resetToken.id,
@@ -70,10 +75,12 @@ const buildPasswordResetToken = (resetToken: { id: string; user_id: string; expi
     },
     getPasswordResetSecret(),
     {
-      algorithm: 'HS256',
-      noTimestamp: true
+      algorithm: 'HS256'
     }
   );
+  console.log('Built password reset token with exp:', getPasswordResetExpirySeconds(resetToken.expires_at));
+  return token;
+};
 const getPasswordResetTokenHash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 const getPasswordResetCooldownMessage = () => 'A reset link was already sent recently. Please check your latest email.';
 const getPasswordResetSentMessage = () => 'If the email is registered, a password reset link has been sent.';
@@ -359,6 +366,9 @@ router.post('/reset-password', async (req, res) => {
   const token = String(req.body?.token || '').trim();
   const password = String(req.body?.password || '');
 
+  console.log('Reset password request received');
+  console.log('Current time (seconds since epoch):', Math.floor(Date.now() / 1000));
+
   if (!token || !password) {
     return res.status(400).json({ error: 'Reset token and new password are required.' });
   }
@@ -372,7 +382,9 @@ router.post('/reset-password', async (req, res) => {
 
   try {
     decodedToken = jwt.verify(token, getPasswordResetSecret()) as jwt.JwtPayload;
+    console.log('Successfully decoded reset token:', decodedToken);
   } catch (error: any) {
+    console.log('Failed to decode reset token:', error);
     if (error?.name === 'TokenExpiredError') {
       return res.status(400).json({ error: 'This password reset link has expired.' });
     }
