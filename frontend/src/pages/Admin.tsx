@@ -827,7 +827,7 @@ const Admin = () => {
   );
   const categoryAllocationRemaining = Math.max(0, editableBudgetValue - categoryAllocatedTotal);
   const editableBudgetDepartmentId = selectedDepartment?.id || selectedDepartmentId;
-  const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || new Date().getFullYear();
+  const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || 2026;
 
   const overview = useMemo(() => {
     const totalBudget = filteredVisibleDepartments.reduce((sum, dept) => sum + toNumber(dept.annual_budget), 0);

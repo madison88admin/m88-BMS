@@ -105,8 +105,8 @@ const getSignupDepartments = async () => {
   const { data, error } = await supabase
     .from('departments')
     .select('id, name, fiscal_year, created_at, updated_at')
-    .order('fiscal_year', { ascending: false })
-    .order('updated_at', { ascending: false });
+    .eq('fiscal_year', activeFiscalYear)
+    .order('name', { ascending: true });
 
   if (error) {
     return { data: null, error };
@@ -173,7 +173,7 @@ const resolveSignupDepartment = async (departmentIdOrName: string) => {
     .from('departments')
     .select('id, name, fiscal_year, updated_at, created_at')
     .ilike('name', canonicalName)
-    .order('fiscal_year', { ascending: false })
+    .eq('fiscal_year', activeFiscalYear)
     .order('updated_at', { ascending: false });
 
   if (matchedDepartmentsError) {
