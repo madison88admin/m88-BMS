@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  role TEXT CHECK (role IN ('employee', 'manager', 'supervisor', 'accounting', 'management', 'admin', 'super_admin')) NOT NULL,
+  role TEXT CHECK (role IN ('employee', 'manager', 'supervisor', 'accounting', 'management', 'admin', 'super_admin', 'vp', 'president')) NOT NULL,
   department_id UUID,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS expense_requests (
   co_approved_by UUID REFERENCES users(id),
   co_approved_at TIMESTAMP,
   co_approver_role TEXT,
+  archived BOOLEAN DEFAULT FALSE,
   submitted_at TIMESTAMP,
   updated_at TIMESTAMP DEFAULT NOW()
 );

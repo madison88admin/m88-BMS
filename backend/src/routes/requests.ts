@@ -18,6 +18,32 @@ import { validateExpense, OFFICIAL_EXPENSE_LIST } from '../utils/expenseValidato
 
 const router = express.Router();
 
+const buildRequestStatusEmail = (name: string, requestCode: string, subject: string, message: string) => {
+  const greetingName = name || 'there';
+
+  return {
+    text: `Hello ${greetingName},\n\n${message}`,
+    html: `
+      <div style="margin:0;padding:32px 16px;background:#eef3fb;font-family:Segoe UI,Arial,sans-serif;color:#13213d;">
+        <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid #d9e1f1;">
+          <div style="padding:32px;background:linear-gradient(135deg,#1e2b4a 0%,#2d416d 100%);text-align:center;">
+            <img src="https://hjjpqwzmrnjquneuppeb.supabase.co/storage/v1/object/public/public-assets/madison88-logo.png" alt="Madison88" style="max-width:180px;height:auto;background:#f8fbff;padding:12px 18px;border-radius:18px;" />
+            <h1 style="margin:24px 0 0;font-size:28px;line-height:1.2;color:#ffffff;">${subject}</h1>
+          </div>
+          <div style="padding:32px;">
+            <p style="margin:0 0 16px;font-size:16px;line-height:1.7;">Hello ${greetingName},</p>
+            <p style="margin:0 0 16px;font-size:16px;line-height:1.7;">${message}</p>
+            <div style="margin:0 0 24px;padding:16px 18px;background:#f6f8fc;border:1px solid #d9e1f1;border-radius:16px;">
+              <p style="margin:0 0 8px;font-size:14px;color:#4b5b7c;">Request Code</p>
+              <p style="margin:0;font-size:18px;font-weight:600;color:#1e2b4a;">${requestCode}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+  };
+};
+
 const toNumber = (value: unknown) => Number.parseFloat(String(value ?? 0)) || 0;
 const toText = (value: unknown) => String(value ?? '').trim();
 const REQUEST_RELATIONS_SELECT = `
@@ -436,12 +462,13 @@ const releaseRequest = async (
   return data;
 };
 
-const notifyEmployee = async (employeeId: string, subject: string, message: string) => {
+const notifyEmployee = async (employeeId: string, requestCode: string, subject: string, message: string) => {
   try {
-    const { data: employee } = await supabase.from('users').select('email').eq('id', employeeId).maybeSingle();
+    const { data: employee } = await supabase.from('users').select('email, name').eq('id', employeeId).maybeSingle();
     if (employee?.email) {
+      const emailContent = buildRequestStatusEmail(employee.name || 'there', requestCode, subject, message);
       // Don't await sendEmail to avoid blocking the main flow
-      sendEmail(employee.email, subject, message).catch(err => {
+      sendEmail(employee.email, subject, emailContent.text, emailContent.html).catch(err => {
         console.error(`Failed to send email to ${employee.email}:`, err.message);
       });
     }
@@ -1341,7 +1368,7 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'vp', 'presid
     }
   ]);
 
-  await notifyEmployee(request.employee_id, 'Request Approved', `Your request ${request.request_code} has moved to accounting review.`);
+  await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', `Your request ${request.request_code} has moved to accounting review.`);
   res.json(data);
 });
 
@@ -1511,7 +1538,7 @@ router.patch('/:id/release', authenticate, authorize('accounting', 'admin'), asy
 
   try {
     const released = await releaseRequest(request, req.user.id, req.body || {});
-    await notifyEmployee(request.employee_id, 'Request Released', `Your request ${request.request_code} has been released.`);
+    await notifyEmployee(request.employee_id, request.request_code, 'Request Released', `Your request ${request.request_code} has been released.`);
     res.json(released);
   } catch (releaseError: any) {
     res.status(400).json({ error: releaseError?.message || releaseError });
@@ -1607,7 +1634,7 @@ router.patch('/:id/return', authenticate, authorize('supervisor', 'accounting', 
     }
   }
 
-  await notifyEmployee(request.employee_id, 'Request Returned for Revision', `Your request ${request.request_code} was returned for revision: ${reason}`);
+  await notifyEmployee(request.employee_id, request.request_code, 'Request Returned for Revision', `Your request ${request.request_code} was returned for revision: ${reason}`);
   res.json(data);
 });
 
@@ -1844,7 +1871,7 @@ router.patch('/:id/reject', authenticate, authorize('supervisor', 'accounting', 
     }
   ]);
 
-  await notifyEmployee(request.employee_id, 'Request Rejected', `Your request ${request.request_code} has been rejected: ${reason}`);
+  await notifyEmployee(request.employee_id, request.request_code, 'Request Rejected', `Your request ${request.request_code} has been rejected: ${reason}`);
 
   // Reverse committed_amount for ALL items' categories on rejection
   const { data: requestItemsForRollback } = await supabase

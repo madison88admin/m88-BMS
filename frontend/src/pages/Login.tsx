@@ -3,6 +3,7 @@ import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getErrorMessage } from '../utils/format';
+import Modal from '../components/Modal';
 
 type AuthMode = 'signin' | 'signup';
 
@@ -48,6 +49,7 @@ const Login = () => {
   const [departmentId, setDepartmentId] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [forgotEmail, setForgotEmail] = useState('');
+  const [errorModal, setErrorModal] = useState({ isOpen: false, title: '', message: '' });
   const navigate = useNavigate();
   const isAuthBusy = isSubmitting || isSendingReset;
 
@@ -148,7 +150,9 @@ const Login = () => {
       await new Promise((resolve) => setTimeout(resolve, 450));
       navigate('/');
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Login failed'));
+      const errorMsg = getErrorMessage(err, 'Login failed');
+      setErrorModal({ isOpen: true, title: 'Login Error', message: errorMsg });
+      toast.error(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -159,27 +163,36 @@ const Login = () => {
     const normalizedEmail = companyEmail.trim().toLowerCase();
 
     if (!trimmedName) {
+      setErrorModal({ isOpen: true, title: 'Signup Error', message: 'Name is required' });
       toast.error('Name is required');
       return;
     }
 
     if (!emailHandle.trim()) {
-      toast.error(`Enter your ${COMPANY_EMAIL_DOMAIN} email name`);
+      const msg = `Enter your ${COMPANY_EMAIL_DOMAIN} email name`;
+      setErrorModal({ isOpen: true, title: 'Signup Error', message: msg });
+      toast.error(msg);
       return;
     }
 
     if (!departmentId) {
-      toast.error('Please select a department');
+      const msg = 'Please select a department';
+      setErrorModal({ isOpen: true, title: 'Signup Error', message: msg });
+      toast.error(msg);
       return;
     }
 
     if (password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      const msg = 'Password must be at least 8 characters';
+      setErrorModal({ isOpen: true, title: 'Signup Error', message: msg });
+      toast.error(msg);
       return;
     }
 
     if (password !== confirmPassword) {
-      toast.error('Passwords do not match');
+      const msg = 'Passwords do not match';
+      setErrorModal({ isOpen: true, title: 'Signup Error', message: msg });
+      toast.error(msg);
       return;
     }
 
@@ -198,7 +211,9 @@ const Login = () => {
       await new Promise((resolve) => setTimeout(resolve, 450));
       navigate('/');
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Sign up failed'));
+      const errorMsg = getErrorMessage(err, 'Sign up failed');
+      setErrorModal({ isOpen: true, title: 'Signup Error', message: errorMsg });
+      toast.error(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -509,6 +524,15 @@ const Login = () => {
           </form>
         </div>
       </div>
+      <Modal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ ...errorModal, isOpen: false })}
+        onConfirm={() => setErrorModal({ ...errorModal, isOpen: false })}
+        title={errorModal.title}
+        message={errorModal.message}
+        type="alert"
+        confirmLabel="Close"
+      />
     </div>
   );
 };

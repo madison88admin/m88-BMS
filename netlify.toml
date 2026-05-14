@@ -1,18 +1,18 @@
 [build]
   publish = "frontend/dist"
-  functions = "netlify/functions"
+  command = "npm run build"
 
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_VERSION = "20"
 
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
+[functions]
+  directory = "netlify/functions"
 
-[[headers]]
-  for = "/api/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
+# Configure secrets scanning
+[secrets-scanning]
+  enabled = true
+  # Ignore these keys (public keys or example values)
+  ignore_keys = [
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY"
+  ]

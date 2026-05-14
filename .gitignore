@@ -18,3 +18,14 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Scripts and local development files
+scripts/*.js
+create-manager.js
+insert-manager-supabase.js
+local-dev-server.js
+
+# Test and temporary files
+*.txt
+*.ps1
+END_TO_END_QA_REPORT*.md
