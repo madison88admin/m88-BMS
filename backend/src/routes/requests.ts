@@ -697,60 +697,14 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
       console.error('Failed to insert request items:', itemsError);
       return res.status(400).json({ error: 'Failed to save request items: ' + itemsError.message });
     }
-  }
-
-  // Update department used_budget instead of category commitments
-  const { data: deptForUpdate } = await supabase
-    .from('departments')
-    .select('used_budget')
-    .eq('id', targetDepartmentId)
-    .single();
-
-  if (deptForUpdate) {
-    await supabase.from('departments').update({
-      used_budget: toNumber(deptForUpdate.used_budget) + totalAmount,
-      updated_at: new Date()
-    }).eq('id', targetDepartmentId);
-  }
-
-  // Still update category commitments for tracking (but department used_budget is primary)
-  if (items && items.length > 0) {
-    // Multiple items: commit each item's category individually
-    for (const item of items) {
-      const itemCategoryId = item.category_id || (item.category ? (await supabase.from('budget_categories').select('id').eq('category_name', String(item.category).trim()).eq('department_id', targetDepartmentId).eq('fiscal_year', activeFiscalYear).maybeSingle()).data?.id : null);
-      if (!itemCategoryId) continue;
-
-      const { data: catBudget } = await supabase.from('budget_categories').select('committed_amount, remaining_amount').eq('id', itemCategoryId).single();
-      if (catBudget) {
-        const itemAmt = toNumber(item.amount);
-        await supabase.from('budget_categories').update({
-          committed_amount: toNumber(catBudget.committed_amount) + itemAmt,
-          remaining_amount: Math.max(0, toNumber(catBudget.remaining_amount) - itemAmt),
-          updated_at: new Date()
-        }).eq('id', itemCategoryId);
-      }
-    }
+    
     // Store first item's category_id on request if not already set
     if (!category_id && items[0]?.category_id) {
       await supabase.from('expense_requests').update({ category_id: items[0].category_id }).eq('id', data.id);
     }
-  } else if (category_id || category) {
-    // Single item: update category for tracking
-    const effectiveCategoryId = category_id || (category ? (await supabase.from('budget_categories').select('id').eq('category_name', category.trim()).eq('department_id', targetDepartmentId).eq('fiscal_year', activeFiscalYear).maybeSingle()).data?.id : null);
-    if (effectiveCategoryId) {
-      const { data: categoryBudget } = await supabase.from('budget_categories').select('committed_amount, remaining_amount').eq('id', effectiveCategoryId).single();
-      if (categoryBudget) {
-        const requestAmount = toNumber(amount);
-        await supabase.from('budget_categories').update({
-          committed_amount: toNumber(categoryBudget.committed_amount) + requestAmount,
-          remaining_amount: Math.max(0, toNumber(categoryBudget.remaining_amount) - requestAmount),
-          updated_at: new Date()
-        }).eq('id', effectiveCategoryId);
-        if (!category_id) {
-          await supabase.from('expense_requests').update({ category_id: effectiveCategoryId }).eq('id', data.id);
-        }
-      }
-    }
+  } else if (category_id) {
+    // Single item: set category_id on request
+    await supabase.from('expense_requests').update({ category_id: category_id }).eq('id', data.id);
   }
 
   if (normalizedAttachments.length) {
