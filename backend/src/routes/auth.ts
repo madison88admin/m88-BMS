@@ -335,6 +335,7 @@ router.post('/forgot-password', async (req, res) => {
 
   const rawToken = buildPasswordResetToken(createdResetToken);
   const tokenHash = getPasswordResetTokenHash(rawToken);
+  console.log('Updating token hash in DB to:', tokenHash);
   const { error: updateResetTokenError } = await supabase
     .from('password_reset_tokens')
     .update({ token_hash: tokenHash })
@@ -380,6 +381,9 @@ router.post('/reset-password', async (req, res) => {
   const tokenHash = getPasswordResetTokenHash(token);
   let decodedToken: jwt.JwtPayload;
 
+  console.log('Reset password token:', token);
+  console.log('Reset password token hash:', tokenHash);
+
   try {
     decodedToken = jwt.verify(token, getPasswordResetSecret()) as jwt.JwtPayload;
     console.log('Successfully decoded reset token:', decodedToken);
@@ -410,6 +414,9 @@ router.post('/reset-password', async (req, res) => {
     return res.status(400).json({ error: 'This password reset link is invalid.' });
   }
 
+  console.log('Comparing token hashes:');
+  console.log('  From DB:', resetToken.token_hash);
+  console.log('  Calculated:', tokenHash);
   if (resetToken.user_id !== String(decodedToken.sub) || resetToken.token_hash !== tokenHash) {
     return res.status(400).json({ error: 'This password reset link is invalid.' });
   }

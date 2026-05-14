@@ -38,7 +38,9 @@ const ResetPassword = () => {
       toast.success(res.data.message || 'Password reset successful');
       navigate('/login');
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to reset password'));
+      console.error('Reset password error:', err);
+      const errorMsg = err.response?.data?.error || getErrorMessage(err, 'Failed to reset password');
+      toast.error(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
