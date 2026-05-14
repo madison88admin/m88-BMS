@@ -381,6 +381,8 @@ router.post('/reset-password', async (req, res) => {
   const tokenHash = getPasswordResetTokenHash(token);
   let decodedToken: jwt.JwtPayload;
 
+  console.log('Reset password request received');
+  console.log('Current time (seconds since epoch):', Math.floor(Date.now() / 1000));
   console.log('Reset password token:', token);
   console.log('Reset password token hash:', tokenHash);
 
