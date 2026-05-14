@@ -16,7 +16,13 @@ const transporter = nodemailer.createTransport({
           user: process.env.SMTP_USER || process.env.EMAIL_USER,
           pass: process.env.SMTP_PASS || process.env.EMAIL_PASS
         }
-      : undefined
+      : undefined,
+  tls: {
+    rejectUnauthorized: false
+  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000
 });
 
 export const sendEmail = (to: string, subject: string, text: string, html?: string) => {
@@ -62,12 +68,16 @@ export const sendEmail = (to: string, subject: string, text: string, html?: stri
       return info;
     })
     .catch((error: any) => {
-    const message = String(error?.message || '');
+      console.error('[Email] Error sending email:', error);
+      console.error('  Error code:', error.code);
+      console.error('  Error message:', error.message);
+      console.error('  Response:', error.response);
+      const message = String(error?.message || '');
 
-    if (/Invalid to/i.test(message)) {
-      throw new Error(`Recipient email was rejected by the mail server: ${recipient}`);
-    }
+      if (/Invalid to/i.test(message)) {
+        throw new Error(`Recipient email was rejected by the mail server: ${recipient}`);
+      }
 
-    throw error;
-  });
+      throw error;
+    });
 };
