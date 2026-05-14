@@ -394,8 +394,11 @@ router.post('/reset-password', async (req, res) => {
   }
 
   if (decodedToken.type !== 'password_reset' || !decodedToken.jti || !decodedToken.sub) {
+    console.log('❌ Failing: type not password_reset OR missing jti/sub');
     return res.status(400).json({ error: 'This password reset link is invalid.' });
   }
+
+  console.log('✅ Token type and claims OK');
 
   const { data: resetToken, error: resetTokenError } = await supabase
     .from('password_reset_tokens')
@@ -404,31 +407,51 @@ router.post('/reset-password', async (req, res) => {
     .maybeSingle();
 
   if (resetTokenError) {
+    console.log('❌ Failing: resetTokenError:', resetTokenError);
     return res.status(400).json({ error: resetTokenError.message || 'Invalid password reset token.' });
   }
 
   if (!resetToken) {
+    console.log('❌ Failing: resetToken not found in DB');
     return res.status(400).json({ error: 'This password reset link is invalid.' });
   }
+
+  console.log('✅ Found reset token in DB:', resetToken);
 
   console.log('Comparing token hashes:');
   console.log('  From DB:', resetToken.token_hash);
   console.log('  Calculated:', tokenHash);
-  if (resetToken.user_id !== String(decodedToken.sub) || resetToken.token_hash !== tokenHash) {
+  
+  if (resetToken.user_id !== String(decodedToken.sub)) {
+    console.log('❌ Failing: user_id mismatch! DB user_id:', resetToken.user_id, 'Token sub:', decodedToken.sub);
+    return res.status(400).json({ error: 'This password reset link is invalid.' });
+  }
+  
+  if (resetToken.token_hash !== tokenHash) {
+    console.log('❌ Failing: token_hash mismatch!');
     return res.status(400).json({ error: 'This password reset link is invalid.' });
   }
 
+  console.log('✅ Token hash and user_id match');
+
   if (resetToken.invalidated_at && resetToken.invalidation_reason === 'superseded') {
+    console.log('❌ Failing: token superseded');
     return res.status(400).json({ error: 'A newer password reset link was already requested. Please use the latest email.' });
   }
 
   if (resetToken.used_at) {
+    console.log('❌ Failing: token already used');
     return res.status(400).json({ error: 'This password reset link was already used.' });
   }
 
+  console.log('✅ Token not invalidated or used');
+
   if (new Date(resetToken.expires_at).getTime() < Date.now()) {
+    console.log('❌ Failing: token expired (DB expires_at)');
     return res.status(400).json({ error: 'This password reset link has expired.' });
   }
+
+  console.log('✅ Token not expired, proceeding to reset password!');
 
   const passwordHash = await bcrypt.hash(password, 10);
 
