@@ -38,12 +38,14 @@ Emails will NOT send if your sender email isn't verified!
 Go to Render → Your backend service → **Environment** tab → **Add Environment Variables**:
 ```env
 SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=465
-SMTP_SECURE=true
+SMTP_PORT=587
+SMTP_SECURE=false
 SMTP_USER=bms.admin1@gmail.com          (your Brevo login email)
 SMTP_PASS=YOUR_BREVO_SMTP_KEY          (from Step 1, the key you generated)
 EMAIL_FROM=bms.admin1@gmail.com         (same as SMTP_USER)
 ```
+
+Note: Port 587 with STARTTLS (`SMTP_SECURE=false`) often works better with hosting providers like Render!
 
 ---
 

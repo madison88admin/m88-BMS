@@ -8,8 +8,8 @@ const isValidEmailAddress = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-  port: Number(process.env.SMTP_PORT || process.env.EMAIL_PORT || 465),
-  secure: String(process.env.SMTP_SECURE || process.env.EMAIL_SECURE || 'true').toLowerCase() === 'true',
+  port: Number(process.env.SMTP_PORT || process.env.EMAIL_PORT || 587),
+  secure: String(process.env.SMTP_SECURE || process.env.EMAIL_SECURE || 'false').toLowerCase() === 'true',
   auth:
     (process.env.SMTP_USER || process.env.EMAIL_USER) && (process.env.SMTP_PASS || process.env.EMAIL_PASS)
       ? {
@@ -21,9 +21,9 @@ const transporter = nodemailer.createTransport({
     rejectUnauthorized: false,
     minVersion: 'TLSv1.2'
   },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
+  connectionTimeout: 60000,
+  greetingTimeout: 60000,
+  socketTimeout: 60000,
   debug: true,
   logger: true
 });
