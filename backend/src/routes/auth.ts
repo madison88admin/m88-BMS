@@ -59,26 +59,21 @@ const buildResetPasswordEmail = (name: string, resetUrl: string) => {
   };
 };
 const getPasswordResetSecret = () => process.env.JWT_SECRET || 'change-me';
-const getPasswordResetExpirySeconds = (expiresAt: string) => {
-  const date = new Date(expiresAt);
-  const seconds = Math.floor(date.getTime() / 1000);
-  console.log('Password reset token expires at:', expiresAt, '→', seconds, 'seconds since epoch');
-  return seconds;
-};
 const buildPasswordResetToken = (resetToken: { id: string; user_id: string; expires_at: string }) => {
+  const exp = Math.floor(Date.now() / 1000) + PASSWORD_RESET_TOKEN_TTL_MINUTES * 60;
   const token = jwt.sign(
     {
       sub: resetToken.user_id,
       jti: resetToken.id,
       type: 'password_reset',
-      exp: getPasswordResetExpirySeconds(resetToken.expires_at)
+      exp
     },
     getPasswordResetSecret(),
     {
       algorithm: 'HS256'
     }
   );
-  console.log('Built password reset token with exp:', getPasswordResetExpirySeconds(resetToken.expires_at));
+  console.log('Built password reset token with exp:', exp);
   return token;
 };
 const getPasswordResetTokenHash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
