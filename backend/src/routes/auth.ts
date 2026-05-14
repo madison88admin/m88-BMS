@@ -390,10 +390,10 @@ router.post('/reset-password', async (req, res) => {
   } catch (error: any) {
     console.log('Failed to decode reset token:', error);
     if (error?.name === 'TokenExpiredError') {
-      return res.status(400).json({ error: 'This password reset link has expired.' });
+      return res.status(400).json({ error: 'This password reset link has expired.', details: error.message });
     }
 
-    return res.status(400).json({ error: 'This password reset link is invalid.' });
+    return res.status(400).json({ error: 'This password reset link is invalid.', details: error.message });
   }
 
   if (decodedToken.type !== 'password_reset' || !decodedToken.jti || !decodedToken.sub) {
