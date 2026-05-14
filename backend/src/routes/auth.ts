@@ -282,22 +282,21 @@ router.post('/forgot-password', async (req, res) => {
     const resetUrl = `${getAppUrl(req.headers.origin)}/reset-password?token=${rawToken}`;
     const emailContent = buildResetPasswordEmail(user.name || 'there', resetUrl);
 
-    try {
-      await sendEmail(
-        user.email,
-        'Reset your Madison88 password',
-        emailContent.text,
-        emailContent.html
-      );
-      
+    // Send email in background, don't block response
+    sendEmail(
+      user.email,
+      'Reset your Madison88 password',
+      emailContent.text,
+      emailContent.html
+    ).then(async () => {
       // Update last_sent_at after successful email
       await supabase
         .from('password_reset_tokens')
         .update({ last_sent_at: new Date().toISOString() })
         .eq('id', activeResetToken.id);
-    } catch (error: any) {
-      return res.status(400).json({ error: error?.message || 'Failed to send reset email.' });
-    }
+    }).catch((error: any) => {
+      console.error('[Auth] Failed to send password reset email (background):', error);
+    });
 
     return res.json({ message: getPasswordResetSentMessage() });
   }
@@ -343,16 +342,15 @@ router.post('/forgot-password', async (req, res) => {
   const resetUrl = `${getAppUrl(req.headers.origin)}/reset-password?token=${rawToken}`;
   const emailContent = buildResetPasswordEmail(user.name || 'there', resetUrl);
 
-  try {
-    await sendEmail(
-      user.email,
-      'Reset your Madison88 password',
-      emailContent.text,
-      emailContent.html
-    );
-  } catch (error: any) {
-    return res.status(400).json({ error: error?.message || 'Failed to send reset email.' });
-  }
+  // Send email in background, don't block response
+  sendEmail(
+    user.email,
+    'Reset your Madison88 password',
+    emailContent.text,
+    emailContent.html
+  ).catch((error: any) => {
+    console.error('[Auth] Failed to send password reset email (background):', error);
+  });
 
   return res.json({ message: getPasswordResetSentMessage() });
 });
