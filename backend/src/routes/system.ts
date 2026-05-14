@@ -1,8 +1,30 @@
 import express from 'express';
 import { supabase } from '../utils/supabase';
 import { authenticate } from '../middleware/auth';
+import { sendEmail } from '../utils/email';
 
 const router = express.Router();
+
+// Test email endpoint
+router.post('/test-email', authenticate, async (req: any, res) => {
+  const { to } = req.body;
+  if (!to) {
+    return res.status(400).json({ error: 'Recipient email is required.' });
+  }
+
+  try {
+    await sendEmail(
+      to,
+      'Test Email from Madison88 BMS',
+      'Hello! This is a test email from the Madison88 Budget Management System. If you received this, email is working!',
+      '<div style="font-family: Arial, sans-serif; padding: 20px;"><h1>Test Email ✅</h1><p>Hello! This is a test email from the Madison88 Budget Management System.</p><p>If you received this, email is working correctly!</p></div>'
+    );
+    res.json({ message: 'Test email sent successfully!' });
+  } catch (error: any) {
+    console.error('Test email error:', error);
+    res.status(500).json({ error: error?.message || 'Failed to send test email.' });
+  }
+});
 
 // System health check endpoint
 router.get('/health', authenticate, async (req, res) => {
