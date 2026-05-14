@@ -272,7 +272,7 @@ router.post('/forgot-password', async (req, res) => {
   }
 
   if (activeResetToken) {
-    if (wasPasswordResetLinkSentRecently(activeResetToken.created_at)) {
+    if (wasPasswordResetLinkSentRecently(activeResetToken.last_sent_at)) {
       return res.json({ message: getPasswordResetCooldownMessage() });
     }
 
@@ -287,6 +287,12 @@ router.post('/forgot-password', async (req, res) => {
         emailContent.text,
         emailContent.html
       );
+      
+      // Update last_sent_at after successful email
+      await supabase
+        .from('password_reset_tokens')
+        .update({ last_sent_at: new Date().toISOString() })
+        .eq('id', activeResetToken.id);
     } catch (error: any) {
       return res.status(400).json({ error: error?.message || 'Failed to send reset email.' });
     }
@@ -310,7 +316,8 @@ router.post('/forgot-password', async (req, res) => {
     .insert({
       user_id: user.id,
       token_hash: 'pending',
-      expires_at: expiresAt
+      expires_at: expiresAt,
+      last_sent_at: new Date().toISOString()
     })
     .select('id, user_id, expires_at')
     .single();
