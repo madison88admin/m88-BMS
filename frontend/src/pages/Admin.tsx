@@ -1769,7 +1769,7 @@ return (
                       {/* Department Quick Select - Compact */}
                       <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
                         {departments
-                          .filter((dept: any) => dept.fiscal_year === 2026)
+                          .filter((dept: any) => dept.fiscal_year === activeFiscalYear)
                           .map((dept: any) => (
                             <button
                               key={dept.id}

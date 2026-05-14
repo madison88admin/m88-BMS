@@ -20,7 +20,7 @@ interface BudgetCategory {
 const BudgetSetup = () => {
   const navigate = useNavigate();
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [fiscalYear, setFiscalYear] = useState<number>(2026);
+  const [fiscalYear, setFiscalYear] = useState<number>(new Date().getFullYear());
   const [selectedDept, setSelectedDept] = useState<string>('');
   const [categories, setCategories] = useState<BudgetCategory[]>([]);
   const [loading, setLoading] = useState(true);

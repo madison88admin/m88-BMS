@@ -58,7 +58,7 @@ const BudgetManagement = () => {
   const [fxRateUpdatedAt, setFxRateUpdatedAt] = useState('');
   const [fxStatus, setFxStatus] = useState<'live' | 'fallback'>('fallback');
   const [displayCurrency, setDisplayCurrency] = useState<'PHP' | 'USD' | 'IDR'>('PHP');
-  const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(2026);
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(new Date().getFullYear());
   const [departmentSearch, setDepartmentSearch] = useState('');
   const [budgetHealthFilter, setBudgetHealthFilter] = useState<'all' | 'low' | 'high' | 'critical'>('all');
   const [newDept, setNewDept] = useState({ name: '', annual_budget: '', fiscal_year: new Date().getFullYear() });
@@ -95,7 +95,7 @@ const BudgetManagement = () => {
     });
   }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter]);
 
-  const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || 2026;
+  const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || new Date().getFullYear();
 
   const overview = useMemo(() => {
     const totalBudget = filteredDepts.reduce((s, d) => s + toNumber(d.annual_budget), 0);
@@ -266,7 +266,7 @@ const BudgetManagement = () => {
     try {
       await api.post('/api/departments', { name: newDept.name, annual_budget: toNumber(newDept.annual_budget), fiscal_year: newDept.fiscal_year }, { headers: { Authorization: `Bearer ${token}` } });
       toast.success('Department created!');
-      setNewDept({ name: '', annual_budget: '', fiscal_year: 2026 });
+      setNewDept({ name: '', annual_budget: '', fiscal_year: selectedFiscalYear || availableFiscalYears[0] || new Date().getFullYear() });
       await fetchDepartments(false);
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to create department')); }
   };
