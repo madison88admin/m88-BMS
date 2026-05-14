@@ -1,41 +1,17 @@
 import dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
+import axios from 'axios';
 
 dotenv.config();
 
 const normalizeEmailAddress = (value?: string) => String(value || '').trim();
 const isValidEmailAddress = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-  port: Number(process.env.SMTP_PORT || process.env.EMAIL_PORT || 587),
-  secure: String(process.env.SMTP_SECURE || process.env.EMAIL_SECURE || 'false').toLowerCase() === 'true',
-  auth:
-    (process.env.SMTP_USER || process.env.EMAIL_USER) && (process.env.SMTP_PASS || process.env.EMAIL_PASS)
-      ? {
-          user: process.env.SMTP_USER || process.env.EMAIL_USER,
-          pass: process.env.SMTP_PASS || process.env.EMAIL_PASS
-        }
-      : undefined,
-  tls: {
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2'
-  },
-  connectionTimeout: 60000,
-  greetingTimeout: 60000,
-  socketTimeout: 60000,
-  debug: true,
-  logger: true
-});
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-export const sendEmail = (to: string, subject: string, text: string, html?: string) => {
-  console.log('[Email] Sending email:');
-  console.log('  SMTP_HOST:', process.env.SMTP_HOST || process.env.EMAIL_HOST);
-  console.log('  SMTP_PORT:', process.env.SMTP_PORT || process.env.EMAIL_PORT);
-  console.log('  SMTP_SECURE:', process.env.SMTP_SECURE || process.env.EMAIL_SECURE);
-  console.log('  SMTP_USER:', process.env.SMTP_USER || process.env.EMAIL_USER ? '[SET]' : '[NOT SET]');
-  console.log('  SMTP_PASS:', process.env.SMTP_PASS || process.env.EMAIL_PASS ? '[SET]' : '[NOT SET]');
-  console.log('  EMAIL_FROM:', process.env.EMAIL_FROM || process.env.SMTP_FROM);
+export const sendEmail = async (to: string, subject: string, text: string, html?: string) => {
+  console.log('[Email] Sending email via Brevo API:');
+  console.log('  BREVO_API_KEY:', process.env.BREVO_API_KEY ? '[SET]' : '[NOT SET]');
+  console.log('  EMAIL_FROM:', process.env.EMAIL_FROM);
   console.log('  To:', to);
   console.log('  Subject:', subject);
 
@@ -52,9 +28,10 @@ export const sendEmail = (to: string, subject: string, text: string, html?: stri
     return Promise.reject(new Error('Email sender address is invalid.'));
   }
 
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.error('[Email] Error: SMTP credentials are missing.');
-    return Promise.reject(new Error('SMTP credentials are missing.'));
+  const brevoApiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS;
+  if (!brevoApiKey) {
+    console.error('[Email] Error: Brevo API key is missing (set BREVO_API_KEY or SMTP_PASS).');
+    return Promise.reject(new Error('Brevo API key is missing.'));
   }
 
   if (!recipient || !isValidEmailAddress(recipient)) {
@@ -62,25 +39,31 @@ export const sendEmail = (to: string, subject: string, text: string, html?: stri
     return Promise.reject(new Error(`Recipient email is invalid: ${recipient || '(empty)'}`));
   }
 
-  console.log('[Email] Sending email via transporter...');
-  return transporter.sendMail({ from, to: recipient, subject, text, html })
-    .then((info) => {
-      console.log('[Email] Email sent successfully!');
-      console.log('  Message ID:', info.messageId);
-      console.log('  Response:', info.response);
-      return info;
-    })
-    .catch((error: any) => {
-      console.error('[Email] Error sending email:', error);
-      console.error('  Error code:', error.code);
-      console.error('  Error message:', error.message);
-      console.error('  Response:', error.response);
-      const message = String(error?.message || '');
-
-      if (/Invalid to/i.test(message)) {
-        throw new Error(`Recipient email was rejected by the mail server: ${recipient}`);
+  try {
+    const response = await axios.post(
+      BREVO_API_URL,
+      {
+        sender: { email: from, name: 'Madison88 BMS' },
+        to: [{ email: recipient }],
+        subject: subject,
+        htmlContent: html || `<div style="font-family: Arial, sans-serif;">${text}</div>`,
+        textContent: text
+      },
+      {
+        headers: {
+          'accept': 'application/json',
+          'api-key': brevoApiKey,
+          'content-type': 'application/json'
+        }
       }
+    );
 
-      throw error;
-    });
+    console.log('[Email] Email sent successfully via Brevo API!');
+    console.log('  Brevo message ID:', response.data.messageId);
+    return response.data;
+  } catch (error: any) {
+    console.error('[Email] Error sending email via Brevo API:', error.response?.data || error.message);
+    console.error('  Error code:', error.response?.status || error.code);
+    throw error;
+  }
 };

@@ -1,23 +1,18 @@
-# Email Function Troubleshooting - Madison88 BMS (Brevo Only)
+# Email Function Troubleshooting - Madison88 BMS (Brevo API Only)
 
-## Only Brevo is Used!
-This system uses **Brevo (formerly Sendinblue)** exclusively for sending emails!
+## Only Brevo API is Used!
+This system uses **Brevo's REST API** exclusively for sending emails! No more SMTP connection issues!
 
 ---
 
-## Step-by-Step Brevo Setup
+## Step-by-Step Brevo API Setup
 
-### 1. Get Brevo SMTP Credentials
+### 1. Get Brevo API Key
 1. Login to Brevo: https://app.brevo.com/
-2. Go to **SMTP & API** → **SMTP** (left sidebar)
-3. You'll see:
-   - **SMTP Server**: `smtp-relay.brevo.com`
-   - **Port**: `587` (STARTTLS, recommended) or `465` (SSL/TLS)
-4. Under **Login**: Use your Brevo account email (e.g., `bms.admin1@gmail.com`)
-5. Under **Master Password**:
-   - Click **Generate a new SMTP key**
-   - Name it: `Madison88 BMS Production`
-   - **Copy this key!** This is your `SMTP_PASS`
+2. Go to **SMTP & API** → **API Keys** (left sidebar)
+3. Click **Generate a new API key**
+4. Name it: `Madison88 BMS Production`
+5. **Copy this key!** This is your `BREVO_API_KEY` (or use `SMTP_PASS` - both work!)
 
 ---
 
@@ -37,50 +32,45 @@ Emails will NOT send if your sender email isn't verified!
 ### 3. Set Render Environment Variables
 Go to Render → Your backend service → **Environment** tab → **Add Environment Variables**:
 ```env
-SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=bms.admin1@gmail.com          (your Brevo login email)
-SMTP_PASS=YOUR_BREVO_SMTP_KEY          (from Step 1, the key you generated)
-EMAIL_FROM=bms.admin1@gmail.com         (same as SMTP_USER)
+BREVO_API_KEY=your_brevo_api_key  (from Step 1, the key you generated)
+EMAIL_FROM=bms.admin1@gmail.com    (your verified Brevo sender email)
 ```
 
-Note: Port 587 with STARTTLS (`SMTP_SECURE=false`) often works better with hosting providers like Render!
+Note: You can also use `SMTP_PASS` instead of `BREVO_API_KEY` if you want!
 
 ---
 
 ### 4. Test the Email System
 1. Wait for Render to auto-deploy the latest changes
 2. Try the "Forgot Password" flow in the app
-3. Check Render logs for messages starting with `[Email]`
+3. Check Render logs for `[Email]` messages
 4. Check Brevo's **Email Logs** (Brevo → Statistics → Email Logs)
 
 ---
 
-## Common Brevo Issues & Fixes
+## Common Brevo API Issues & Fixes
 
-### Issue: "Invalid login" or "Authentication failed"
-- Check that `SMTP_USER` is exactly your Brevo login email
-- Make sure `SMTP_PASS` is a **Brevo SMTP key** (not your Brevo account password)
-- Generate a new SMTP key in Brevo and try again
+### Issue: "Unauthorized" or "Invalid API key"
+- Check that `BREVO_API_KEY` or `SMTP_PASS` is set correctly
+- Make sure you're using a **Brevo API key** (not your Brevo account password)
+- Generate a new API key in Brevo and try again
 
-### Issue: "Relay access denied" or "Sender invalid"
+### Issue: "Sender invalid" or "Relay access denied"
 - Your sender email (`EMAIL_FROM`) is **not verified** in Brevo
 - Go back to Step 2 and verify your sender email
 
-### Issue: No logs after "Sending email via transporter..."
-- Wait 10-15 seconds - emails send asynchronously now!
-- Check if Render restarted the service (logs show "Deploying..." or "Server running on port 5000")
+### Issue: No logs after "Sending email via Brevo API..."
+- Wait 5-10 seconds - API calls are asynchronous
 - Verify Brevo account is active and has sending credits
+- Check Render logs for error messages
 
 ---
 
 ## Checklist (Make sure all are done!)
 - [ ] Brevo account created and logged in
-- [ ] Brevo SMTP key generated and copied
+- [ ] Brevo API key generated and copied
 - [ ] Sender email (`bms.admin1@gmail.com`) verified in Brevo
-- [ ] All 6 Render environment variables set correctly
+- [ ] Render environment variables set correctly (`BREVO_API_KEY` and `EMAIL_FROM`)
 - [ ] Latest code deployed to Render
 - [ ] Render logs checked for `[Email]` messages
 - [ ] Brevo Email Logs checked for sent emails
-
