@@ -80,7 +80,7 @@ const getPasswordResetSentMessage = () => 'If the email is registered, a passwor
 const getActiveResetTokenForUser = async (userId: string) => {
   const { data, error } = await supabase
     .from('password_reset_tokens')
-    .select('id, user_id, token_hash, expires_at, used_at, invalidated_at, invalidation_reason, created_at')
+    .select('id, user_id, token_hash, expires_at, used_at, invalidated_at, invalidation_reason, created_at, last_sent_at')
     .eq('user_id', userId)
     .is('used_at', null)
     .is('invalidated_at', null)
