@@ -46,8 +46,8 @@ netlify deploy --prod
 ### 3. **Set Environment Variables**
 In your Netlify dashboard (Site settings > Environment variables):
 ```
-SUPABASE_URL=https://hjjpqwzmrnjquneuppeb.supabase.co
-SUPABASE_ANON_KEY=sb_publishable_4OT_XzItsdRNe8Jtm43nGg_-gT8fLru
+SUPABASE_URL=https://your-supabase-project.supabase.co
+SUPABASE_ANON_KEY=your_publishable_anon_key
 JWT_SECRET=your_secure_jwt_secret_here
 SMTP_HOST=smtp-relay.brevo.com
 SMTP_PORT=587

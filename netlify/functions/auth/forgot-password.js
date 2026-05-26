@@ -10,6 +10,14 @@ const getAppUrl = (origin) => {
   const fallbackUrl = origin && /^https?:\/\//i.test(origin) ? origin : 'http://localhost:5173';
   return (explicitUrl || fallbackUrl).replace(/\/+$/, '');
 };
+const getEmailLogoUrl = () => {
+  const base = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  if (base) {
+    return `${base}/storage/v1/object/public/public-assets/madison88-logo.png`;
+  }
+  return 'https://via.placeholder.com/180x60?text=Madison88';
+};
+
 const buildResetPasswordEmail = (name, resetUrl) => {
   const greetingName = name || 'there';
 
@@ -19,7 +27,7 @@ const buildResetPasswordEmail = (name, resetUrl) => {
       <div style="margin:0;padding:32px 16px;background:#eef3fb;font-family:Segoe UI,Arial,sans-serif;color:#13213d;">
         <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid #d9e1f1;">
           <div style="padding:32px;background:linear-gradient(135deg,#1e2b4a 0%,#2d416d 100%);text-align:center;">
-            <img src="https://hjjpqwzmrnjquneuppeb.supabase.co/storage/v1/object/public/public-assets/madison88-logo.png" alt="Madison88" style="max-width:180px;height:auto;background:#f8fbff;padding:12px 18px;border-radius:18px;" />
+            <img src="${getEmailLogoUrl()}" alt="Madison88" style="max-width:180px;height:auto;background:#f8fbff;padding:12px 18px;border-radius:18px;" />
             <h1 style="margin:24px 0 0;font-size:28px;line-height:1.2;color:#ffffff;">Reset Your Password</h1>
           </div>
           <div style="padding:32px;">
