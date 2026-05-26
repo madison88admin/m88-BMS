@@ -120,25 +120,44 @@ export const OFFICIAL_EXPENSE_LIST: ExpenseItem[] = [
   { code: '9900', itemName: 'Sundry & Misc', category: 'Sundry', dept: 'All Dept', canCA: true, canRE: true }
 ];
 
+type BudgetCategoryRow = {
+  category_code?: string;
+  category_name: string;
+  parent_category_name?: string | null;
+};
+
 /** Add budget-matrix categories that are not represented in the static official list. */
 export function mergeBudgetCategoriesIntoOfficialList(
   officialItems: ExpenseItem[],
-  budgetCategories: Array<{ category_code?: string; category_name: string }>,
+  budgetCategories: BudgetCategoryRow[],
   departmentName: string
 ): ExpenseItem[] {
   const merged = [...officialItems];
-  const categoriesWithItems = new Set(officialItems.map((item) => item.category));
+  const topLevelWithOfficialItems = new Set(officialItems.map((item) => item.category));
 
   for (const cat of budgetCategories) {
     const categoryName = String(cat.category_name || '').trim();
-    if (!categoryName || categoriesWithItems.has(categoryName)) continue;
+    if (!categoryName) continue;
 
-    categoriesWithItems.add(categoryName);
+    const parentName = String(cat.parent_category_name || '').trim();
+    const groupCategory = parentName || categoryName;
+    const itemName = categoryName;
     const code = String(cat.category_code || categoryName).trim();
+
+    const alreadyAdded = merged.some(
+      (entry) =>
+        entry.category === groupCategory &&
+        entry.itemName === itemName &&
+        entry.code === code
+    );
+    if (alreadyAdded) continue;
+
+    if (!parentName && topLevelWithOfficialItems.has(categoryName)) continue;
+
     merged.push({
       code,
-      itemName: categoryName,
-      category: categoryName,
+      itemName,
+      category: groupCategory,
       dept: departmentName || 'All Dept',
       canCA: true,
       canRE: true,

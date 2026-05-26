@@ -39,6 +39,18 @@ interface OfficialExpense {
   canRE: boolean;
 }
 
+const resolveCategoryIdFromOfficialItem = (
+  selectedItem: OfficialExpense | undefined,
+  categories: Category[]
+) => {
+  if (!selectedItem) return '';
+  const byItemName = categories.find((category) => category.category_name === selectedItem.itemName);
+  if (byItemName) return byItemName.id;
+  const byCode = categories.find((category) => category.category_code === selectedItem.code);
+  if (byCode) return byCode.id;
+  return categories.find((category) => category.category_name === selectedItem.category)?.id || '';
+};
+
 interface LiquidationItem {
   expense_date: string;
   category_id: string;
@@ -690,7 +702,7 @@ const NewRequestForm = () => {
                       const newItems = [...reimbursementForm.items];
                       newItems[index].item_name = selectedItemValue;
                       newItems[index].main_category = selectedItem?.category || '';
-                      newItems[index].category_id = selectedItem ? (categories.find(c => c.category_name === selectedItem.category)?.id || '') : '';
+                      newItems[index].category_id = resolveCategoryIdFromOfficialItem(selectedItem, categories);
                       setReimbursementForm(prev => ({ ...prev, items: newItems }));
                     }}
                     className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
