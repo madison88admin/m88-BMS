@@ -18,6 +18,14 @@ import { validateExpense, OFFICIAL_EXPENSE_LIST } from '../utils/expenseValidato
 
 const router = express.Router();
 
+const getEmailLogoUrl = () => {
+  const base = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+  if (base) {
+    return `${base}/storage/v1/object/public/public-assets/madison88-logo.png`;
+  }
+  return 'https://via.placeholder.com/180x60?text=Madison88';
+};
+
 const buildRequestStatusEmail = (name: string, requestCode: string, subject: string, message: string) => {
   const greetingName = name || 'there';
 
@@ -27,7 +35,7 @@ const buildRequestStatusEmail = (name: string, requestCode: string, subject: str
       <div style="margin:0;padding:32px 16px;background:#eef3fb;font-family:Segoe UI,Arial,sans-serif;color:#13213d;">
         <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid #d9e1f1;">
           <div style="padding:32px;background:linear-gradient(135deg,#1e2b4a 0%,#2d416d 100%);text-align:center;">
-            <img src="https://hjjpqwzmrnjquneuppeb.supabase.co/storage/v1/object/public/public-assets/madison88-logo.png" alt="Madison88" style="max-width:180px;height:auto;background:#f8fbff;padding:12px 18px;border-radius:18px;" />
+            <img src="${getEmailLogoUrl()}" alt="Madison88" style="max-width:180px;height:auto;background:#f8fbff;padding:12px 18px;border-radius:18px;" />
             <h1 style="margin:24px 0 0;font-size:28px;line-height:1.2;color:#ffffff;">${subject}</h1>
           </div>
           <div style="padding:32px;">
@@ -1289,8 +1297,8 @@ router.patch('/:id/priority', authenticate, authorize('supervisor', 'admin'), as
   res.json(data);
 });
 
-// PATCH /api/requests/:id/approve - Now VP/President only (accounting removed)
-router.patch('/:id/approve', authenticate, authorize('supervisor', 'vp', 'president', 'admin'), async (req: any, res) => {
+// PATCH /api/requests/:id/approve - Supervisor/admin only; VP/President uses /co-approve
+router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
@@ -1304,8 +1312,8 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'vp', 'presid
     if (!accessibleDepartmentIds.includes(request.department_id)) return res.status(403).json({ error: 'Forbidden' });
   }
 
-  if (req.user.role !== 'supervisor' && req.user.role !== 'vp' && req.user.role !== 'president' && req.user.role !== 'admin') {
-    return res.status(400).json({ error: 'Only supervisors, VP, President, and admin can approve requests.' });
+  if (req.user.role !== 'supervisor' && req.user.role !== 'admin') {
+    return res.status(400).json({ error: 'Only supervisors and admin can approve requests.' });
   }
 
   if (request.status !== 'pending_supervisor') {

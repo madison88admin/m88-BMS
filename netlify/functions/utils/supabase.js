@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+// Netlify Functions run in CommonJS; keep this module require()-compatible.
+const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_ANON_KEY;
@@ -11,4 +12,6 @@ if (process.env.NODE_ENV === 'production' && /localhost|127\.0\.0\.1/i.test(supa
   throw new Error('Production SUPABASE_URL must point to the hosted database, not localhost.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+module.exports = { supabase };
