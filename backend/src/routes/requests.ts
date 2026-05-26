@@ -1289,8 +1289,8 @@ router.patch('/:id/priority', authenticate, authorize('supervisor', 'admin'), as
   res.json(data);
 });
 
-// PATCH /api/requests/:id/approve - Now VP/President only (accounting removed)
-router.patch('/:id/approve', authenticate, authorize('supervisor', 'vp', 'president', 'admin'), async (req: any, res) => {
+// PATCH /api/requests/:id/approve - Supervisor/admin only; VP/President uses /co-approve
+router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
@@ -1304,8 +1304,8 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'vp', 'presid
     if (!accessibleDepartmentIds.includes(request.department_id)) return res.status(403).json({ error: 'Forbidden' });
   }
 
-  if (req.user.role !== 'supervisor' && req.user.role !== 'vp' && req.user.role !== 'president' && req.user.role !== 'admin') {
-    return res.status(400).json({ error: 'Only supervisors, VP, President, and admin can approve requests.' });
+  if (req.user.role !== 'supervisor' && req.user.role !== 'admin') {
+    return res.status(400).json({ error: 'Only supervisors and admin can approve requests.' });
   }
 
   if (request.status !== 'pending_supervisor') {
