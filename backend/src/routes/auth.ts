@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken';
 import { supabase } from '../utils/supabase';
 import { authenticate } from '../middleware/auth';
 import { sendEmail } from '../utils/email';
-import { authRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimit';
 import {
   CANONICAL_DEPARTMENTS,
   COMPANY_EMAIL_DOMAIN,
@@ -215,7 +214,7 @@ const resolveSignupDepartment = async (departmentIdOrName: string) => {
 };
 
 // POST /api/auth/login
-router.post('/login', authRateLimiter, async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { password } = req.body;
     const email = normalizeEmail(req.body?.email);
@@ -253,7 +252,7 @@ router.post('/login', authRateLimiter, async (req, res) => {
 });
 
 // POST /api/auth/forgot-password
-router.post('/forgot-password', passwordResetRateLimiter, async (req, res) => {
+router.post('/forgot-password', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
 
   if (!email) {
@@ -364,7 +363,7 @@ router.post('/forgot-password', passwordResetRateLimiter, async (req, res) => {
 });
 
 // POST /api/auth/reset-password
-router.post('/reset-password', passwordResetRateLimiter, async (req, res) => {
+router.post('/reset-password', async (req, res) => {
   const token = String(req.body?.token || '').trim();
   const password = String(req.body?.password || '');
 
