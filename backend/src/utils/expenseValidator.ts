@@ -120,7 +120,40 @@ export const OFFICIAL_EXPENSE_LIST: ExpenseItem[] = [
   { code: '9900', itemName: 'Sundry & Misc', category: 'Sundry', dept: 'All Dept', canCA: true, canRE: true }
 ];
 
-export function validateExpense(itemName: string, departmentName: string, requestType: 'cash_advance' | 'reimbursement' | 'liquidation'): ExpenseEligibility {
+/** Add budget-matrix categories that are not represented in the static official list. */
+export function mergeBudgetCategoriesIntoOfficialList(
+  officialItems: ExpenseItem[],
+  budgetCategories: Array<{ category_code?: string; category_name: string }>,
+  departmentName: string
+): ExpenseItem[] {
+  const merged = [...officialItems];
+  const categoriesWithItems = new Set(officialItems.map((item) => item.category));
+
+  for (const cat of budgetCategories) {
+    const categoryName = String(cat.category_name || '').trim();
+    if (!categoryName || categoriesWithItems.has(categoryName)) continue;
+
+    categoriesWithItems.add(categoryName);
+    const code = String(cat.category_code || categoryName).trim();
+    merged.push({
+      code,
+      itemName: categoryName,
+      category: categoryName,
+      dept: departmentName || 'All Dept',
+      canCA: true,
+      canRE: true,
+    });
+  }
+
+  return merged;
+};
+
+export function validateExpense(
+  itemName: string,
+  departmentName: string,
+  requestType: 'cash_advance' | 'reimbursement' | 'liquidation',
+  extraItems: ExpenseItem[] = []
+): ExpenseEligibility {
   // Liquidations don't need validation against official expense list
   if (requestType === 'liquidation') {
     return {
@@ -134,7 +167,8 @@ export function validateExpense(itemName: string, departmentName: string, reques
     };
   }
 
-  const item = OFFICIAL_EXPENSE_LIST.find(
+  const searchList = extraItems.length ? [...OFFICIAL_EXPENSE_LIST, ...extraItems] : OFFICIAL_EXPENSE_LIST;
+  const item = searchList.find(
     (e) => e.itemName.toLowerCase() === itemName.toLowerCase() || 
            `${e.code} | ${e.itemName}`.toLowerCase() === itemName.toLowerCase()
   );

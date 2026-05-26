@@ -242,7 +242,7 @@ const NewRequestForm = () => {
         const advancesRes = await api.get(`/api/cash-advances/for-liquidation/${userRes.data.id}`);
         setCashAdvances(advancesRes.data || []);
 
-        // Load official expense list
+        // Load official expense list (includes budget-matrix categories)
         const officialRes = await api.get('/api/requests/official-list');
         setOfficialList(officialRes.data || []);
 
@@ -314,6 +314,17 @@ const NewRequestForm = () => {
     };
 
     loadData();
+
+    const refreshOfficialList = async () => {
+      try {
+        const officialRes = await api.get('/api/requests/official-list');
+        setOfficialList(officialRes.data || []);
+      } catch {
+        // silent refresh
+      }
+    };
+    const officialListIntervalId = setInterval(refreshOfficialList, 5000);
+    return () => clearInterval(officialListIntervalId);
   }, [navigate, initialAdvanceId]);
 
   // Re-fetch categories when department or fiscal year changes
