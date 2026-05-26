@@ -1,6 +1,10 @@
 import { supabase } from './supabase';
 
-const toNumber = (value: unknown) => Number.parseFloat(String(value ?? 0)) || 0;
+// Use integer arithmetic to avoid floating-point precision errors
+// Multiply by 100 for cents, divide by 100 for final display
+const toCents = (value: unknown) => Math.round((Number.parseFloat(String(value ?? 0)) || 0) * 100);
+const fromCents = (cents: number) => cents / 100;
+const toNumber = (value: unknown) => fromCents(toCents(value));
 const normalizeDepartmentName = (value: string) => String(value || '').trim();
 const getDepartmentGroupKey = (department: { name?: string; fiscal_year?: number }) =>
   `${normalizeDepartmentName(department.name || '').toLowerCase()}::${department.fiscal_year ?? ''}`;

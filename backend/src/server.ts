@@ -17,6 +17,7 @@ import budgetRoutes from './routes/budget';
 import cashAdvanceRoutes from './routes/cashAdvances';
 import uploadRoutes from './routes/upload';
 import configRoutes from './routes/config';
+import { rateLimiter, authRateLimiter, passwordResetRateLimiter } from './middleware/rateLimit';
 
 dotenv.config();
 
@@ -26,6 +27,9 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
+// Apply rate limiting to all API routes
+app.use('/api', rateLimiter);
+
 // Request logging middleware
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
@@ -33,7 +37,7 @@ app.use((req, res, next) => {
 });
 
 // Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authRateLimiter, authRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/expenses', expenseRoutes);

@@ -13,8 +13,17 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
     const decoded = jwt.verify(token, process.env.JWT_SECRET!);
     req.user = decoded;
     next();
-  } catch (err) {
-    res.status(400).json({ error: 'Invalid token' });
+  } catch (err: any) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired', message: 'Your session has expired. Please log in again.' });
+    }
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token', message: 'Your authentication token is invalid. Please log in again.' });
+    }
+    if (err.name === 'NotBeforeError') {
+      return res.status(401).json({ error: 'Token not yet valid', message: 'Your authentication token is not yet valid.' });
+    }
+    res.status(401).json({ error: 'Authentication failed', message: 'Unable to authenticate your request. Please log in again.' });
   }
 };
 

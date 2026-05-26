@@ -602,7 +602,8 @@ router.get('/my', authenticate, async (req: any, res) => {
 // POST /api/requests - submit new (employee, supervisor, or accounting)
 router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'accounting'), async (req: any, res) => {
   const { item_name, category, category_id, amount, purpose, priority, department_id, request_type = 'reimbursement', attachments = [], metadata = {}, items = [] } = req.body;
-  const request_code = `REQ-${Date.now()}`;
+  // Use UUID to prevent collision instead of timestamp
+  const request_code = `REQ-${crypto.randomUUID().split('-')[0].toUpperCase()}`;
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const userRole = req.user.role;
   
@@ -1327,6 +1328,11 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
 
   if (request.status !== 'pending_supervisor') {
     return res.status(400).json({ error: 'Only requests waiting for supervisor approval can be approved here' });
+  }
+
+  // Prevent self-approval
+  if (request.employee_id === req.user.id) {
+    return res.status(403).json({ error: 'You cannot approve your own request' });
   }
 
   const { data, error } = await supabase

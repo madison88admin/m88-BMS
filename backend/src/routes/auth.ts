@@ -19,7 +19,7 @@ import {
 
 const router = express.Router();
 const PASSWORD_RESET_TOKEN_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || 30);
-const PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = Number(process.env.PASSWORD_RESET_RESEND_COOLDOWN_SECONDS || 60);
+const PASSWORD_RESET_RESEND_COOLDOWN_SECONDS = Number(process.env.PASSWORD_RESET_RESEND_COOLDOWN_SECONDS || 300);
 const normalizeEmail = (value?: string) => String(value || '').trim().toLowerCase();
 const getAppUrl = (origin?: string | string[]) => {
   const normalizedOrigin = Array.isArray(origin) ? origin[0] : origin;

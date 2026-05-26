@@ -4,6 +4,7 @@ import { supabase } from '../utils/supabase';
 import { buildDepartmentBudgetSummaryMap, fetchRequestAllocationsByRequestId, isBudgetCommittedStatus, normalizeAllocations } from '../utils/budget';
 import { ensureDepartmentsForFiscalYear, toCanonicalDepartmentName, getAccessibleDepartmentIdsForUser, getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { loadBudgetCategoriesForBreakdown } from '../utils/restoreBudgetCategories';
+import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 const normalizeDepartmentName = (value: string) => String(value || '').trim();
 
 // GET /api/departments
-router.get('/', authenticate, async (req: any, res) => {
+router.get('/', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (req: any, res) => {
   let departmentQuery = supabase.from('departments').select('*');
 
   if (req.user.role === 'employee' || req.user.role === 'manager' || req.user.role === 'supervisor') {
@@ -20,9 +21,8 @@ router.get('/', authenticate, async (req: any, res) => {
 
     if (accessibleDepartmentIds.length > 0) {
       departmentQuery = departmentQuery.in('id', accessibleDepartmentIds);
-    } else if (req.user.department_id) {
-      departmentQuery = departmentQuery.eq('id', req.user.department_id);
     } else {
+      // Always enforce department access - never fall back without explicit check
       return res.json([]);
     }
   }
@@ -92,6 +92,9 @@ router.post('/', authenticate, authorize('admin', 'accounting'), async (req, res
     ...createdDepartment,
     generated_departments: yearDepartments
   });
+  
+  // Invalidate cache for departments
+  invalidateCache('/api/departments');
 });
 
 router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {

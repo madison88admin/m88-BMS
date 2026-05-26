@@ -3,6 +3,7 @@ import { supabase } from '../utils/supabase';
 import { authenticate, authorize } from '../middleware/auth';
 import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { restoreAllBudgetCategoriesForFiscalYear } from '../utils/restoreBudgetCategories';
+import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
@@ -40,6 +41,15 @@ const syncDepartmentBudget = async (department_id: string, fiscal_year: number) 
   return total;
 };
 
+const detachCategoryReferences = async (categoryId: string) => {
+  await Promise.all([
+    supabase.from('expense_requests').update({ category_id: null }).eq('category_id', categoryId),
+    supabase.from('request_items').update({ category_id: null }).eq('category_id', categoryId),
+    supabase.from('liquidation_items').update({ category_id: null }).eq('category_id', categoryId),
+    supabase.from('budget_categories').update({ parent_category_id: null }).eq('parent_category_id', categoryId)
+  ]);
+};
+
 // POST /api/budget/categories/restore-all - Recover categories deleted by cascade (admin/accounting)
 router.post('/categories/restore-all', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   try {
@@ -58,7 +68,7 @@ router.post('/categories/restore-all', authenticate, authorize('accounting', 'ad
 });
 
 // GET /api/budget/categories - Get budget categories for a department
-router.get('/categories', authenticate, async (req: any, res) => {
+router.get('/categories', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (req: any, res) => {
   try {
     const { department_id, fiscal_year, all_years } = req.query;
     const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
@@ -147,6 +157,26 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
       if (parentCategory.parent_category_id) {
         return res.status(400).json({ error: 'Parent category cannot itself be a subcategory' });
       }
+      
+      // Check for circular reference
+      const checkCircularReference = async (categoryId: string, visited: Set<string> = new Set()): Promise<boolean> => {
+        if (visited.has(categoryId)) return true;
+        visited.add(categoryId);
+        
+        const { data: category } = await supabase
+          .from('budget_categories')
+          .select('parent_category_id')
+          .eq('id', categoryId)
+          .single();
+        
+        if (!category?.parent_category_id) return false;
+        return checkCircularReference(category.parent_category_id, visited);
+      };
+      
+      const isCircular = await checkCircularReference(parent_category_id);
+      if (isCircular) {
+        return res.status(400).json({ error: 'Circular reference detected in category hierarchy' });
+      }
     }
 
     const { data, error } = await supabase
@@ -168,6 +198,10 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
     if (error) throw error;
 
     await syncDepartmentBudget(department_id, targetFY);
+
+    // Invalidate cache for budget categories
+    invalidateCache('/api/budget/categories');
+    invalidateCache('/api/departments');
 
     res.json(data);
   } catch (err: any) {
@@ -244,6 +278,10 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
 
     await syncDepartmentBudget(current.department_id, current.fiscal_year);
 
+    // Invalidate cache for budget categories
+    invalidateCache('/api/budget/categories');
+    invalidateCache('/api/departments');
+
     res.json(data);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -279,6 +317,10 @@ router.delete('/categories/:id', authenticate, authorize('accounting', 'admin', 
     if (error) throw error;
 
     await syncDepartmentBudget(current.department_id as string, current.fiscal_year as number);
+
+    // Invalidate cache for budget categories
+    invalidateCache('/api/budget/categories');
+    invalidateCache('/api/departments');
 
     res.json({ success: true });
   } catch (err: any) {
