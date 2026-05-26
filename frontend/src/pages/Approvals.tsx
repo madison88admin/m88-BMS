@@ -2164,52 +2164,30 @@ const Approvals = () => {
 
 
 
-                          {Array.isArray(req.liquidation_items) && req.liquidation_items.length > 0 && (
-
+                          {req.latest_liquidation?.cash_advance_id && (
                             <div className="mt-4 overflow-hidden rounded-xl border border-[var(--role-border)]/20 bg-[var(--role-surface)]">
-
-                              <table className="w-full text-left text-xs">
-
-                                <thead className="bg-[var(--role-accent)]/70 text-[var(--role-text)]/70">
-
-                                  <tr>
-
-                                    <th className="px-3 py-2">Date</th>
-
-                                    <th className="px-3 py-2">Description</th>
-
-                                    <th className="px-3 py-2">Receipt</th>
-
-                                    <th className="px-3 py-2 text-right">Amount</th>
-
-                                  </tr>
-
-                                </thead>
-
-                                <tbody>
-
-                                  {req.liquidation_items.map((item: any) => (
-
-                                    <tr key={item.id} className="border-t border-[var(--role-border)]/10">
-
-                                      <td className="px-3 py-2">{item.expense_date || '-'}</td>
-
-                                      <td className="px-3 py-2">{item.description || '-'}</td>
-
-                                      <td className="px-3 py-2">{item.receipt_attached ? 'Yes' : 'No'}</td>
-
-                                      <td className="px-3 py-2 text-right font-semibold">{formatMoney(toNumber(item.amount))}</td>
-
-                                    </tr>
-
-                                  ))}
-
-                                </tbody>
-
-                              </table>
-
+                              <div className="p-3 bg-[var(--role-accent)]/70 text-[var(--role-text)]/70">
+                                <p className="text-xs font-bold uppercase tracking-[0.16em]">Cash Advance Liquidation</p>
+                              </div>
+                              <div className="p-3 text-xs">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <span className="text-[var(--role-text)]/60">Amount Spent:</span>
+                                    <span className="ml-2 font-semibold">{formatMoney(toNumber(req.latest_liquidation.amount_spent))}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[var(--role-text)]/60">Receipts:</span>
+                                    <span className="ml-2 font-semibold">{req.latest_liquidation.receipt_count || 0}</span>
+                                  </div>
+                                </div>
+                                {req.latest_liquidation.remarks && (
+                                  <div className="mt-2">
+                                    <span className="text-[var(--role-text)]/60">Remarks:</span>
+                                    <p className="mt-1 italic">{req.latest_liquidation.remarks}</p>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-
                           )}
 
                         </div>
