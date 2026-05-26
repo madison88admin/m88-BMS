@@ -51,15 +51,6 @@ const resolveCategoryIdFromOfficialItem = (
   return categories.find((category) => category.category_name === selectedItem.category)?.id || '';
 };
 
-interface LiquidationItem {
-  expense_date: string;
-  category_id: string;
-  main_category: string;
-  description: string;
-  amount: number;
-  receipt_attached: boolean;
-}
-
 const NewRequestForm = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -159,7 +150,6 @@ const NewRequestForm = () => {
   // Liquidation Form
   const [liquidationForm, setLiquidationForm] = useState({
     advance_id: initialAdvanceId || '',
-    items: [] as LiquidationItem[],
     attachments: [] as File[]
   });
 
@@ -216,8 +206,8 @@ const NewRequestForm = () => {
   }, [cashAdvanceForm]);
 
   useEffect(() => {
-    const hasItems = liquidationForm.items.length > 0 && liquidationForm.items.some((i: LiquidationItem) => i.amount > 0 || i.description.trim().length > 0);
-    if (hasItems) {
+    const hasDraft = Boolean(liquidationForm.advance_id);
+    if (hasDraft) {
       const { attachments, ...rest } = liquidationForm;
       localStorage.setItem('liquidation_draft', JSON.stringify(rest));
     }
@@ -522,25 +512,18 @@ const NewRequestForm = () => {
         }
       }
 
-      // Create liquidation request
-      const totalLiquidated = liquidationForm.items.reduce((sum: number, item: LiquidationItem) => sum + item.amount, 0);
+      // Create liquidation request using the advance balance as the amount
+      const liquidatedAmount = selectedAdvance.balance;
       
       await api.post('/api/requests', {
         request_type: 'liquidation',
         item_name: `Liquidation - ${selectedAdvance.advance_code}`,
         category: 'Liquidation',
-        amount: totalLiquidated,
+        amount: liquidatedAmount,
         purpose: `Liquidation for ${selectedAdvance.advance_code}`,
         original_advance_id: selectedAdvance.id,
         priority: 'normal',
         attachments
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      // Add liquidation items to cash advance
-      await api.post(`/api/cash-advances/${selectedAdvance.id}/liquidate`, {
-        items: liquidationForm.items
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -559,36 +542,7 @@ const NewRequestForm = () => {
     }
   };
 
-  const addLiquidationItem = () => {
-    setLiquidationForm(prev => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        {
-          expense_date: new Date().toISOString().split('T')[0],
-          category_id: '',
-          main_category: '',
-          description: '',
-          amount: 0,
-          receipt_attached: false
-        }
-      ]
-    }));
-  };
 
-  const updateLiquidationItem = (index: number, field: keyof LiquidationItem, value: any) => {
-    setLiquidationForm((prev: any) => ({
-      ...prev,
-      items: prev.items.map((item: LiquidationItem, i: number) => i === index ? { ...item, [field]: value } : item)
-    }));
-  };
-
-  const removeLiquidationItem = (index: number) => {
-    setLiquidationForm((prev: any) => ({
-      ...prev,
-      items: prev.items.filter((_: any, i: number) => i !== index)
-    }));
-  };
 
   if (loading) {
     return (
@@ -600,10 +554,6 @@ const NewRequestForm = () => {
 
   const getTotalBreakdown = () => {
     return cashAdvanceForm.breakdown.reduce((sum: number, item: any) => sum + (parseFloat(item.amount as string) || 0), 0);
-  };
-
-  const getTotalLiquidated = () => {
-    return liquidationForm.items.reduce((sum: number, item: LiquidationItem) => sum + item.amount, 0);
   };
 
   return (
@@ -1320,159 +1270,15 @@ const NewRequestForm = () => {
             </div>
           )}
 
-          {/* Line Items */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <label className="block text-sm font-medium">Expense Line Items</label>
-              <button
-                type="button"
-                onClick={addLiquidationItem}
-                className="btn-secondary text-sm flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Add Item
-              </button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="border-b border-[var(--role-border)]">
-                  <tr className="text-left text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/60">
-                    <th className="pb-3 font-medium">Date</th>
-                    <th className="pb-3 font-medium">Main Category</th>
-                    <th className="pb-3 font-medium">Sub-category</th>
-                    <th className="pb-3 font-medium text-right">Amount</th>
-                    <th className="pb-3 font-medium text-center">Receipt</th>
-                    <th className="pb-3 font-medium"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--role-border)]">
-                  {liquidationForm.items.map((item, index) => (
-                    <tr key={index}>
-                      <td className="py-2">
-                        <input
-                          type="date"
-                          value={item.expense_date}
-                          onChange={(e) => updateLiquidationItem(index, 'expense_date', e.target.value)}
-                          className="w-full px-2 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-                        />
-                      </td>
-                      {/* Main Category Column */}
-                      <td className="py-2">
-                        <select
-                          value={item.main_category || ''}
-                          onChange={(e) => {
-                            const selectedMainCat = e.target.value;
-                            updateLiquidationItem(index, 'main_category', selectedMainCat);
-                            updateLiquidationItem(index, 'description', ''); // Reset sub-category
-                            updateLiquidationItem(index, 'category_id', ''); // Reset category_id
-                          }}
-                          className="w-full px-2 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-                        >
-                          <option value="">Select...</option>
-                          {getUniqueMainCategories()
-                            .filter(cat => getItemsByMainCategory(cat, 'canRE').length > 0)
-                            .map(cat => (
-                              <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                        </select>
-                      </td>
-                      {/* Sub-category Column - Only shows items from selected main category */}
-                      <td className="py-2">
-                        <select
-                          value={item.description}
-                          onChange={(e) => {
-                            const selectedItemValue = e.target.value;
-                            const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === selectedItemValue);
-                            updateLiquidationItem(index, 'description', selectedItemValue);
-                            if (selectedItem) {
-                              updateLiquidationItem(index, 'category_id', selectedItem.code);
-                            }
-                          }}
-                          className="w-full px-2 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-                        >
-                          <option value="">Select sub-category...</option>
-                          {item.main_category && getItemsByMainCategory(item.main_category, 'canRE')
-                            .filter(subItem => {
-                              const userDeptName = departments.find(d => d.id === liquidationForm.department_id)?.name || '';
-                              const allowedDepts = Array.isArray(subItem.dept) ? subItem.dept : [subItem.dept];
-                              const isDeptAllowed = allowedDepts.includes('All Dept') || allowedDepts.some(d => d.toLowerCase() === userDeptName.toLowerCase());
-                              return isDeptAllowed;
-                            })
-                            .map(subItem => (
-                              <option key={subItem.code} value={`${subItem.code} | ${subItem.itemName}`}>
-                                {subItem.code} | {subItem.itemName}
-                              </option>
-                            ))}
-                        </select>
-                      </td>
-                      <td className="py-2">
-                        <div className="relative">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60 text-sm">₱</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.amount || ''}
-                            onChange={(e) => updateLiquidationItem(index, 'amount', parseFloat(e.target.value) || 0)}
-                            className="w-full pl-6 pr-2 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-                          />
-                        </div>
-                      </td>
-                      <td className="py-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={item.receipt_attached}
-                          onChange={(e) => updateLiquidationItem(index, 'receipt_attached', e.target.checked)}
-                          className="w-5 h-5 rounded border-[var(--role-border)]"
-                        />
-                      </td>
-                      <td className="py-2">
-                        <button
-                          type="button"
-                          onClick={() => removeLiquidationItem(index)}
-                          className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {liquidationForm.items.length === 0 && (
-              <div className="text-center py-6 text-[var(--role-text)]/60 border border-dashed border-[var(--role-border)] rounded-xl">
-                <p>No items added yet</p>
-                <button
-                  type="button"
-                  onClick={addLiquidationItem}
-                  className="mt-2 text-[var(--role-primary)] hover:underline text-sm"
-                >
-                  Add your first expense item
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Summary */}
-          {liquidationForm.items.length > 0 && selectedAdvance && (
+          {/* Liquidation Summary */}
+          {selectedAdvance && (
             <div className="mb-6 p-4 rounded-xl bg-gray-50 border border-gray-200">
               <div className="flex justify-between items-center mb-2">
-                <span>Total Liquidated:</span>
-                <span className="font-semibold">{formatMoney(getTotalLiquidated())}</span>
+                <span>Liquidation amount</span>
+                <span className="font-semibold">{formatMoney(selectedAdvance.balance)}</span>
               </div>
-              <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                <span className="font-medium">Balance:</span>
-                <span className={`font-bold ${getTotalLiquidated() > selectedAdvance.balance ? 'text-red-600' : 'text-emerald-600'}`}>
-                  {formatMoney(selectedAdvance.balance - getTotalLiquidated())}
-                  {getTotalLiquidated() > selectedAdvance.balance ? ' (Over!)' : getTotalLiquidated() < selectedAdvance.balance ? ' (To return)' : ' (Exact)'}
-                </span>
+              <div className="text-sm text-[var(--role-text)]/70">
+                The liquidation amount is based on the remaining cash advance balance.
               </div>
             </div>
           )}
@@ -1540,7 +1346,7 @@ const NewRequestForm = () => {
             </button>
             <button
               type="submit"
-              disabled={submitting || !selectedAdvance || liquidationForm.items.length === 0}
+              disabled={submitting || !selectedAdvance}
               className="btn-primary px-8 flex-1"
             >
               {submitting ? 'Submitting...' : 'Submit Liquidation'}
