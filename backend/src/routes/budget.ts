@@ -71,7 +71,14 @@ router.get('/categories', authenticate, async (req: any, res) => {
     const { data, error } = await query.order('category_name');
     if (error) throw error;
 
-    res.json(data || []);
+    const rows = data || [];
+    const nameById = new Map(rows.map((row: any) => [row.id, row.category_name]));
+    const enriched = rows.map((row: any) => ({
+      ...row,
+      parent_category_name: row.parent_category_id ? nameById.get(row.parent_category_id) || null : null,
+    }));
+
+    res.json(enriched);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -80,7 +87,7 @@ router.get('/categories', authenticate, async (req: any, res) => {
 // POST /api/budget/categories - Create budget category (finance/admin only)
 router.post('/categories', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   try {
-    const { department_id, category_code, category_name, budget_amount, fiscal_year } = req.body;
+    const { department_id, category_code, category_name, budget_amount, fiscal_year, parent_category_id } = req.body;
     const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
     const requestedBudget = toNumber(budget_amount);
 
@@ -106,6 +113,24 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
 
     const targetFY = toNumber(fiscal_year || activeFiscalYear);
 
+    if (parent_category_id) {
+      const { data: parentCategory, error: parentError } = await supabase
+        .from('budget_categories')
+        .select('id, department_id, fiscal_year, parent_category_id')
+        .eq('id', parent_category_id)
+        .maybeSingle();
+
+      if (parentError || !parentCategory) {
+        return res.status(400).json({ error: 'Parent category not found' });
+      }
+      if (parentCategory.department_id !== department_id || Number(parentCategory.fiscal_year) !== targetFY) {
+        return res.status(400).json({ error: 'Parent category must belong to the same department and fiscal year' });
+      }
+      if (parentCategory.parent_category_id) {
+        return res.status(400).json({ error: 'Parent category cannot itself be a subcategory' });
+      }
+    }
+
     const { data, error } = await supabase
       .from('budget_categories')
       .insert({
@@ -115,6 +140,7 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
         category_name,
         budget_amount: requestedBudget,
         remaining_amount: requestedBudget,
+        parent_category_id: parent_category_id || null,
         created_at: new Date(),
         updated_at: new Date()
       })
@@ -135,7 +161,7 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
 router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { budget_amount, category_name } = req.body;
+    const { budget_amount, category_name, parent_category_id } = req.body;
 
     // Get current category to calculate remaining adjustment
     const { data: current } = await supabase
@@ -154,14 +180,44 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
 
     const newRemaining = Math.max(0, requestedBudget - usedAmount - committedAmount);
 
+    const updatePayload: Record<string, unknown> = {
+      budget_amount: requestedBudget,
+      category_name: category_name || current.category_name,
+      remaining_amount: newRemaining,
+      updated_at: new Date(),
+    };
+
+    if (parent_category_id !== undefined) {
+      if (parent_category_id === null || parent_category_id === '') {
+        updatePayload.parent_category_id = null;
+      } else if (parent_category_id === id) {
+        return res.status(400).json({ error: 'Category cannot be its own parent' });
+      } else {
+        const { data: parentCategory, error: parentError } = await supabase
+          .from('budget_categories')
+          .select('id, department_id, fiscal_year, parent_category_id')
+          .eq('id', parent_category_id)
+          .maybeSingle();
+
+        if (parentError || !parentCategory) {
+          return res.status(400).json({ error: 'Parent category not found' });
+        }
+        if (
+          parentCategory.department_id !== current.department_id ||
+          Number(parentCategory.fiscal_year) !== Number(current.fiscal_year)
+        ) {
+          return res.status(400).json({ error: 'Parent category must belong to the same department and fiscal year' });
+        }
+        if (parentCategory.parent_category_id) {
+          return res.status(400).json({ error: 'Parent category cannot itself be a subcategory' });
+        }
+        updatePayload.parent_category_id = parent_category_id;
+      }
+    }
+
     const { data, error } = await supabase
       .from('budget_categories')
-      .update({
-        budget_amount: requestedBudget,
-        category_name: category_name || current.category_name,
-        remaining_amount: newRemaining,
-        updated_at: new Date()
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();

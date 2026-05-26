@@ -10,6 +10,60 @@ const FX_ENDPOINT = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=PHP,
 const RECENT_PAGE_SIZE = 4;
 const CATEGORY_PAGE_SIZE = 5;
 
+const enrichCategories = (categories: any[]) => {
+  const nameById = new Map(categories.map((category) => [category.id, category.category_name]));
+  return categories.map((category) => ({
+    ...category,
+    parent_category_name: category.parent_category_id ? nameById.get(category.parent_category_id) || null : null,
+  }));
+};
+
+const buildOrderedCategories = (categories: any[], searchQuery: string) => {
+  const query = searchQuery.trim().toLowerCase();
+  const filtered = !query
+    ? categories
+    : categories.filter((category) => {
+        const parentName = String(category.parent_category_name || '').toLowerCase();
+        return (
+          String(category.category_name || '').toLowerCase().includes(query) ||
+          String(category.category_code || '').toLowerCase().includes(query) ||
+          parentName.includes(query)
+        );
+      });
+
+  const visibleIds = new Set(filtered.map((category) => category.id));
+  const roots = filtered.filter(
+    (category) => !category.parent_category_id || !visibleIds.has(category.parent_category_id)
+  );
+  const childrenByParent = new Map<string, any[]>();
+
+  filtered.forEach((category) => {
+    if (category.parent_category_id && visibleIds.has(category.parent_category_id)) {
+      const siblings = childrenByParent.get(category.parent_category_id) || [];
+      siblings.push(category);
+      childrenByParent.set(category.parent_category_id, siblings);
+    }
+  });
+
+  const ordered: Array<{ cat: any; depth: number }> = [];
+  const visit = (category: any, depth: number) => {
+    ordered.push({ cat: category, depth });
+    (childrenByParent.get(category.id) || [])
+      .sort((left, right) => String(left.category_name).localeCompare(String(right.category_name)))
+      .forEach((child) => visit(child, depth + 1));
+  };
+
+  roots
+    .sort((left, right) => String(left.category_name).localeCompare(String(right.category_name)))
+    .forEach((root) => visit(root, 0));
+
+  filtered
+    .filter((category) => !ordered.some((entry) => entry.cat.id === category.id))
+    .forEach((category) => visit(category, 0));
+
+  return ordered;
+};
+
 const toUsd = (amount: number, fxRate: number) => amount / (fxRate || DEFAULT_FX_RATE_PHP);
 const toCurrency = (amount: number, fromRate: number, toRate: number) => (amount / fromRate) * toRate;
 
@@ -52,7 +106,8 @@ const BudgetManagement = () => {
   const [detailError, setDetailError] = useState('');
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>({});
   const [showAddCategory, setShowAddCategory] = useState(false);
-  const [newCategory, setNewCategory] = useState({ category_code: '', category_name: '', budget_amount: '' });
+  const [newCategory, setNewCategory] = useState({ category_code: '', category_name: '', budget_amount: '', parent_category_id: '' });
+  const [categorySearch, setCategorySearch] = useState('');
   const [fxRatePhp, setFxRatePhp] = useState(DEFAULT_FX_RATE_PHP);
   const [fxRateIdr, setFxRateIdr] = useState(DEFAULT_FX_RATE_IDR);
   const [fxRateUpdatedAt, setFxRateUpdatedAt] = useState('');
@@ -124,6 +179,26 @@ const BudgetManagement = () => {
   const categoryAllocatedTotal = (selectedBreakdown?.categories || []).reduce((s: number, c: any) => s + toNumber(c.budget_amount), 0);
   const categoryAllocationRemaining = Math.max(0, editableBudgetValue - categoryAllocatedTotal);
 
+  const enrichedCategories = useMemo(
+    () => enrichCategories(selectedBreakdown?.categories || []),
+    [selectedBreakdown?.categories]
+  );
+
+  const orderedCategories = useMemo(
+    () => buildOrderedCategories(enrichedCategories, categorySearch),
+    [enrichedCategories, categorySearch]
+  );
+
+  const parentCategoryOptions = useMemo(
+    () => enrichedCategories.filter((category) => !category.parent_category_id),
+    [enrichedCategories]
+  );
+
+  const paginatedCategories = useMemo(
+    () => orderedCategories.slice((categoryPage - 1) * CATEGORY_PAGE_SIZE, categoryPage * CATEGORY_PAGE_SIZE),
+    [orderedCategories, categoryPage]
+  );
+
   useEffect(() => {
     fetchDepartments();
     fetchExchangeRate(false);
@@ -137,6 +212,10 @@ const BudgetManagement = () => {
     }
     return () => { window.clearInterval(id); if (ch && supabase) supabase.removeChannel(ch); };
   }, [selectedDepartmentId]);
+
+  useEffect(() => {
+    setCategoryPage(1);
+  }, [categorySearch, selectedDepartmentId]);
 
   useEffect(() => {
     if (!selectedDepartmentId) return;
@@ -221,9 +300,16 @@ const BudgetManagement = () => {
     const token = localStorage.getItem('token');
     if (!selectedDepartmentId || !newCategory.category_code || !newCategory.category_name) { toast.error('Fill in category code and name'); return; }
     try {
-      await api.post('/api/budget/categories', { department_id: selectedDepartmentId, fiscal_year: selectedFiscalYear, category_code: newCategory.category_code.toUpperCase(), category_name: newCategory.category_name, budget_amount: parseFloat(newCategory.budget_amount) || 0 }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post('/api/budget/categories', {
+        department_id: selectedDepartmentId,
+        fiscal_year: selectedFiscalYear,
+        category_code: newCategory.category_code.toUpperCase(),
+        category_name: newCategory.category_name,
+        budget_amount: parseFloat(newCategory.budget_amount) || 0,
+        parent_category_id: newCategory.parent_category_id || null,
+      }, { headers: { Authorization: `Bearer ${token}` } });
       toast.success('Category added!');
-      setNewCategory({ category_code: '', category_name: '', budget_amount: '' }); setShowAddCategory(false);
+      setNewCategory({ category_code: '', category_name: '', budget_amount: '', parent_category_id: '' }); setShowAddCategory(false);
       if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); }
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to add category')); }
   };
@@ -498,6 +584,22 @@ const BudgetManagement = () => {
                       </button>
                     </div>
 
+                    <div className="mb-4">
+                      <label className="field-label">Search categories</label>
+                      <input
+                        type="search"
+                        value={categorySearch}
+                        onChange={(e) => setCategorySearch(e.target.value)}
+                        placeholder="Search by code, name, or parent category…"
+                        className="field-input"
+                      />
+                      {categorySearch.trim() && (
+                        <p className="mt-1 text-xs text-[var(--role-text)]/50">
+                          Showing {orderedCategories.length} of {enrichedCategories.length} categories
+                        </p>
+                      )}
+                    </div>
+
                     {/* Budget / Allocated / Available summary */}
                     <div className="mb-4 flex gap-2 text-xs">
                       {[{ label: 'Budget', val: editableBudgetValue, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' }, { label: 'Allocated', val: categoryAllocatedTotal, cls: 'bg-amber-50 border-amber-100 text-amber-700' }, { label: 'Available', val: categoryAllocationRemaining, cls: 'bg-blue-50 border-blue-100 text-blue-700' }].map(s => (
@@ -517,7 +619,22 @@ const BudgetManagement = () => {
 
                     {/* Add form */}
                     {showAddCategory && (
-                      <div className="mb-4 p-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]/50">
+                      <div className="mb-4 p-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]/50 space-y-2">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Under parent category (optional)</label>
+                          <select
+                            value={newCategory.parent_category_id}
+                            onChange={(e) => setNewCategory((prev) => ({ ...prev, parent_category_id: e.target.value }))}
+                            className="mt-1 w-full px-2 py-1.5 text-sm rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)]"
+                          >
+                            <option value="">None — top-level category</option>
+                            {parentCategoryOptions.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.category_code} — {category.category_name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         <div className="flex gap-2">
                           <input type="text" placeholder="Code" value={newCategory.category_code} onChange={e => setNewCategory(p => ({ ...p, category_code: e.target.value.toUpperCase() }))} className="w-20 px-2 py-1.5 text-sm rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)]" />
                           <input type="text" placeholder="Category Name" value={newCategory.category_name} onChange={e => setNewCategory(p => ({ ...p, category_name: e.target.value }))} className="flex-1 px-2 py-1.5 text-sm rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)]" />
@@ -528,19 +645,24 @@ const BudgetManagement = () => {
                     )}
 
                     {/* Category list */}
-                    {selectedBreakdown?.categories?.length > 0 ? (
+                    {enrichedCategories.length > 0 ? (
                       <>
                         <div className="space-y-1 max-h-64 overflow-y-auto">
-                          {selectedBreakdown.categories
-                            .slice((categoryPage - 1) * CATEGORY_PAGE_SIZE, categoryPage * CATEGORY_PAGE_SIZE)
-                            .map((cat: any) => {
+                          {paginatedCategories.map(({ cat, depth }) => {
                               const budget = toNumber(cat.budget_amount), used = toNumber(cat.used_amount), rem = toNumber(cat.remaining_amount);
                               const pct = budget > 0 ? (used / budget) * 100 : 0;
                               return (
-                                <div key={cat.id} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-3">
+                                <div key={cat.id} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-3" style={{ marginLeft: `${depth * 16}px` }}>
                                   <div className="flex items-center gap-2 mb-1">
                                     <span className="font-mono text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">{cat.category_code}</span>
-                                    <span className="flex-1 text-sm font-medium truncate text-[var(--role-text)]">{cat.category_name}</span>
+                                    <span className="flex-1 text-sm font-medium truncate text-[var(--role-text)]">
+                                      {depth > 0 ? '↳ ' : ''}{cat.category_name}
+                                    </span>
+                                    {cat.parent_category_name && (
+                                      <span className="text-[10px] text-[var(--role-text)]/50 whitespace-nowrap">
+                                        under {cat.parent_category_name}
+                                      </span>
+                                    )}
                                     <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                                       <input type="number" step="0.01" min="0" value={budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount} onChange={e => setBudgetInputs(p => ({ ...p, [`cat_${cat.id}`]: e.target.value }))} className="w-20 px-2 py-1 text-right text-xs rounded border border-[var(--role-border)] bg-[var(--role-accent)]" />
                                       <button onClick={() => { const v = parseFloat(budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount); if (v >= 0) updateCategoryBudget(cat.id, v); }} className="px-2 py-1 text-[10px] bg-emerald-500 text-white rounded hover:bg-emerald-600">✓</button>
@@ -558,12 +680,15 @@ const BudgetManagement = () => {
                               );
                             })}
                         </div>
-                        {selectedBreakdown.categories.length > CATEGORY_PAGE_SIZE && (
+                        {orderedCategories.length === 0 && categorySearch.trim() && (
+                          <p className="text-sm text-center text-[var(--role-text)]/50 py-4">No categories match your search.</p>
+                        )}
+                        {orderedCategories.length > CATEGORY_PAGE_SIZE && (
                           <div className="mt-3 flex items-center justify-between rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] px-3 py-2">
-                            <span className="text-xs text-[var(--role-text)]/50">Page {categoryPage} / {Math.ceil(selectedBreakdown.categories.length / CATEGORY_PAGE_SIZE)}</span>
+                            <span className="text-xs text-[var(--role-text)]/50">Page {categoryPage} / {Math.ceil(orderedCategories.length / CATEGORY_PAGE_SIZE)}</span>
                             <div className="flex gap-2">
                               <button onClick={() => setCategoryPage(p => Math.max(1, p - 1))} disabled={categoryPage === 1} className="btn-secondary !px-3 !py-1 !text-xs disabled:opacity-50">← Prev</button>
-                              <button onClick={() => setCategoryPage(p => Math.min(Math.ceil(selectedBreakdown.categories.length / CATEGORY_PAGE_SIZE), p + 1))} disabled={categoryPage >= Math.ceil(selectedBreakdown.categories.length / CATEGORY_PAGE_SIZE)} className="btn-secondary !px-3 !py-1 !text-xs disabled:opacity-50">Next →</button>
+                              <button onClick={() => setCategoryPage(p => Math.min(Math.ceil(orderedCategories.length / CATEGORY_PAGE_SIZE), p + 1))} disabled={categoryPage >= Math.ceil(orderedCategories.length / CATEGORY_PAGE_SIZE)} className="btn-secondary !px-3 !py-1 !text-xs disabled:opacity-50">Next →</button>
                             </div>
                           </div>
                         )}

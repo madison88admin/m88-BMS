@@ -509,7 +509,7 @@ const buildOfficialListForDepartment = async (
   const [{ data: budgetCategories, error: budgetError }, { data: deptData }] = await Promise.all([
     supabase
       .from('budget_categories')
-      .select('category_code, category_name')
+      .select('id, category_code, category_name, parent_category_id')
       .eq('department_id', departmentId)
       .eq('fiscal_year', fiscalYear),
     supabase.from('departments').select('name').eq('id', departmentId).maybeSingle(),
@@ -524,7 +524,13 @@ const buildOfficialListForDepartment = async (
   const allowedCategories = budgetCategories.map((bc) => bc.category_name);
   const filteredList = OFFICIAL_EXPENSE_LIST.filter((item) => allowedCategories.includes(item.category));
 
-  return mergeBudgetCategoriesIntoOfficialList(filteredList, budgetCategories, departmentName);
+  const nameById = new Map((budgetCategories || []).map((bc: any) => [bc.id, bc.category_name]));
+  const enrichedCategories = (budgetCategories || []).map((bc: any) => ({
+    ...bc,
+    parent_category_name: bc.parent_category_id ? nameById.get(bc.parent_category_id) || null : null,
+  }));
+
+  return mergeBudgetCategoriesIntoOfficialList(filteredList, enrichedCategories, departmentName);
 };
 
 // GET /api/requests/official-list - get filtered official expense list based on department budgets

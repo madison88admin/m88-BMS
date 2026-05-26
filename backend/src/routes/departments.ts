@@ -220,7 +220,7 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
   // Fetch categories for this department
   const { data: categories } = await supabase
     .from('budget_categories')
-    .select('id, category_code, category_name, budget_amount, used_amount, committed_amount, department_id')
+    .select('id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id')
     .eq('department_id', departmentId)
     .order('category_name');
 
