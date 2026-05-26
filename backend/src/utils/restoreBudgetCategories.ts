@@ -14,7 +14,7 @@ const slugCategoryCode = (name: string, index: number) => {
 };
 
 const assignUniqueCategoryCodes = (
-  drafts: Array<{ category_name: string; [key: string]: unknown }>,
+  drafts: Array<{ category_name: string; category_code?: string; budget_amount?: number; used_amount?: number; committed_amount?: number; remaining_amount?: number; [key: string]: unknown }>,
   reservedCodes: Set<string>
 ) => {
   const usedCodes = new Set(reservedCodes);
@@ -338,7 +338,7 @@ export const recoverCategoriesFromExpenseHistory = async (
     draftCategories.filter(
       (draft) => !existingNames.has(String(draft.category_name).trim().toLowerCase())
     ),
-    reservedCodes
+    reservedCodes as Set<string>
   );
 
   const now = new Date().toISOString();
@@ -352,10 +352,10 @@ export const recoverCategoriesFromExpenseHistory = async (
         fiscal_year: targetFiscalYear,
         category_code: draft.category_code,
         category_name: draft.category_name,
-        budget_amount: draft.budget_amount,
-        used_amount: draft.used_amount,
-        committed_amount: draft.committed_amount,
-        remaining_amount: draft.remaining_amount,
+        budget_amount: (draft as any).budget_amount || 0,
+        used_amount: (draft as any).used_amount || 0,
+        committed_amount: (draft as any).committed_amount || 0,
+        remaining_amount: (draft as any).remaining_amount || 0,
         parent_category_id: null,
         updated_at: now
       })

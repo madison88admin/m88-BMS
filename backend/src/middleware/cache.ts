@@ -15,8 +15,8 @@ const CACHE_TTL = {
 };
 
 // Generate cache key from request
-const generateCacheKey = (req: AuthRequest): string => {
-  const userId = req.user?.id || 'anonymous';
+const generateCacheKey = (req: Request): string => {
+  const userId = (req as any).user?.id || 'anonymous';
   const path = req.path;
   const query = JSON.stringify(req.query);
   return `${userId}:${path}:${query}`;
