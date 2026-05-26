@@ -37,7 +37,7 @@ app.use((req, res, next) => {
 });
 
 // Routes
-app.use('/api/auth', authRateLimiter, authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/expenses', expenseRoutes);
