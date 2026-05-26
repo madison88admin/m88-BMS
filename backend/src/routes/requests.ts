@@ -14,7 +14,7 @@ import {
   fetchRequestAllocationsByRequestId,
   normalizeAllocations
 } from '../utils/budget';
-import { validateExpense, OFFICIAL_EXPENSE_LIST } from '../utils/expenseValidator';
+import { validateExpense, OFFICIAL_EXPENSE_LIST, mergeBudgetCategoriesIntoOfficialList, ExpenseItem } from '../utils/expenseValidator';
 
 const router = express.Router();
 
@@ -502,46 +502,46 @@ const notifyEmployee = async (employeeId: string, requestCode: string, subject: 
   }
 };
 
+const buildOfficialListForDepartment = async (
+  departmentId: string,
+  fiscalYear: number
+): Promise<ExpenseItem[]> => {
+  const [{ data: budgetCategories, error: budgetError }, { data: deptData }] = await Promise.all([
+    supabase
+      .from('budget_categories')
+      .select('category_code, category_name')
+      .eq('department_id', departmentId)
+      .eq('fiscal_year', fiscalYear),
+    supabase.from('departments').select('name').eq('id', departmentId).maybeSingle(),
+  ]);
+
+  const departmentName = deptData?.name || 'All Dept';
+
+  if (budgetError || !budgetCategories?.length) {
+    return OFFICIAL_EXPENSE_LIST;
+  }
+
+  const allowedCategories = budgetCategories.map((bc) => bc.category_name);
+  const filteredList = OFFICIAL_EXPENSE_LIST.filter((item) => allowedCategories.includes(item.category));
+
+  return mergeBudgetCategoriesIntoOfficialList(filteredList, budgetCategories, departmentName);
+};
+
 // GET /api/requests/official-list - get filtered official expense list based on department budgets
 router.get('/official-list', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
-  
-  // Get user's department categories with budget
   const departmentId = req.user.department_id;
-  
+
   if (!departmentId) {
-    // For users without departments (vp, president, admin, etc.), return full list
     return res.json(OFFICIAL_EXPENSE_LIST);
   }
-  
-  // Fetch budget categories for the user's department
-  const { data: budgetCategories, error: budgetError } = await supabase
-    .from('budget_categories')
-    .select('category_name')
-    .eq('department_id', departmentId)
-    .eq('fiscal_year', activeFiscalYear);
-  
-  if (budgetError || !budgetCategories || budgetCategories.length === 0) {
-    // If no budget categories found, return full list for now
-    // TODO: Implement proper budget-based filtering once category names are aligned
-    return res.json(OFFICIAL_EXPENSE_LIST);
+
+  try {
+    const list = await buildOfficialListForDepartment(departmentId, activeFiscalYear);
+    res.json(list.length ? list : OFFICIAL_EXPENSE_LIST);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
-  
-  // Extract category names that have budget
-  const allowedCategories = budgetCategories.map(bc => bc.category_name);
-  
-  // Filter official expense list to only include items from categories with budget
-  const filteredList = OFFICIAL_EXPENSE_LIST.filter(item => {
-    // Use the item's category property directly
-    return allowedCategories.includes(item.category);
-  });
-  
-  // If filtering resulted in empty list, return full list as fallback
-  if (filteredList.length === 0) {
-    return res.json(OFFICIAL_EXPENSE_LIST);
-  }
-  
-  res.json(filteredList);
 });
 
 // GET /api/requests - list filtered by role/dept
@@ -613,38 +613,41 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   if (request_type !== 'liquidation') {
     const { data: deptData } = await supabase.from('departments').select('name').eq('id', targetDepartmentId).single();
     const departmentName = deptData?.name || 'Unknown';
-    
-    // If multiple items provided, validate each one
-    if (items && items.length > 0) {
-      for (const item of items) {
-        const validation = validateExpense(item.item_name, departmentName, request_type);
-        if (!validation.allowed) {
-          return res.status(400).json({ 
-            error: `Invalid item "${item.item_name}": ${validation.reason}`,
-            details: {
-              code: validation.code,
-              category: validation.category,
-              required_department: validation.department,
-              can_ca: validation.canCA,
-              can_re: validation.canRE
-            }
-          });
-        }
-      }
-    } else {
-      const validation = validateExpense(item_name, departmentName, request_type);
+    const officialListForDept = targetDepartmentId
+      ? await buildOfficialListForDepartment(targetDepartmentId, activeFiscalYear)
+      : OFFICIAL_EXPENSE_LIST;
+    const budgetOnlyItems = officialListForDept.filter(
+      (entry) => !OFFICIAL_EXPENSE_LIST.some(
+        (official) => official.code === entry.code && official.itemName === entry.itemName && official.category === entry.category
+      )
+    );
+
+    const rejectValidation = (label: string, validation: ReturnType<typeof validateExpense>) => {
       if (!validation.allowed) {
-        return res.status(400).json({ 
-          error: validation.reason,
+        return res.status(400).json({
+          error: `Invalid item "${label}": ${validation.reason}`,
           details: {
             code: validation.code,
             category: validation.category,
             required_department: validation.department,
             can_ca: validation.canCA,
-            can_re: validation.canRE
-          }
+            can_re: validation.canRE,
+          },
         });
       }
+      return null;
+    };
+
+    if (items && items.length > 0) {
+      for (const item of items) {
+        const validation = validateExpense(item.item_name, departmentName, request_type, budgetOnlyItems);
+        const rejected = rejectValidation(item.item_name, validation);
+        if (rejected) return rejected;
+      }
+    } else {
+      const validation = validateExpense(item_name, departmentName, request_type, budgetOnlyItems);
+      const rejected = rejectValidation(item_name, validation);
+      if (rejected) return rejected;
     }
   }
 
