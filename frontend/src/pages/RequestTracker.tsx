@@ -39,10 +39,12 @@ const RequestTracker = () => {
   const [requests, setRequests] = useState<any[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [liquidationDraft, setLiquidationDraft] = useState({ 
-    actual_amount: '', 
+    cash_advance_id: '',
+    amount_spent: '', 
     remarks: '', 
     attachments: [] as { file_name: string, file_url: string }[] 
   });
+  const [cashAdvances, setCashAdvances] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'date' | 'amount'>('date');
@@ -169,8 +171,22 @@ const RequestTracker = () => {
     }
   };
 
+  const fetchCashAdvances = async () => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await api.get('/api/cash-advances', { 
+        headers: { Authorization: `Bearer ${token}` },
+        params: { status_in: 'outstanding,partially_liquidated' }
+      });
+      setCashAdvances(res.data || []);
+    } catch {
+      toast.error('Failed to fetch cash advances');
+    }
+  };
+
   useEffect(() => {
     void fetchRequests();
+    void fetchCashAdvances();
 
     // Supabase Realtime Subscription
     let channel: any;
@@ -242,8 +258,11 @@ const RequestTracker = () => {
 
   const submitLiquidation = async () => {
     if (!selectedRequest) return;
-    if (!liquidationDraft.actual_amount || Number(liquidationDraft.actual_amount) <= 0) {
-      return toast.error('Please enter a valid actual amount');
+    if (!liquidationDraft.cash_advance_id) {
+      return toast.error('Please select a cash advance');
+    }
+    if (!liquidationDraft.amount_spent || Number(liquidationDraft.amount_spent) <= 0) {
+      return toast.error('Please enter a valid amount spent');
     }
     const token = localStorage.getItem('token');
     const loadingToast = toast.loading('Submitting liquidation...');
@@ -251,7 +270,8 @@ const RequestTracker = () => {
       await api.patch(
         `/api/requests/${selectedRequest.id}/liquidation`,
         {
-          actual_amount: Number(liquidationDraft.actual_amount),
+          cash_advance_id: liquidationDraft.cash_advance_id,
+          amount_spent: Number(liquidationDraft.amount_spent),
           remarks: liquidationDraft.remarks,
           attachments: liquidationDraft.attachments
         },
@@ -259,8 +279,9 @@ const RequestTracker = () => {
       );
       toast.dismiss(loadingToast);
       toast.success('Liquidation submitted!');
-      setLiquidationDraft({ actual_amount: '', remarks: '', attachments: [] });
+      setLiquidationDraft({ cash_advance_id: '', amount_spent: '', remarks: '', attachments: [] });
       await fetchRequests(false);
+      await fetchCashAdvances();
     } catch (err: any) {
       toast.dismiss(loadingToast);
       toast.error(getErrorMessage(err, 'Liquidation failed'));
@@ -916,13 +937,25 @@ const RequestTracker = () => {
                   {selectedRequest.latest_liquidation?.status === 'returned' ? 'Resubmit Liquidation' : 'Submit Liquidation'}
                 </p>
                 <div className="mt-4 grid grid-cols-1 gap-3">
+                  <select
+                    className="field-input"
+                    value={liquidationDraft.cash_advance_id}
+                    onChange={(event) => setLiquidationDraft((current) => ({ ...current, cash_advance_id: event.target.value }))}
+                  >
+                    <option value="">Select Cash Advance</option>
+                    {cashAdvances.map((ca: any) => (
+                      <option key={ca.id} value={ca.id}>
+                        {ca.advance_code} - Balance: {formatMoney(Number(ca.balance))}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     type="number"
                     step="0.01"
                     className="field-input"
-                    placeholder="Actual amount spent"
-                    value={liquidationDraft.actual_amount}
-                    onChange={(event) => setLiquidationDraft((current) => ({ ...current, actual_amount: event.target.value }))}
+                    placeholder="Amount spent"
+                    value={liquidationDraft.amount_spent}
+                    onChange={(event) => setLiquidationDraft((current) => ({ ...current, amount_spent: event.target.value }))}
                   />
                   <textarea
                     className="field-input min-h-[120px]"

@@ -945,37 +945,45 @@ router.get('/:id', authenticate, async (req: any, res) => {
 router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 'supervisor', 'accounting'), async (req: any, res) => {
   try {
     const { id } = req.params;
-    const actualAmount = toNumber(req.body?.actual_amount);
+    const cashAdvanceId = req.body?.cash_advance_id;
+    const amountSpent = toNumber(req.body?.amount_spent);
     const remarks = toText(req.body?.remarks);
     const attachments = req.body?.attachments || []; // Support multiple attachments
 
-    const { data: request, error: requestError } = await supabase
-      .from('expense_requests')
+    // Validate cash advance selection
+    if (!cashAdvanceId) {
+      return res.status(400).json({ error: 'Cash advance selection is required for liquidation.' });
+    }
+
+    if (amountSpent <= 0) {
+      return res.status(400).json({ error: 'Amount spent must be greater than zero.' });
+    }
+
+    // Get cash advance details
+    const { data: cashAdvance, error: cashAdvanceError } = await supabase
+      .from('cash_advances')
       .select('*')
-      .eq('id', id)
+      .eq('id', cashAdvanceId)
       .single();
 
-    if (requestError || !request) {
-      console.error('Request not found or error:', requestError);
-      return res.status(400).json({ error: requestError?.message || 'Request not found.' });
+    if (cashAdvanceError || !cashAdvance) {
+      return res.status(400).json({ error: 'Cash advance not found.' });
     }
 
-    const isTrustedLiquidator = req.user.role === 'supervisor' || req.user.role === 'accounting';
-    if (!isTrustedLiquidator && request.employee_id !== req.user.id) {
-      return res.status(403).json({ error: 'Forbidden: You do not own this request.' });
+    // Verify user owns the cash advance or is authorized
+    if (cashAdvance.employee_id !== req.user.id && req.user.role !== 'supervisor' && req.user.role !== 'accounting') {
+      return res.status(403).json({ error: 'Forbidden: You do not own this cash advance.' });
     }
 
-    if (request.status !== 'released') {
-      return res.status(400).json({ error: 'Liquidation can only be submitted after the budget has been released.' });
+    // Verify cash advance is in liquidatable state
+    if (cashAdvance.status === 'fully_liquidated') {
+      return res.status(400).json({ error: 'This cash advance is already fully liquidated.' });
     }
 
-    if (actualAmount <= 0) {
-      return res.status(400).json({ error: 'Actual liquidation amount must be greater than zero.' });
+    // Verify amount spent does not exceed cash advance balance
+    if (amountSpent > Number(cashAdvance.balance)) {
+      return res.status(400).json({ error: `Amount spent cannot exceed cash advance balance of ${cashAdvance.balance}.` });
     }
-
-    const requestAmount = toNumber(request.amount);
-    const reimbursableAmount = Math.max(actualAmount - requestAmount, 0);
-    const cashReturnAmount = Math.max(requestAmount - actualAmount, 0);
 
     const { data: existingLiquidation } = await supabase
       .from('request_liquidations')
@@ -992,9 +1000,12 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
         .update({
           status: 'submitted',
           submitted_at: new Date(),
-          actual_amount: actualAmount,
-          reimbursable_amount: reimbursableAmount,
-          cash_return_amount: cashReturnAmount,
+          cash_advance_id: cashAdvanceId,
+          amount_spent: amountSpent,
+          actual_amount: amountSpent, // Keep for backward compatibility
+          reimbursable_amount: Math.max(amountSpent - Number(cashAdvance.amount_issued), 0),
+          cash_return_amount: Math.max(Number(cashAdvance.amount_issued) - amountSpent, 0),
+          receipt_count: attachments.length,
           remarks,
           updated_at: new Date()
         })
@@ -1006,12 +1017,15 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
         .from('request_liquidations')
         .insert({
           request_id: id,
-          liquidation_no: createLiquidationNumber(request.request_code),
+          liquidation_no: createLiquidationNumber(cashAdvance.advance_code),
           status: 'submitted',
           submitted_at: new Date(),
-          actual_amount: actualAmount,
-          reimbursable_amount: reimbursableAmount,
-          cash_return_amount: cashReturnAmount,
+          cash_advance_id: cashAdvanceId,
+          amount_spent: amountSpent,
+          actual_amount: amountSpent, // Keep for backward compatibility
+          reimbursable_amount: Math.max(amountSpent - Number(cashAdvance.amount_issued), 0),
+          cash_return_amount: Math.max(Number(cashAdvance.amount_issued) - amountSpent, 0),
+          receipt_count: attachments.length,
           remarks,
           created_by: req.user.id,
           created_at: new Date(),
