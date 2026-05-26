@@ -3,6 +3,7 @@ import { authenticate, authorize } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
 import { buildDepartmentBudgetSummaryMap, fetchRequestAllocationsByRequestId, isBudgetCommittedStatus, normalizeAllocations } from '../utils/budget';
 import { ensureDepartmentsForFiscalYear, toCanonicalDepartmentName, getAccessibleDepartmentIdsForUser, getLatestConfiguredFiscalYear } from '../utils/fiscal';
+import { loadBudgetCategoriesForBreakdown } from '../utils/restoreBudgetCategories';
 
 const router = express.Router();
 
@@ -217,12 +218,17 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
       .reduce((sum, transaction) => sum + toNumber(transaction.amount), 0)
   };
 
-  // Fetch categories for this department
-  const { data: categories } = await supabase
-    .from('budget_categories')
-    .select('id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id')
-    .eq('department_id', departmentId)
-    .order('category_name');
+  let categories: any[] = [];
+  try {
+    categories = await loadBudgetCategoriesForBreakdown(
+      supabase,
+      relatedDepartmentIds,
+      Number(selectedDepartment.fiscal_year),
+      departmentId
+    );
+  } catch (categoryError: any) {
+    return res.status(400).json({ error: categoryError?.message || categoryError });
+  }
 
   // If categories are set, their sum IS the annual budget
   const categoryBudgetTotal = (categories || []).reduce((s: number, c: any) => s + toNumber(c.budget_amount), 0);

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '../utils/supabase';
 import { authenticate, authorize } from '../middleware/auth';
 import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
+import { restoreAllBudgetCategoriesForFiscalYear } from '../utils/restoreBudgetCategories';
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
@@ -38,6 +39,23 @@ const syncDepartmentBudget = async (department_id: string, fiscal_year: number) 
   }
   return total;
 };
+
+// POST /api/budget/categories/restore-all - Recover categories deleted by cascade (admin/accounting)
+router.post('/categories/restore-all', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  try {
+    const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+    const fiscalYear = req.body?.fiscal_year ? parseInt(String(req.body.fiscal_year), 10) : activeFiscalYear;
+    const results = await restoreAllBudgetCategoriesForFiscalYear(supabase, fiscalYear);
+    const restoredCount = results.filter((row) => row.restored).length;
+    res.json({
+      fiscal_year: fiscalYear,
+      restored_departments: restoredCount,
+      results
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // GET /api/budget/categories - Get budget categories for a department
 router.get('/categories', authenticate, async (req: any, res) => {

@@ -184,6 +184,31 @@ SET department_id = dm.target_department_id
 FROM department_mapping dm
 WHERE pct.department_id = dm.source_department_id;
 
+-- CRITICAL: migrate budget_categories BEFORE deleting old department rows (ON DELETE CASCADE).
+WITH target_year AS (
+  SELECT COALESCE(MAX(fiscal_year), EXTRACT(YEAR FROM CURRENT_DATE)::INT) AS fiscal_year
+  FROM departments
+),
+department_mapping AS (
+  SELECT
+    source.id AS source_department_id,
+    target.id AS target_department_id,
+    target.fiscal_year AS target_fiscal_year
+  FROM departments source
+  JOIN departments target
+    ON LOWER(TRIM(target.name)) = LOWER(TRIM(source.name))
+  CROSS JOIN target_year ty
+  WHERE target.fiscal_year = ty.fiscal_year
+    AND source.fiscal_year <> ty.fiscal_year
+)
+UPDATE budget_categories bc
+SET
+  department_id = dm.target_department_id,
+  fiscal_year = dm.target_fiscal_year,
+  updated_at = NOW()
+FROM department_mapping dm
+WHERE bc.department_id = dm.source_department_id;
+
 WITH target_year AS (
   SELECT COALESCE(MAX(fiscal_year), EXTRACT(YEAR FROM CURRENT_DATE)::INT) AS fiscal_year
   FROM departments
