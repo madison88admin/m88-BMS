@@ -14,4 +14,13 @@ if (process.env.NODE_ENV === 'production' && /localhost|127\.0\.0\.1/i.test(supa
   throw new Error('Production SUPABASE_URL must point to the hosted database, not localhost.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  db: {
+    schema: 'public'
+  },
+  global: {
+    headers: {
+      'X-Client-Info': 'm88-bms-backend'
+    }
+  }
+});
