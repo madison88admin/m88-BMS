@@ -54,11 +54,39 @@ const buildRequestStatusEmail = (name: string, requestCode: string, subject: str
 
 const toNumber = (value: unknown) => Number.parseFloat(String(value ?? 0)) || 0;
 const toText = (value: unknown) => String(value ?? '').trim();
-const REQUEST_RELATIONS_SELECT = `
-  *,
-  users:users!fk_expense_requests_employee_id(name),
-  departments:departments!fk_expense_requests_department_id(name, fiscal_year)
-`;
+
+const appendRequestRelations = async (rows: any[]) => {
+  if (!rows.length) return rows;
+
+  const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id).filter(Boolean)));
+  const departmentIds = Array.from(new Set(rows.map((row) => row.department_id).filter(Boolean)));
+
+  const [usersResult, departmentsResult] = await Promise.all([
+    employeeIds.length
+      ? supabase.from('users').select('id, name').in('id', employeeIds)
+      : { data: [] as any[], error: null },
+    departmentIds.length
+      ? supabase.from('departments').select('id, name, fiscal_year').in('id', departmentIds)
+      : { data: [] as any[], error: null }
+  ]);
+
+  if (usersResult.error) throw usersResult.error;
+  if (departmentsResult.error) throw departmentsResult.error;
+
+  const usersById = new Map((usersResult.data || []).map((user: any) => [user.id, { name: user.name }]));
+  const departmentsById = new Map(
+    (departmentsResult.data || []).map((department: any) => [
+      department.id,
+      { name: department.name, fiscal_year: department.fiscal_year }
+    ])
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    users: usersById.get(row.employee_id) || null,
+    departments: departmentsById.get(row.department_id) || null
+  }));
+};
 
 type AttachmentInput = {
   file_name?: string;
@@ -555,7 +583,7 @@ router.get('/', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   // accounting/admin/super_admin see all years by default; others scoped to active FY unless ?all_years=true
   const allYears = req.query.all_years === 'true' || ['accounting', 'admin', 'super_admin'].includes(req.user.role);
-  let query = supabase.from('expense_requests').select(REQUEST_RELATIONS_SELECT);
+  let query = supabase.from('expense_requests').select('*');
   if (!allYears) {
     query = query.eq('fiscal_year', activeFiscalYear);
   }
@@ -572,8 +600,9 @@ router.get('/', authenticate, async (req: any, res) => {
   if (error) return res.status(400).json({ error });
 
   try {
+    const rowsWithRelations = await appendRequestRelations(data || []);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
-    const enrichedRows = enrichRequests(data || [], summaryByDepartmentId, allocationsByRequestId);
+    const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
     res.json(await appendWorkflowDataToRequests(enrichedRows));
   } catch (summaryError: any) {
     res.status(400).json({ error: summaryError?.message || summaryError });
@@ -584,15 +613,16 @@ router.get('/', authenticate, async (req: any, res) => {
 router.get('/my', authenticate, async (req: any, res) => {
   const { data, error } = await supabase
     .from('expense_requests')
-    .select(REQUEST_RELATIONS_SELECT)
+    .select('*')
     .eq('employee_id', req.user.id)
     .order('submitted_at', { ascending: false });
 
   if (error) return res.status(400).json({ error });
 
   try {
+    const rowsWithRelations = await appendRequestRelations(data || []);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
-    const enrichedRows = enrichRequests(data || [], summaryByDepartmentId, allocationsByRequestId);
+    const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
     res.json(await appendWorkflowDataToRequests(enrichedRows));
   } catch (summaryError: any) {
     res.status(400).json({ error: summaryError?.message || summaryError });
@@ -922,7 +952,7 @@ router.get('/:id', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { data, error } = await supabase
     .from('expense_requests')
-    .select(REQUEST_RELATIONS_SELECT)
+    .select('*')
     .eq('id', req.params.id)
     .single();
   if (error) return res.status(400).json({ error });
@@ -933,8 +963,9 @@ router.get('/:id', authenticate, async (req: any, res) => {
   }
 
   try {
+    const rowsWithRelations = await appendRequestRelations([data]);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
-    const enrichedRows = enrichRequests([data], summaryByDepartmentId, allocationsByRequestId);
+    const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
     res.json((await appendWorkflowDataToRequests(enrichedRows))[0]);
   } catch (summaryError: any) {
     res.status(400).json({ error: summaryError?.message || summaryError });
