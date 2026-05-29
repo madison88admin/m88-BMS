@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { supabase } from './utils/supabase';
 import authRoutes from './routes/auth';
 import requestRoutes from './routes/requests';
 import departmentRoutes from './routes/departments';
@@ -51,14 +52,51 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/config', configRoutes);
 
 // Health check endpoint
-app.get('/api/system/health', (req, res) => {
-  res.json({
-    success: true,
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+app.get('/api/system/health', async (req, res) => {
+  try {
+    // Get user count
+    const { count: userCount } = await supabase.from('users').select('*', { count: 'exact', head: true });
+    
+    // Get department count
+    const { count: deptCount } = await supabase.from('departments').select('*', { count: 'exact', head: true });
+    
+    // Get request count
+    const { count: requestCount } = await supabase.from('expense_requests').select('*', { count: 'exact', head: true });
+
+    res.json({
+      backend: {
+        status: 'healthy',
+        uptime: process.uptime()
+      },
+      supabase: {
+        status: 'healthy',
+        error: null
+      },
+      counts: {
+        users: userCount || 0,
+        departments: deptCount || 0,
+        requests: requestCount || 0
+      },
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    res.json({
+      backend: {
+        status: 'degraded',
+        uptime: process.uptime()
+      },
+      supabase: {
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Database connection failed'
+      },
+      counts: {
+        users: 0,
+        departments: 0,
+        requests: 0
+      },
+      uptime: process.uptime()
+    });
+  }
 });
 
 // 404 handler - Route not found
