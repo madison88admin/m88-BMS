@@ -226,7 +226,7 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
       return res.status(404).json({ error: 'Category not found' });
     }
 
-    const requestedBudget = toNumber(budget_amount || current.budget_amount);
+    const requestedBudget = budget_amount !== undefined && budget_amount !== null ? toNumber(budget_amount) : toNumber(current.budget_amount);
     const usedAmount = toNumber(current.used_amount);
     const committedAmount = toNumber(current.committed_amount);
 
