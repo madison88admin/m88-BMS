@@ -20,6 +20,7 @@ const RequestForm = () => {
   const [categories, setCategories] = useState<any[]>([]);
   const [requestCode, setRequestCode] = useState<string>('');
   const [selectedCategoryBudget, setSelectedCategoryBudget] = useState<any>(null);
+  const [requestType, setRequestType] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -49,6 +50,7 @@ const RequestForm = () => {
           targetDeptId = req.department_id || targetDeptId;
           targetFiscalYear = req.fiscal_year || targetFiscalYear;
 
+          setRequestType(req.request_type || '');
           setRequestCode(req.request_code || id.slice(0, 8));
           setItems([{ name: req.item_name, amount: String(req.amount) }]);
           const cleanPurpose = req.purpose?.split('\n\nItem Breakdown:')[0] || req.purpose || '';
@@ -143,9 +145,15 @@ const RequestForm = () => {
       return;
     }
 
-    // Check if over budget and show confirmation
-    if (budgetImpact?.isOverBudget && !showOverBudgetConfirm) {
+    // Check if over budget and show confirmation (skip for reimbursements)
+    if (budgetImpact?.isOverBudget && requestType !== 'reimbursement' && !showOverBudgetConfirm) {
       setShowOverBudgetConfirm(true);
+      return;
+    }
+
+    // For reimbursements, prevent submission if over budget
+    if (budgetImpact?.isOverBudget && requestType === 'reimbursement') {
+      toast.error('Reimbursement amount exceeds remaining budget. Please reduce the amount or contact accounting.');
       return;
     }
 
@@ -382,7 +390,7 @@ const RequestForm = () => {
                 </span>
               </div>
               
-              {budgetImpact && (
+              {budgetImpact && requestType !== 'reimbursement' && (
                 <div className="mt-4 pt-4 border-t border-[var(--role-secondary)]/10 space-y-3">
                   {/* Budget Overview */}
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -441,14 +449,14 @@ const RequestForm = () => {
 
             <button 
               className={`w-full py-4 text-lg font-bold rounded-2xl transition-all ${
-                budgetImpact?.isOverBudget 
+                budgetImpact?.isOverBudget && requestType !== 'reimbursement'
                   ? 'bg-red-500 hover:bg-red-600 text-white' 
                   : 'btn-primary'
               }`} 
               type="submit" 
               disabled={loading}
             >
-              {loading ? 'Submitting Request...' : budgetImpact?.isOverBudget ? `⚠️ Submit Over-Budget Request (${formatMoney(totalAmount)})` : `Submit Request for ${formatMoney(totalAmount)}`}
+              {loading ? 'Submitting Request...' : budgetImpact?.isOverBudget && requestType !== 'reimbursement' ? `⚠️ Submit Over-Budget Request (${formatMoney(totalAmount)})` : `Submit Request for ${formatMoney(totalAmount)}`}
             </button>
           </form>
 
