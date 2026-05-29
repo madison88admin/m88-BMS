@@ -35,3 +35,13 @@ export const authorize = (...roles: string[]) => {
     next();
   };
 };
+
+// Helper function to check if user has accounting access (including accounting_limited)
+export const hasAccountingAccess = (role: string) => {
+  return ['accounting', 'accounting_limited', 'admin', 'super_admin'].includes(role);
+};
+
+// Helper function to check if user has full accounting access (not limited)
+export const hasFullAccountingAccess = (role: string) => {
+  return ['accounting', 'admin', 'super_admin'].includes(role);
+};

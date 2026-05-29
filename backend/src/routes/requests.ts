@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, authorize } from '../middleware/auth';
+import { authenticate, authorize, hasFullAccountingAccess } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
 import { sendEmail } from '../utils/email';
 import {
@@ -1620,7 +1620,12 @@ router.patch('/:id/hold', authenticate, authorize('accounting', 'vp', 'president
 });
 
 // PATCH /api/requests/:id/release
-router.patch('/:id/release', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+router.patch('/:id/release', authenticate, authorize('accounting', 'accounting_limited', 'admin'), async (req: any, res) => {
+  // accounting_limited users cannot release funds
+  if (!hasFullAccountingAccess(req.user.role)) {
+    return res.status(403).json({ error: 'Limited accounting users cannot release funds.' });
+  }
+
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
