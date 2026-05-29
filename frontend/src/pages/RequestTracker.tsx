@@ -549,6 +549,11 @@ const RequestTracker = () => {
                   <h2 className="text-xl font-bold text-[var(--role-text)]">{req.item_name}</h2>
                   <p className="mt-1 text-sm text-[var(--role-text)]/70">{formatMoney(toNumber(req.amount))} • {req.category}</p>
                   <p className="mt-2 text-sm font-medium text-[var(--role-text)]/80">{getStatusLabel(req.status)}</p>
+                  {req.within_budget !== undefined && (
+                    <p className={`mt-1 text-xs font-semibold ${req.within_budget ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {req.within_budget ? '✓ Within Budget' : '⚠ Over Budget'}
+                    </p>
+                  )}
                   {Array.isArray(req.attachments) && req.attachments.length > 0 && (
                     <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--role-text)]/50">
                       {req.attachments.length} supporting file{req.attachments.length > 1 ? 's' : ''}

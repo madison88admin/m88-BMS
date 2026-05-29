@@ -230,8 +230,14 @@ export const enrichRequests = (
 
     const totalProjectedAfterApproval = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
 
+    // Calculate if request is within budget
+    const withinBudget = requestFallbackSummary 
+      ? toNumber(row.amount) <= requestFallbackSummary.remaining_budget 
+      : true;
+
     return {
       ...row,
+      within_budget: withinBudget,
       requester_name: row.users?.name || 'Unknown requester',
       department_name: requestFallbackSummary?.department_name || row.departments?.name || 'Unknown department',
       allocations,
