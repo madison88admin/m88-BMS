@@ -7,44 +7,91 @@ import FilePreviewer from '../components/FilePreviewer';
 import { formatMoney, toNumber, getStatusLabel, getStatusColor, formatDateTime , getErrorMessage } from '../utils/format';
 import jsPDF from 'jspdf';
 
-const buildFlow = (status: string) => [
-  {
-    key: 'submitted',
-    label: 'Submitted',
-    description: 'Your request has been created.',
-    state: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected'].includes(status) ? 'done' : 'idle'
-  },
-  {
-    key: 'supervisor',
-    label: 'Supervisor Review',
-    description: status === 'pending_supervisor' ? 'Waiting for supervisor approval.' : status === 'returned_for_revision' ? 'Returned during review.' : 'Supervisor stage completed.',
-    state: status === 'pending_supervisor' ? 'current' : ['pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected', 'returned_for_revision'].includes(status) ? 'done' : 'idle'
-  },
-  {
-    key: 'accounting',
-    label: 'Accounting Review',
-    description: status === 'pending_accounting' ? 'Waiting for accounting approval.' : status === 'returned_for_revision' ? 'Returned for correction.' : 'Accounting stage completed.',
-    state: status === 'pending_accounting' ? 'current' : ['pending_vp', 'pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
-  },
-  {
-    key: 'vp',
-    label: 'VP Review',
-    description: status === 'pending_vp' ? 'Waiting for VP approval.' : 'VP stage completed.',
-    state: status === 'pending_vp' ? 'current' : ['pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
-  },
-  {
-    key: 'president',
-    label: 'President Review',
-    description: status === 'pending_president' ? 'Waiting for President approval.' : 'President stage completed.',
-    state: status === 'pending_president' ? 'current' : ['approved', 'released'].includes(status) ? 'done' : 'idle'
-  },
-  {
-    key: 'released',
-    label: 'Release',
-    description: status === 'released' || status === 'approved' ? 'Budget has been released.' : 'Pending final release.',
-    state: status === 'released' || status === 'approved' ? 'done' : 'idle'
+const buildFlow = (status: string, requestType?: string) => {
+  const isBudgetRequest = requestType === 'budget_request';
+  
+  if (isBudgetRequest) {
+    // Budget approval workflow: Supervisor > Accounting > VP > President
+    return [
+      {
+        key: 'submitted',
+        label: 'Submitted',
+        description: 'Your budget request has been created.',
+        state: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'supervisor',
+        label: 'Supervisor Review',
+        description: status === 'pending_supervisor' ? 'Waiting for supervisor approval.' : status === 'returned_for_revision' ? 'Returned during review.' : 'Supervisor stage completed.',
+        state: status === 'pending_supervisor' ? 'current' : ['pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected', 'returned_for_revision'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'accounting',
+        label: 'Accounting Review',
+        description: status === 'pending_accounting' ? 'Waiting for accounting approval.' : status === 'returned_for_revision' ? 'Returned for correction.' : 'Accounting stage completed.',
+        state: status === 'pending_accounting' ? 'current' : ['pending_vp', 'pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'vp',
+        label: 'VP Review',
+        description: status === 'pending_vp' ? 'Waiting for VP approval.' : 'VP stage completed.',
+        state: status === 'pending_vp' ? 'current' : ['pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'president',
+        label: 'President Review',
+        description: status === 'pending_president' ? 'Waiting for President approval.' : 'President stage completed.',
+        state: status === 'pending_president' ? 'current' : ['approved', 'released'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'approved',
+        label: 'Approved',
+        description: status === 'approved' || status === 'released' ? 'Budget has been approved.' : 'Approval pending.',
+        state: status === 'approved' || status === 'released' ? 'done' : 'idle'
+      }
+    ];
+  } else {
+    // Expense approval workflow based on amount thresholds
+    return [
+      {
+        key: 'submitted',
+        label: 'Submitted',
+        description: 'Your request has been created.',
+        state: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'supervisor',
+        label: 'Supervisor Review',
+        description: status === 'pending_supervisor' ? 'Waiting for supervisor approval.' : status === 'returned_for_revision' ? 'Returned during review.' : 'Supervisor stage completed.',
+        state: status === 'pending_supervisor' ? 'current' : ['pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected', 'returned_for_revision'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'accounting',
+        label: 'Accounting Review',
+        description: status === 'pending_accounting' ? 'Waiting for accounting approval.' : status === 'returned_for_revision' ? 'Returned for correction.' : 'Accounting stage completed.',
+        state: status === 'pending_accounting' ? 'current' : ['pending_vp', 'pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'vp',
+        label: 'VP Review',
+        description: status === 'pending_vp' ? 'Waiting for VP approval.' : 'VP stage completed.',
+        state: status === 'pending_vp' ? 'current' : ['pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'president',
+        label: 'President Review',
+        description: status === 'pending_president' ? 'Waiting for President approval.' : 'President stage completed.',
+        state: status === 'pending_president' ? 'current' : ['approved', 'released'].includes(status) ? 'done' : 'idle'
+      },
+      {
+        key: 'released',
+        label: 'Release',
+        description: status === 'released' || status === 'approved' ? 'Budget has been released.' : 'Pending final release.',
+        state: status === 'released' || status === 'approved' ? 'done' : 'idle'
+      }
+    ];
   }
-];
+};
 
 const RequestTracker = () => {
   const navigate = useNavigate();
@@ -264,7 +311,7 @@ const RequestTracker = () => {
   };
 
   const selectedFlow = useMemo(
-    () => (selectedRequest ? buildFlow(selectedRequest.status) : []),
+    () => (selectedRequest ? buildFlow(selectedRequest.status, selectedRequest.request_type) : []),
     [selectedRequest]
   );
 
@@ -578,7 +625,7 @@ const RequestTracker = () => {
               <div className="rounded-[22px] border border-[var(--role-border)] bg-[var(--role-bg-0)] p-3">
                 <div className="mb-3 h-2 overflow-hidden rounded-full bg-[var(--role-border)]/20">
                   <div className="flex h-full w-full">
-                    {buildFlow(req.status).map((step) => (
+                    {buildFlow(req.status, req.request_type).map((step) => (
                       <div
                         key={step.key}
                         className={`h-full flex-1 ${
@@ -590,7 +637,7 @@ const RequestTracker = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-sm text-[var(--role-text)] md:grid-cols-4">
-                  {buildFlow(req.status).map((step) => (
+                  {buildFlow(req.status, req.request_type).map((step) => (
                     <div key={step.key} className="panel-muted flex items-start gap-2 !rounded-2xl !p-3 bg-white/40">
                       <div
                         className={`mt-1.5 h-2 w-2 rounded-full ${

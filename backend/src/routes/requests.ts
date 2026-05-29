@@ -702,8 +702,13 @@ router.get('/my', authenticate, async (req: any, res) => {
 // POST /api/requests - submit new (employee, supervisor, or accounting)
 router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'accounting'), async (req: any, res) => {
   const { item_name, category, category_id, amount, purpose, priority, department_id, request_type = 'reimbursement', attachments = [], metadata = {}, items = [] } = req.body;
+  
+  // Separate budget approval from expense approval
+  // Budget requests use a different workflow than expense requests
+  const isBudgetRequest = request_type === 'budget_request';
+  
   // Use UUID to prevent collision instead of timestamp
-  const request_code = `REQ-${crypto.randomUUID().split('-')[0].toUpperCase()}`;
+  const request_code = isBudgetRequest ? `BUD-${crypto.randomUUID().split('-')[0].toUpperCase()}` : `REQ-${crypto.randomUUID().split('-')[0].toUpperCase()}`;
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const userRole = req.user.role;
   
@@ -721,21 +726,39 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   const PRESIDENT_THRESHOLD = 500; // $500 threshold for President approval
   
   let initialStatus;
-  if (userRole === 'employee' || userRole === 'manager') {
-    initialStatus = 'pending_supervisor';
-  } else if (userRole === 'supervisor') {
-    initialStatus = 'pending_accounting';
-  } else if (userRole === 'accounting') {
-    // Accounting routes based on amount: $500+ goes to President, <$500 goes to VP
-    initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
-  } else if (userRole === 'vp') {
-    initialStatus = 'pending_president';
+  
+  // Budget requests have a different approval workflow than expense requests
+  if (isBudgetRequest) {
+    // Budget approval workflow: Supervisor > Accounting > VP > President
+    if (userRole === 'employee' || userRole === 'manager') {
+      initialStatus = 'pending_supervisor';
+    } else if (userRole === 'supervisor') {
+      initialStatus = 'pending_accounting';
+    } else if (userRole === 'accounting') {
+      initialStatus = 'pending_vp';
+    } else if (userRole === 'vp') {
+      initialStatus = 'pending_president';
+    } else {
+      initialStatus = 'pending_accounting';
+    }
   } else {
-    initialStatus = 'pending_accounting';
+    // Expense approval workflow based on amount thresholds
+    if (userRole === 'employee' || userRole === 'manager') {
+      initialStatus = 'pending_supervisor';
+    } else if (userRole === 'supervisor') {
+      initialStatus = 'pending_accounting';
+    } else if (userRole === 'accounting') {
+      // Accounting routes based on amount: $500+ goes to President, <$500 goes to VP
+      initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+    } else if (userRole === 'vp') {
+      initialStatus = 'pending_president';
+    } else {
+      initialStatus = 'pending_accounting';
+    }
   }
   
-  // 1. Validate against Official Expense List (skip for liquidations)
-  if (request_type !== 'liquidation') {
+  // 1. Validate against Official Expense List (skip for liquidations and budget requests)
+  if (request_type !== 'liquidation' && !isBudgetRequest) {
     const { data: deptData } = await supabase.from('departments').select('name').eq('id', targetDepartmentId).single();
     const departmentName = deptData?.name || 'Unknown';
     const officialListForDept = targetDepartmentId
@@ -1729,7 +1752,8 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
     return res.status(400).json({ error: 'Only requests waiting for President approval can be approved here' });
   }
 
-  // Budget approval workflow: President -> Approved (and lock budget)
+  // Budget approval workflow: President -> Approved (and lock budget category)
+  // Only lock budget for budget requests, not expense requests
   const { data, error } = await supabase
     .from('expense_requests')
     .update({ status: 'approved', updated_at: new Date() })
@@ -1738,8 +1762,8 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
     .single();
   if (error) return res.status(400).json({ error });
 
-  // Lock the budget category after President approval
-  if (request.category_id) {
+  // Lock the budget category after President approval (only for budget requests)
+  if (request.request_type === 'budget_request' && request.category_id) {
     await supabase
       .from('budget_categories')
       .update({ is_locked: true, locked_at: new Date() })
