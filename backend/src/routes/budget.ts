@@ -117,7 +117,7 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
   try {
     const { department_id, category_code, category_name, budget_amount, fiscal_year, parent_category_id } = req.body;
     const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
-    const requestedBudget = toNumber(budget_amount);
+    const requestedBudget = budget_amount !== undefined && budget_amount !== null ? toNumber(budget_amount) : 0;
 
 
     const [{ data: department, error: departmentError }, { data: existingCategories, error: categoriesError }] = await Promise.all([
