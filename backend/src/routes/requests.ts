@@ -107,6 +107,76 @@ const normalizeAttachments = (attachments: AttachmentInput[] = []) =>
     }))
     .filter((attachment) => attachment.file_name && attachment.file_url);
 
+const validateCategoryBudgetsForSubmission = async (
+  targetDepartmentId: string,
+  fiscalYear: number,
+  totalAmount: number,
+  categoryId?: string,
+  categoryName?: string,
+  items: any[] = []
+) => {
+  const itemCategoryTotals = new Map<string, number>();
+  (items || []).forEach((item) => {
+    const itemCategoryId = toText(item.category_id);
+    if (!itemCategoryId) return;
+    itemCategoryTotals.set(itemCategoryId, (itemCategoryTotals.get(itemCategoryId) || 0) + toNumber(item.amount));
+  });
+
+  if (itemCategoryTotals.size > 0) {
+    const categoryIds = Array.from(itemCategoryTotals.keys());
+    const { data: categories, error } = await supabase
+      .from('budget_categories')
+      .select('id, category_name, department_id, fiscal_year, remaining_amount')
+      .in('id', categoryIds);
+
+    if (error) return error.message;
+
+    const categoriesById = new Map((categories || []).map((category: any) => [category.id, category]));
+    for (const id of categoryIds) {
+      const category = categoriesById.get(id);
+      const requestedAmount = itemCategoryTotals.get(id) || 0;
+
+      if (!category) {
+        return 'Selected budget category was not found.';
+      }
+
+      if (category.department_id !== targetDepartmentId || Number(category.fiscal_year) !== fiscalYear) {
+        return `Category "${category.category_name || id}" does not belong to the selected department and fiscal year.`;
+      }
+
+      if (toNumber(category.remaining_amount) < requestedAmount) {
+        return `Insufficient budget in category "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${requestedAmount.toFixed(2)}`;
+      }
+    }
+
+    return null;
+  }
+
+  const normalizedCategoryId = toText(categoryId);
+  const normalizedCategoryName = toText(categoryName);
+  if (!normalizedCategoryId && !normalizedCategoryName) return null;
+
+  let categoryQuery = supabase
+    .from('budget_categories')
+    .select('id, category_name, department_id, fiscal_year, remaining_amount')
+    .eq('department_id', targetDepartmentId)
+    .eq('fiscal_year', fiscalYear);
+
+  categoryQuery = normalizedCategoryId
+    ? categoryQuery.eq('id', normalizedCategoryId)
+    : categoryQuery.eq('category_name', normalizedCategoryName);
+
+  const { data: category, error } = await categoryQuery.maybeSingle();
+  if (error) return error.message;
+  if (!category) return 'Selected budget category was not found for this department and fiscal year.';
+
+  if (toNumber(category.remaining_amount) < totalAmount) {
+    return `Insufficient budget in category "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${totalAmount.toFixed(2)}`;
+  }
+
+  return null;
+};
+
 const appendWorkflowData = async (rows: any[]) => {
   if (!rows.length) return rows;
 
@@ -706,24 +776,23 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   const usedBudget = toNumber(deptSummary.used_budget);
   const projectedRemaining = annualBudget - usedBudget;
 
-  // Check category remaining if category specified
-  let categoryRemaining = Infinity;
-  if (category || category_id) {
-    const catQuery = category_id 
-      ? supabase.from('budget_categories').select('remaining_amount').eq('id', category_id).eq('fiscal_year', activeFiscalYear).single()
-      : supabase.from('budget_categories').select('remaining_amount').eq('category_name', category.trim()).eq('department_id', targetDepartmentId).eq('fiscal_year', activeFiscalYear).single();
-    const { data: catData } = await catQuery;
-    if (catData) {
-      categoryRemaining = toNumber(catData.remaining_amount);
-    }
+  if (projectedRemaining < totalAmount) {
+    return res.status(400).json({ 
+      error: `Insufficient department budget. Remaining: ${projectedRemaining.toFixed(2)}, Requested: ${totalAmount.toFixed(2)}` 
+    });
   }
 
-  const finalRemaining = Math.min(projectedRemaining, categoryRemaining);
+  const categoryBudgetError = await validateCategoryBudgetsForSubmission(
+    targetDepartmentId,
+    activeFiscalYear,
+    totalAmount,
+    category_id,
+    category,
+    items
+  );
 
-  if (finalRemaining < totalAmount) {
-    return res.status(400).json({ 
-      error: `Insufficient budget. Remaining: ${finalRemaining.toFixed(2)}, Requested: ${totalAmount.toFixed(2)}` 
-    });
+  if (categoryBudgetError) {
+    return res.status(400).json({ error: categoryBudgetError });
   }
 
   const { data, error } = await supabase
