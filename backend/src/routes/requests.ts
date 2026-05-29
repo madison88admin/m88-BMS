@@ -715,14 +715,19 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   const activeDepartment = { id: targetDepartmentId, fiscal_year: activeFiscalYear };
   const normalizedAttachments = normalizeAttachments(attachments);
   
-  // Budget approval workflow: Manager/Supervisor > Accounting > VP > President
+  // Budget approval workflow based on amount thresholds
+  // Calculate total amount for approval routing
+  const requestAmount = toNumber(amount);
+  const PRESIDENT_THRESHOLD = 500; // $500 threshold for President approval
+  
   let initialStatus;
   if (userRole === 'employee' || userRole === 'manager') {
     initialStatus = 'pending_supervisor';
   } else if (userRole === 'supervisor') {
     initialStatus = 'pending_accounting';
   } else if (userRole === 'accounting') {
-    initialStatus = 'pending_vp';
+    // Accounting routes based on amount: $500+ goes to President, <$500 goes to VP
+    initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
   } else if (userRole === 'vp') {
     initialStatus = 'pending_president';
   } else {

@@ -449,22 +449,6 @@ const NewRequestForm = () => {
 
     const totalAmount = cashAdvanceForm.breakdown.reduce((sum: number, item: any) => sum + (parseFloat(item.amount as string) || 0), 0);
 
-    // Cash advance limits: $500 for CC, lower $500 for CA viewing
-    const CC_LIMIT = 500;
-    const CA_VIEWING_LIMIT = 500;
-
-    if (cashAdvanceForm.advance_type === 'Credit Card' && totalAmount > CC_LIMIT) {
-      toast.error(`Credit Card cash advance limit is $${CC_LIMIT}. Please reduce the amount.`);
-      setSubmitting(false);
-      return;
-    }
-
-    if (cashAdvanceForm.advance_type === 'Viewing' && totalAmount > CA_VIEWING_LIMIT) {
-      toast.error(`Cash advance viewing limit is $${CA_VIEWING_LIMIT}. Please reduce the amount.`);
-      setSubmitting(false);
-      return;
-    }
-
     try {
       let attachments: any[] = [];
       if (cashAdvanceForm.attachments.length > 0) {
