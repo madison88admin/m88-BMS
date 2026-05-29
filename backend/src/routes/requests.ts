@@ -714,7 +714,20 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
 
   const activeDepartment = { id: targetDepartmentId, fiscal_year: activeFiscalYear };
   const normalizedAttachments = normalizeAttachments(attachments);
-  const initialStatus = (userRole === 'employee' || userRole === 'manager') ? 'pending_supervisor' : 'pending_accounting';
+  
+  // Budget approval workflow: Manager/Supervisor > Accounting > VP > President
+  let initialStatus;
+  if (userRole === 'employee' || userRole === 'manager') {
+    initialStatus = 'pending_supervisor';
+  } else if (userRole === 'supervisor') {
+    initialStatus = 'pending_accounting';
+  } else if (userRole === 'accounting') {
+    initialStatus = 'pending_vp';
+  } else if (userRole === 'vp') {
+    initialStatus = 'pending_president';
+  } else {
+    initialStatus = 'pending_accounting';
+  }
   
   // 1. Validate against Official Expense List (skip for liquidations)
   if (request_type !== 'liquidation') {
@@ -1449,6 +1462,7 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     return res.status(403).json({ error: 'You cannot approve your own request' });
   }
 
+  // Budget approval workflow: Supervisor -> Accounting -> VP -> President
   const { data, error } = await supabase
     .from('expense_requests')
     .update({ status: 'pending_accounting', updated_at: new Date() })
@@ -1557,6 +1571,144 @@ router.post('/:id/co-approve', authenticate, authorize('vp', 'president', 'admin
     }
   ]);
   
+  res.json(data);
+});
+
+// PATCH /api/requests/:id/approve-accounting - Accounting approval
+router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  const { id } = req.params;
+  const { data: request, error: fetchError } = await supabase
+    .from('expense_requests')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (fetchError) return res.status(400).json({ error: fetchError });
+
+  if (request.status !== 'pending_accounting') {
+    return res.status(400).json({ error: 'Only requests waiting for accounting approval can be approved here' });
+  }
+
+  // Budget approval workflow: Accounting -> VP
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({ status: 'pending_vp', updated_at: new Date() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error });
+
+  await supabase.from('approval_logs').insert({
+    request_id: id,
+    actor_id: req.user.id,
+    action: 'approved',
+    stage: 'accounting',
+    note: req.body.note || ''
+  });
+
+  await insertAuditLogs(id, req.user.id, [
+    {
+      entity_type: 'request',
+      action: 'status_changed',
+      field_name: 'status',
+      old_value: request.status,
+      new_value: 'pending_vp',
+      note: 'Accounting approved request'
+    }
+  ]);
+
+  await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', `Your request ${request.request_code} has moved to VP review.`);
+  res.json(data);
+});
+
+// PATCH /api/requests/:id/approve-vp - VP approval
+router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (req: any, res) => {
+  const { id } = req.params;
+  const { data: request, error: fetchError } = await supabase
+    .from('expense_requests')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (fetchError) return res.status(400).json({ error: fetchError });
+
+  if (request.status !== 'pending_vp') {
+    return res.status(400).json({ error: 'Only requests waiting for VP approval can be approved here' });
+  }
+
+  // Budget approval workflow: VP -> President
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({ status: 'pending_president', updated_at: new Date() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error });
+
+  await supabase.from('approval_logs').insert({
+    request_id: id,
+    actor_id: req.user.id,
+    action: 'approved',
+    stage: 'vp',
+    note: req.body.note || ''
+  });
+
+  await insertAuditLogs(id, req.user.id, [
+    {
+      entity_type: 'request',
+      action: 'status_changed',
+      field_name: 'status',
+      old_value: request.status,
+      new_value: 'pending_president',
+      note: 'VP approved request'
+    }
+  ]);
+
+  await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', `Your request ${request.request_code} has moved to President review.`);
+  res.json(data);
+});
+
+// PATCH /api/requests/:id/approve-president - President approval
+router.patch('/:id/approve-president', authenticate, authorize('president', 'admin'), async (req: any, res) => {
+  const { id } = req.params;
+  const { data: request, error: fetchError } = await supabase
+    .from('expense_requests')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (fetchError) return res.status(400).json({ error: fetchError });
+
+  if (request.status !== 'pending_president') {
+    return res.status(400).json({ error: 'Only requests waiting for President approval can be approved here' });
+  }
+
+  // Budget approval workflow: President -> Approved
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({ status: 'approved', updated_at: new Date() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error });
+
+  await supabase.from('approval_logs').insert({
+    request_id: id,
+    actor_id: req.user.id,
+    action: 'approved',
+    stage: 'president',
+    note: req.body.note || ''
+  });
+
+  await insertAuditLogs(id, req.user.id, [
+    {
+      entity_type: 'request',
+      action: 'status_changed',
+      field_name: 'status',
+      old_value: request.status,
+      new_value: 'approved',
+      note: 'President approved request'
+    }
+  ]);
+
+  await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', `Your request ${request.request_code} has been approved.`);
   res.json(data);
 });
 

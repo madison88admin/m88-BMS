@@ -424,7 +424,7 @@ router.get('/monitoring', authenticate, authorize('accounting', 'admin', 'super_
         department_id
       `)
       .eq('fiscal_year', targetFiscalYear)
-      .in('status', ['pending_supervisor', 'pending_accounting', 'approved', 'on_hold'])
+      .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'approved', 'on_hold'])
       .not('category_id', 'is', null);
 
     if (comError) throw comError;

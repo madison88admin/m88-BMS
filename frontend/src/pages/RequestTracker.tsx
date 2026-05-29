@@ -12,19 +12,31 @@ const buildFlow = (status: string) => [
     key: 'submitted',
     label: 'Submitted',
     description: 'Your request has been created.',
-    state: ['pending_supervisor', 'pending_accounting', 'approved', 'released', 'rejected'].includes(status) ? 'done' : 'idle'
+    state: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected'].includes(status) ? 'done' : 'idle'
   },
   {
     key: 'supervisor',
     label: 'Supervisor Review',
     description: status === 'pending_supervisor' ? 'Waiting for supervisor approval.' : status === 'returned_for_revision' ? 'Returned during review.' : 'Supervisor stage completed.',
-    state: status === 'pending_supervisor' ? 'current' : ['pending_accounting', 'approved', 'released', 'rejected', 'returned_for_revision'].includes(status) ? 'done' : 'idle'
+    state: status === 'pending_supervisor' ? 'current' : ['pending_accounting', 'pending_vp', 'pending_president', 'approved', 'released', 'rejected', 'returned_for_revision'].includes(status) ? 'done' : 'idle'
   },
   {
     key: 'accounting',
     label: 'Accounting Review',
     description: status === 'pending_accounting' ? 'Waiting for accounting approval.' : status === 'returned_for_revision' ? 'Returned for correction.' : 'Accounting stage completed.',
-    state: status === 'pending_accounting' ? 'current' : ['approved', 'released'].includes(status) ? 'done' : 'idle'
+    state: status === 'pending_accounting' ? 'current' : ['pending_vp', 'pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
+  },
+  {
+    key: 'vp',
+    label: 'VP Review',
+    description: status === 'pending_vp' ? 'Waiting for VP approval.' : 'VP stage completed.',
+    state: status === 'pending_vp' ? 'current' : ['pending_president', 'approved', 'released'].includes(status) ? 'done' : 'idle'
+  },
+  {
+    key: 'president',
+    label: 'President Review',
+    description: status === 'pending_president' ? 'Waiting for President approval.' : 'President stage completed.',
+    state: status === 'pending_president' ? 'current' : ['approved', 'released'].includes(status) ? 'done' : 'idle'
   },
   {
     key: 'released',

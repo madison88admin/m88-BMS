@@ -10,7 +10,7 @@ const getDepartmentGroupKey = (department: { name?: string; fiscal_year?: number
   `${normalizeDepartmentName(department.name || '').toLowerCase()}::${department.fiscal_year ?? ''}`;
 
 export const isBudgetCommittedStatus = (status?: string) => status === 'released' || status === 'approved';
-export const isPendingBudgetStatus = (status?: string) => status === 'pending_supervisor' || status === 'pending_accounting' || status === 'on_hold';
+export const isPendingBudgetStatus = (status?: string) => status === 'pending_supervisor' || status === 'pending_accounting' || status === 'pending_vp' || status === 'pending_president' || status === 'on_hold';
 export const isOnHoldStatus = (status?: string) => status === 'on_hold';
 
 export interface RequestAllocationRow {
@@ -40,6 +40,8 @@ interface DepartmentBudgetSummary {
   direct_expenses_total: number;
   pending_supervisor_total: number;
   pending_accounting_total: number;
+  pending_vp_total: number;
+  pending_president_total: number;
   on_hold_total: number;
   projected_committed_total: number;
   remaining_budget: number;
@@ -121,6 +123,8 @@ export const buildDepartmentBudgetSummaryMap = async () => {
       released: number;
       pendingSupervisor: number;
       pendingAccounting: number;
+      pendingVp: number;
+      pendingPresident: number;
       onHold: number;
     }
   >();
@@ -132,6 +136,8 @@ export const buildDepartmentBudgetSummaryMap = async () => {
         released: 0,
         pendingSupervisor: 0,
         pendingAccounting: 0,
+        pendingVp: 0,
+        pendingPresident: 0,
         onHold: 0
       };
 
@@ -139,6 +145,10 @@ export const buildDepartmentBudgetSummaryMap = async () => {
         current.pendingSupervisor += impact.amount;
       } else if (request.status === 'pending_accounting') {
         current.pendingAccounting += impact.amount;
+      } else if (request.status === 'pending_vp') {
+        current.pendingVp += impact.amount;
+      } else if (request.status === 'pending_president') {
+        current.pendingPresident += impact.amount;
       } else if (request.status === 'on_hold') {
         current.onHold += impact.amount;
       } else if (isBudgetCommittedStatus(request.status)) {
@@ -160,9 +170,11 @@ export const buildDepartmentBudgetSummaryMap = async () => {
     const releasedRequestsTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.released || 0), 0);
     const pendingSupervisorTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingSupervisor || 0), 0);
     const pendingAccountingTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingAccounting || 0), 0);
+    const pendingVpTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingVp || 0), 0);
+    const pendingPresidentTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingPresident || 0), 0);
     const onHoldTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.onHold || 0), 0);
     const usedBudget = releasedRequestsTotal + directExpensesTotal;
-    const projectedCommittedTotal = usedBudget + pendingSupervisorTotal + pendingAccountingTotal;
+    const projectedCommittedTotal = usedBudget + pendingSupervisorTotal + pendingAccountingTotal + pendingVpTotal + pendingPresidentTotal;
     const currentDepartment =
       groupedDepartments.sort((left, right) => {
         const leftUpdatedAt = new Date(String(left.updated_at || left.created_at || 0)).getTime();
@@ -179,6 +191,8 @@ export const buildDepartmentBudgetSummaryMap = async () => {
       direct_expenses_total: directExpensesTotal,
       pending_supervisor_total: pendingSupervisorTotal,
       pending_accounting_total: pendingAccountingTotal,
+      pending_vp_total: pendingVpTotal,
+      pending_president_total: pendingPresidentTotal,
       on_hold_total: onHoldTotal,
       projected_committed_total: projectedCommittedTotal,
       remaining_budget: annualBudget - usedBudget,
