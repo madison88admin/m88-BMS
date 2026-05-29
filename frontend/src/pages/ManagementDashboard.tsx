@@ -62,7 +62,7 @@ const ManagementDashboard = () => {
       setDepartments(deptRes.data || []);
       setRequests(reqRes.data || []);
       setCashAdvances(caRes.data || []);
-    } catch (err) {
+    } catch (err: any) {
       toast.error('Failed to load management data');
       // If super admin gets 403 on reports access, still show other data
       if (user?.role === 'super_admin' && err.response?.status === 403) {

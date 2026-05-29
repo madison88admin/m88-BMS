@@ -20,19 +20,43 @@ const LEGACY_TO_CANONICAL_DEPARTMENT: Record<string, string> = {
   m88admin: 'Admin Department',
   'accounting department': 'Finance Department'
 };
-const REQUESTS_DEPARTMENT_SELECT = `
-  *,
-  departments:departments!fk_expense_requests_department_id(name, fiscal_year)
-`;
-const REQUESTS_REPORT_SELECT = `
-  *,
-  users:users!fk_expense_requests_employee_id(name),
-  departments:departments!fk_expense_requests_department_id(name, fiscal_year)
-`;
 const toCanonicalDepartmentName = (value: string) => {
   const normalizedValue = normalizeDepartmentName(value);
   if (!normalizedValue) return '';
   return LEGACY_TO_CANONICAL_DEPARTMENT[normalizeDepartmentKey(normalizedValue)] || normalizedValue;
+};
+
+const appendReportRelations = async (rows: any[]) => {
+  if (!rows.length) return rows;
+
+  const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id).filter(Boolean)));
+  const departmentIds = Array.from(new Set(rows.map((row) => row.department_id).filter(Boolean)));
+
+  const [usersResult, departmentsResult] = await Promise.all([
+    employeeIds.length
+      ? supabase.from('users').select('id, name').in('id', employeeIds)
+      : { data: [] as any[], error: null },
+    departmentIds.length
+      ? supabase.from('departments').select('id, name, fiscal_year').in('id', departmentIds)
+      : { data: [] as any[], error: null }
+  ]);
+
+  if (usersResult.error) throw usersResult.error;
+  if (departmentsResult.error) throw departmentsResult.error;
+
+  const usersById = new Map((usersResult.data || []).map((user: any) => [user.id, { name: user.name }]));
+  const departmentsById = new Map(
+    (departmentsResult.data || []).map((department: any) => [
+      department.id,
+      { name: department.name, fiscal_year: department.fiscal_year }
+    ])
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    users: usersById.get(row.employee_id) || null,
+    departments: departmentsById.get(row.department_id) || null
+  }));
 };
 
 // GET /api/reports/filter-options
@@ -112,7 +136,7 @@ router.get('/filter-options', authenticate, authorize('accounting', 'admin'), as
 router.get('/summary', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { dept, from, to, status, category, fiscal_year, archived = 'false', format } = req.query;
-  let query = supabase.from('expense_requests').select(REQUESTS_DEPARTMENT_SELECT);
+  let query = supabase.from('expense_requests').select('*');
   if (req.user.role === 'employee' || req.user.role === 'manager') query = query.eq('employee_id', req.user.id);
   else if (req.user.role === 'supervisor') {
     const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
@@ -128,8 +152,9 @@ router.get('/summary', authenticate, async (req: any, res) => {
   if (category) query = query.eq('category', category);
   if (archived === 'true') query = query.eq('archived', true);
   else if (archived === 'false') query = query.eq('archived', false);
-  const { data: requests, error } = await query;
+  const { data: requestRows, error } = await query;
   if (error) return res.status(400).json({ error });
+  const requests = await appendReportRelations(requestRows || []);
 
   const summary = {
     total_requests: requests.length,
@@ -182,7 +207,7 @@ router.get('/summary', authenticate, async (req: any, res) => {
 router.get('/requests', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { dept, from, to, status, category, fiscal_year, archived = 'false', format } = req.query;
-  let query = supabase.from('expense_requests').select(REQUESTS_REPORT_SELECT);
+  let query = supabase.from('expense_requests').select('*');
   if (req.user.role === 'employee' || req.user.role === 'manager') query = query.eq('employee_id', req.user.id);
   else if (req.user.role === 'supervisor') {
     const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
@@ -198,8 +223,9 @@ router.get('/requests', authenticate, authorize('accounting', 'admin'), async (r
   if (category) query = query.eq('category', category);
   if (archived === 'true') query = query.eq('archived', true);
   else if (archived === 'false') query = query.eq('archived', false);
-  const { data: requests, error } = await query;
+  const { data: requestRows, error } = await query;
   if (error) return res.status(400).json({ error });
+  const requests = await appendReportRelations(requestRows || []);
 
   if (format === 'pdf') {
     const doc = new PDFDocument();

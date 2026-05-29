@@ -2772,8 +2772,6 @@ const Approvals = () => {
                             className="btn-success"
                             disabled={
                               (() => {
-                                const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
-                                const vpThreshold = currencyThreshold.vp;
                                 return req.status === 'on_hold' ||
                                 ((user.role === 'vp' || user.role === 'president' || user.role === 'admin') && !req.co_approved_by);
                               })()
@@ -2879,8 +2877,6 @@ const Approvals = () => {
                     {/* Accounting - Release Only (No Approval Power) */}
                     {/* Show release button if: co-approved OR amount is under threshold (no co-approval needed) */}
                     {(() => {
-                      const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
-                      const vpThreshold = currencyThreshold.vp;
                       const canRelease = !!req.co_approved_by;
                       
                       if (user.role === 'accounting' && canRelease) {

@@ -1,12 +1,13 @@
 import express from 'express';
 import { supabase } from '../utils/supabase';
+import { authenticate, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
 const toText = (value: unknown) => String(value ?? '').trim();
 const toNumber = (value: unknown) => Number.parseFloat(String(value ?? 0)) || 0;
 
-router.get('/', async (req, res) => {
+router.get('/', authenticate, async (req, res) => {
   try {
     const { department_id, status, search, page = 1, limit = 50 } = req.query;
 
@@ -42,7 +43,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -65,7 +66,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req, res) => {
   try {
     const {
       project_code,
@@ -108,7 +109,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -144,7 +145,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -162,7 +163,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-router.get('/:id/budget-summary', async (req, res) => {
+router.get('/:id/budget-summary', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
 

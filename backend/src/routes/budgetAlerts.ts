@@ -1,11 +1,12 @@
 import express from 'express';
 import { supabase } from '../utils/supabase';
+import { authenticate, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
 const toNumber = (value: unknown) => Number.parseFloat(String(value ?? 0)) || 0;
 
-router.get('/', async (req, res) => {
+router.get('/', authenticate, authorize('accounting', 'admin', 'super_admin', 'management'), async (req, res) => {
   try {
     const { department_id, status, alert_type } = req.query;
 
@@ -41,7 +42,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/check', async (req, res) => {
+router.post('/check', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req, res) => {
   try {
     const { department_id } = req.query;
     const thresholdWarning = 80;
@@ -110,7 +111,7 @@ router.post('/check', async (req, res) => {
   }
 });
 
-router.put('/:id/acknowledge', async (req, res) => {
+router.put('/:id/acknowledge', authenticate, authorize('accounting', 'admin', 'super_admin', 'management'), async (req, res) => {
   try {
     const { id } = req.params;
     const { resolution_note } = req.body;
@@ -136,7 +137,7 @@ router.put('/:id/acknowledge', async (req, res) => {
   }
 });
 
-router.put('/:id/resolve', async (req, res) => {
+router.put('/:id/resolve', authenticate, authorize('accounting', 'admin', 'super_admin', 'management'), async (req, res) => {
   try {
     const { id } = req.params;
     const { resolution_note } = req.body;
@@ -162,7 +163,7 @@ router.put('/:id/resolve', async (req, res) => {
   }
 });
 
-router.get('/summary', async (req, res) => {
+router.get('/summary', authenticate, authorize('accounting', 'admin', 'super_admin', 'management'), async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('budget_alerts')
