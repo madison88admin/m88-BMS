@@ -209,6 +209,43 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
   }
 });
 
+// PATCH /api/budget/categories/:id/unlock - Unlock budget category (accounting only)
+router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: current } = await supabase
+      .from('budget_categories')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (!current) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const { data, error } = await supabase
+      .from('budget_categories')
+      .update({ is_locked: false, locked_at: null, unlocked_at: new Date() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error });
+
+    // Sync department budget after unlock
+    await syncDepartmentBudget(current.department_id, current.fiscal_year);
+
+    // Invalidate cache
+    invalidateCache('/api/budget/categories');
+    invalidateCache('/api/departments');
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // PUT /api/budget/categories/:id - Update budget category
 router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   try {

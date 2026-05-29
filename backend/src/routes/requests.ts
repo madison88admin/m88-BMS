@@ -1685,7 +1685,7 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
     return res.status(400).json({ error: 'Only requests waiting for President approval can be approved here' });
   }
 
-  // Budget approval workflow: President -> Approved
+  // Budget approval workflow: President -> Approved (and lock budget)
   const { data, error } = await supabase
     .from('expense_requests')
     .update({ status: 'approved', updated_at: new Date() })
@@ -1693,6 +1693,14 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
     .select()
     .single();
   if (error) return res.status(400).json({ error });
+
+  // Lock the budget category after President approval
+  if (request.category_id) {
+    await supabase
+      .from('budget_categories')
+      .update({ is_locked: true, locked_at: new Date() })
+      .eq('id', request.category_id);
+  }
 
   await supabase.from('approval_logs').insert({
     request_id: id,

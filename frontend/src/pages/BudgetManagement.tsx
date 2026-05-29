@@ -147,6 +147,14 @@ const BudgetManagement = () => {
     return Array.from(map.values()).sort((a, b) => toNumber(b.used_budget) - toNumber(a.used_budget));
   }, [departments, user]);
 
+  // Filter categories to show only main categories for supervisor/accounting
+  const visibleCategories = useMemo(() => {
+    if (user?.role === 'supervisor' || user?.role === 'accounting') {
+      return categories.filter(c => !c.parent_category_id); // Only show main categories (no parent)
+    }
+    return categories;
+  }, [categories, user]);
+
   const availableFiscalYears = useMemo(() =>
     Array.from(new Set(visibleDepartments.map(d => Number(d.fiscal_year || 0)).filter(y => y > 0))).sort((a, b) => b - a),
     [visibleDepartments]
