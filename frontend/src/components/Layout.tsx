@@ -248,7 +248,7 @@ const Layout = ({ children }: LayoutProps) => {
       {user.role === 'accounting' && (
         <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Matrix</Link>
       )}
-      {(user.role === 'admin' || user.role === 'super_admin') && (
+      {user.role === 'admin' && (
         <Link to="/reports" className={getNavClassName('/reports')}>Reports</Link>
       )}
       {(user.role === 'employee' || user.role === 'manager' || user.role === 'supervisor' || user.role === 'vp' || user.role === 'president') && (
