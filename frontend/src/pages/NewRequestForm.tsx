@@ -1214,6 +1214,61 @@ const NewRequestForm = () => {
             </div>
           </div>
 
+          {/* Budget Status Indicator for Cash Advance */}
+          {cashAdvanceForm.department_id && categories.length > 0 && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium mb-3">Budget Status</label>
+              <div className="space-y-2">
+                {(() => {
+                  const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === cashAdvanceForm.item_name);
+                  const selectedCat = selectedItem ? categories.find(c => c.category_name === selectedItem.category) : null;
+                  
+                  if (!selectedCat) return null;
+                  
+                  const remaining = Number(selectedCat.remaining_amount || 0);
+                  const allocated = Number(selectedCat.allocated_amount || 0);
+                  const totalAmount = cashAdvanceForm.breakdown.reduce((sum: number, item: any) => sum + (parseFloat(item.amount) || 0), 0);
+                  
+                  if (totalAmount === 0) return null;
+                  
+                  const isOutOfBudget = remaining < totalAmount;
+                  const isLowBudget = remaining >= totalAmount && remaining > 0 && remaining < (allocated * 0.2);
+                  
+                  if (isOutOfBudget) {
+                    return (
+                      <div className="px-4 py-3 rounded-xl border border-red-300 bg-red-50 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-red-700 font-medium">Out of Budget</span>
+                      </div>
+                    );
+                  }
+                  
+                  if (isLowBudget) {
+                    return (
+                      <div className="px-4 py-3 rounded-xl border border-amber-300 bg-amber-50 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span className="text-amber-700 font-medium">Budget Running Low</span>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="px-4 py-3 rounded-xl border border-emerald-300 bg-emerald-50 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-emerald-700 font-medium">Within Budget</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button
               type="button"
