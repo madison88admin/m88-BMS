@@ -8,7 +8,7 @@ import departmentRoutes from './routes/departments';
 import expenseRoutes from './routes/expenses';
 import pettyCashRoutes from './routes/pettyCash';
 import reportRoutes from './routes/reports';
-// Force redeploy after reverting foreign key changes
+// Force redeploy - duplicate Finance department deleted
 import projectRoutes from './routes/projects';
 import vendorRoutes from './routes/vendors';
 import slaRoutes from './routes/sla';
