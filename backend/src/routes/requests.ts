@@ -771,11 +771,11 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
 
         // For subcategory requests, check main category budget
         const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item.item_name);
-        if (itemEntry && itemEntry.mainCategory) {
+        if (itemEntry && itemEntry.category) {
           const { data: mainCategory } = await supabase
             .from('budget_categories')
             .select('*')
-            .eq('category_name', itemEntry.mainCategory)
+            .eq('category_name', itemEntry.category)
             .eq('department_id', targetDepartmentId)
             .eq('fiscal_year', activeFiscalYear)
             .single();
@@ -785,7 +785,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
             const itemAmount = toNumber(item.amount);
             if (itemAmount > mainCategoryRemaining) {
               return res.status(400).json({ 
-                error: `Insufficient budget in main category "${itemEntry.mainCategory}". Remaining: ${mainCategoryRemaining.toFixed(2)}, Requested: ${itemAmount.toFixed(2)}` 
+                error: `Insufficient budget in main category "${itemEntry.category}". Remaining: ${mainCategoryRemaining.toFixed(2)}, Requested: ${itemAmount.toFixed(2)}` 
               });
             }
           }
@@ -798,21 +798,21 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
 
       // For subcategory requests, check main category budget
       const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item_name);
-      if (itemEntry && itemEntry.mainCategory) {
+      if (itemEntry && itemEntry.category) {
         const { data: mainCategory } = await supabase
           .from('budget_categories')
           .select('*')
-          .eq('category_name', itemEntry.mainCategory)
+          .eq('category_name', itemEntry.category)
           .eq('department_id', targetDepartmentId)
           .eq('fiscal_year', activeFiscalYear)
           .single();
 
         if (mainCategory) {
           const mainCategoryRemaining = toNumber(mainCategory.remaining_amount);
-          const itemAmount = totalAmount;
+          const itemAmount = requestAmount;
           if (itemAmount > mainCategoryRemaining) {
             return res.status(400).json({ 
-              error: `Insufficient budget in main category "${itemEntry.mainCategory}". Remaining: ${mainCategoryRemaining.toFixed(2)}, Requested: ${itemAmount.toFixed(2)}` 
+              error: `Insufficient budget in main category "${itemEntry.category}". Remaining: ${mainCategoryRemaining.toFixed(2)}, Requested: ${itemAmount.toFixed(2)}` 
             });
           }
         }

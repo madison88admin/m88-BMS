@@ -123,6 +123,7 @@ const BudgetManagement = () => {
   const [recentRequestsPage, setRecentRequestsPage] = useState(1);
   const [recentPettyPage, setRecentPettyPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<any[]>([]);
 
   const visibleDepartments = useMemo(() => {
     const map = new Map<string, any>();
@@ -150,7 +151,7 @@ const BudgetManagement = () => {
   // Filter categories to show only main categories for supervisor/accounting
   const visibleCategories = useMemo(() => {
     if (user?.role === 'supervisor' || user?.role === 'accounting') {
-      return categories.filter(c => !c.parent_category_id); // Only show main categories (no parent)
+      return categories.filter((c: any) => !c.parent_category_id); // Only show main categories (no parent)
     }
     return categories;
   }, [categories, user]);
