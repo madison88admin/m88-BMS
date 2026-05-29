@@ -99,6 +99,7 @@ const statusTone = (status: string) => {
 };
 
 const BudgetManagement = () => {
+  const [user, setUser] = useState<any>(null);
   const [departments, setDepartments] = useState<any[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('');
   const [selectedBreakdown, setSelectedBreakdown] = useState<any>(null);
@@ -125,7 +126,18 @@ const BudgetManagement = () => {
 
   const visibleDepartments = useMemo(() => {
     const map = new Map<string, any>();
-    departments
+    const filtered = departments.filter(d => {
+      // Supervisors can only see their own department
+      if (user?.role === 'supervisor' && user?.department_id) {
+        return d.id === user.department_id;
+      }
+      // Managers can only see their own department
+      if (user?.role === 'manager' && user?.department_id) {
+        return d.id === user.department_id;
+      }
+      return true;
+    });
+    filtered
       .filter(d => !/^m88/i.test(d.name || ''))
       .forEach(d => {
         const key = `${String(d.name || '').trim().toLowerCase()}::${d.fiscal_year ?? ''}`;
@@ -133,7 +145,7 @@ const BudgetManagement = () => {
         if (!ex || toNumber(d.used_budget) > toNumber(ex.used_budget)) map.set(key, d);
       });
     return Array.from(map.values()).sort((a, b) => toNumber(b.used_budget) - toNumber(a.used_budget));
-  }, [departments]);
+  }, [departments, user]);
 
   const availableFiscalYears = useMemo(() =>
     Array.from(new Set(visibleDepartments.map(d => Number(d.fiscal_year || 0)).filter(y => y > 0))).sort((a, b) => b - a),
@@ -200,6 +212,12 @@ const BudgetManagement = () => {
   );
 
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const userData = JSON.parse(localStorage.getItem('user') || '{}');
+      setUser(userData);
+    } catch {}
     fetchDepartments();
     fetchExchangeRate(false);
     const id = window.setInterval(() => fetchExchangeRate(false), 60000);
