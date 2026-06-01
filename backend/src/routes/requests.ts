@@ -1435,7 +1435,7 @@ const recomputeCashAdvanceBalance = async (cashAdvanceId: string) => {
     .from('request_liquidations')
     .select('amount_spent')
     .eq('cash_advance_id', cashAdvanceId)
-    .in('status', ['pending_liquidation_review', 'liquidated']);
+    .in('status', ['submitted', 'verified']);
 
   if (liquidationSumError) return { error: liquidationSumError };
 
@@ -1506,7 +1506,7 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       .limit(1)
       .maybeSingle();
 
-    const previousSpent = existingLiquidation?.status === 'pending_liquidation_review'
+    const previousSpent = existingLiquidation?.status === 'submitted'
       && existingLiquidation?.cash_advance_id === cashAdvanceId
       ? toNumber(existingLiquidation.amount_spent)
       : 0;
@@ -1521,7 +1521,7 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       result = await supabase
         .from('request_liquidations')
         .update({
-          status: 'pending_liquidation_review',
+          status: 'submitted',
           submitted_at: new Date(),
           cash_advance_id: cashAdvanceId,
           amount_spent: amountSpent,
@@ -1541,7 +1541,7 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
         .insert({
           request_id: id,
           liquidation_no: createLiquidationNumber(cashAdvance.advance_code),
-          status: 'pending_liquidation_review',
+          status: 'submitted',
           submitted_at: new Date(),
           cash_advance_id: cashAdvanceId,
           amount_spent: amountSpent,
@@ -1590,7 +1590,7 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
           action: 'submitted',
           field_name: 'status',
           old_value: existingLiquidation?.status || 'pending_submission',
-          new_value: 'pending_liquidation_review',
+          new_value: 'submitted',
           note: remarks || 'Liquidation submitted'
         }
       ]);
@@ -1600,7 +1600,7 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
         recordType: 'liquidation',
         recordId: result.data.id,
         recordLabel: cashAdvance.advance_code,
-        newValue: { amount_spent: amountSpent, status: 'pending_liquidation_review' },
+        newValue: { amount_spent: amountSpent, status: 'submitted' },
         remarks,
       });
       await notifyAccounting(`Cash advance liquidation submitted for ${cashAdvance.advance_code} — pending review.`);
@@ -2902,7 +2902,7 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
 
   const cashReturn = toNumber(liquidation.cash_return_amount);
   const reimbursable = toNumber(liquidation.reimbursable_amount);
-  const finalStatus = status === 'verified' ? 'liquidated' : 'returned';
+  const finalStatus = status === 'verified' ? 'verified' : 'returned';
 
   const { data, error } = await supabase
     .from('request_liquidations')

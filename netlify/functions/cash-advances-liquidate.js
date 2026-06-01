@@ -150,7 +150,12 @@ exports.handler = async (event) => {
       };
     }
 
-    const currentBalance = toNumber(cashAdvance.balance);
+    const previousSpent = existingLiquidation?.status === 'submitted'
+      && existingLiquidation?.cash_advance_id === advanceId
+      ? toNumber(existingLiquidation.amount_spent)
+      : 0;
+
+    const currentBalance = toNumber(cashAdvance.balance) + previousSpent;
     if (totalLiquidation > currentBalance) {
       return {
         statusCode: 400,
@@ -173,7 +178,7 @@ exports.handler = async (event) => {
       : validatedItems.filter((item) => item.receipt_attached).length;
 
     const liquidationPayload = {
-      status: 'pending_liquidation_review',
+      status: 'submitted',
       submitted_at: new Date().toISOString(),
       cash_advance_id: advanceId,
       amount_spent: totalLiquidation,
@@ -260,7 +265,7 @@ exports.handler = async (event) => {
       recordType: 'liquidation',
       recordId: liquidation.id,
       recordLabel: cashAdvance.advance_code,
-      newValue: { amount_spent: totalLiquidation, status: 'pending_liquidation_review' },
+      newValue: { amount_spent: totalLiquidation, status: 'submitted' },
       remarks: sanitizeText(remarks),
     });
 

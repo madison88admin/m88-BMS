@@ -110,7 +110,7 @@ const handleSubmitLiquidation = async (requestId, user, body) => {
     .maybeSingle();
 
   const liquidationPayload = {
-    status: 'pending_liquidation_review',
+    status: 'submitted',
     submitted_at: new Date().toISOString(),
     cash_advance_id: cashAdvanceId,
     amount_spent: amountSpent,
@@ -170,7 +170,7 @@ const handleSubmitLiquidation = async (requestId, user, body) => {
       action: 'submitted',
       field_name: 'status',
       old_value: existingLiquidation?.status || 'pending_submission',
-      new_value: 'pending_liquidation_review',
+      new_value: 'submitted',
       note: remarks || 'Liquidation submitted',
     }]);
     await logAuditEvent({
@@ -179,7 +179,7 @@ const handleSubmitLiquidation = async (requestId, user, body) => {
       recordType: 'liquidation',
       recordId: result.data.id,
       recordLabel: cashAdvance.advance_code,
-      newValue: { amount_spent: amountSpent, status: 'pending_liquidation_review' },
+      newValue: { amount_spent: amountSpent, status: 'submitted' },
       remarks,
     });
     await notifyAccounting(`Cash advance liquidation submitted for ${cashAdvance.advance_code} — pending review.`);
@@ -214,7 +214,7 @@ const handleReviewLiquidation = async (requestId, user, body) => {
 
   const cashReturn = toNumber(liquidation.cash_return_amount);
   const reimbursable = toNumber(liquidation.reimbursable_amount);
-  const finalStatus = status === 'verified' ? 'liquidated' : 'returned';
+  const finalStatus = status === 'verified' ? 'verified' : 'returned';
 
   const { data, error } = await supabase
     .from('request_liquidations')
