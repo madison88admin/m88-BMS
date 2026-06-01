@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 import { formatMoney, toNumber , getErrorMessage } from '../utils/format';
 
 interface BudgetSummary {
@@ -65,6 +66,24 @@ const FinanceDashboard = () => {
     };
 
     loadData();
+
+    // Realtime — refresh when budget_categories or departments change (e.g. after proposal approval)
+    let channel: any;
+    if (supabase) {
+      channel = supabase
+        .channel('finance-dashboard-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_categories' }, () => {
+          void loadData();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'departments' }, () => {
+          void loadData();
+        })
+        .subscribe();
+    }
+
+    return () => {
+      if (channel && supabase) void supabase.removeChannel(channel);
+    };
   }, [navigate]);
 
   const filteredBudgetData = selectedDepartment === 'all' 

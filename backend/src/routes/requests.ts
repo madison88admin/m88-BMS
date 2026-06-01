@@ -30,6 +30,7 @@ import {
   notifyVp,
   checkBudgetUtilizationWarning,
 } from '../utils/workflowNotify';
+import { invalidateCache } from '../middleware/cache';
 
 const router = express.Router();
 
@@ -1884,6 +1885,9 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     await notifyAccounting(`Budget proposal ${request.request_code} approved by supervisor — pending accounting review.`);
   }
 
+  // Invalidate department cache so projected_remaining reflects the status change
+  invalidateCache('/api/departments');
+
   res.json(data);
 });
 
@@ -2037,6 +2041,10 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
       `Your request ${request.request_code} has moved to VP review.`
     );
   }
+
+  // Invalidate department cache so projected_remaining reflects the status change
+  invalidateCache('/api/departments');
+
   res.json(data);
 });
 
@@ -2229,6 +2237,11 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
 
   if (isBudgetProposalFlow) {
     await applyApprovedBudgetProposal(request);
+    // Invalidate all budget/department caches so every user sees the new budget immediately
+    invalidateCache('/api/departments');
+    invalidateCache('/api/budget/categories');
+    invalidateCache('/api/budget/summary');
+    invalidateCache('/api/budget/monitoring');
   }
 
   await supabase.from('approval_logs').insert({
@@ -2405,6 +2418,9 @@ router.patch('/:id/release', authenticate, authorize('accounting', 'accounting_l
 
   try {
     const released = await releaseRequest(request, req.user.id, req.body || {});
+    // Invalidate department/budget caches so used_budget reflects immediately for all users
+    invalidateCache('/api/departments');
+    invalidateCache('/api/budget/categories');
     await notifyEmployee(request.employee_id, request.request_code, 'Request Released', `Your request ${request.request_code} has been released.`);
     res.json(released);
   } catch (releaseError: any) {
@@ -3212,6 +3228,10 @@ router.post('/bulk-approve-accounting', authenticate, authorize('accounting', 'a
       failedRequests.push({ request_code: request.request_code, error: error.message });
     }
   }
+
+  // Invalidate caches so all dashboards reflect the forwarded proposals immediately
+  invalidateCache('/api/departments');
+  invalidateCache('/api/budget/categories');
 
   res.json({
     message: `Bulk approved ${approvedRequests.length} budget proposals`,

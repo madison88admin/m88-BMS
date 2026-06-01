@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 import { formatMoney, formatDateTime, toNumber, formatActionLabel , getErrorMessage } from '../utils/format';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -99,6 +100,27 @@ const AccountingDashboard = () => {
 
     fetchUser();
     loadAllData();
+
+    // Supabase Realtime — refresh when budget_categories or departments change
+    let channel: any;
+    if (supabase) {
+      channel = supabase
+        .channel('accounting-dashboard-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_categories' }, () => {
+          void loadAllData();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'departments' }, () => {
+          void loadAllData();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requests' }, () => {
+          void loadAllData();
+        })
+        .subscribe();
+    }
+
+    return () => {
+      if (channel && supabase) void supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadAllData = async () => {
