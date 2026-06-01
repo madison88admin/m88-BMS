@@ -1,0 +1,31 @@
+const MAIN_CATEGORY_CODES = [
+  '6010',
+  '6020',
+  '6040',
+  '6041',
+  '6170',
+  '6240',
+  '6330',
+  '6340',
+  '6350',
+  '6430',
+  '6490',
+  '6500',
+  '6650',
+  '6670',
+  '6710',
+  '6720',
+  '6840',
+  '6860',
+  '6870',
+  '6900',
+  '9900',
+];
+
+const isMainCategoryCode = (code) =>
+  MAIN_CATEGORY_CODES.includes(String(code || '').trim().toUpperCase());
+
+module.exports = {
+  MAIN_CATEGORY_CODES,
+  isMainCategoryCode,
+};

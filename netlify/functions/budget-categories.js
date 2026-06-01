@@ -3,6 +3,7 @@ const { authenticate, authorize } = require('./utils/auth');
 const { toNumber, resolveMainCategory, requiresPresidentBudgetApproval } = require('./utils/budget');
 const { AUDIT_ACTIONS, logAuditEvent } = require('./utils/auditLog');
 const { notifyDepartmentSupervisor, checkBudgetUtilizationWarning } = require('./utils/workflowNotify');
+const { isMainCategoryCode } = require('./utils/budgetCategoryHierarchy');
 const {
   getLatestConfiguredFiscalYear,
   syncDepartmentBudget,
@@ -14,6 +15,67 @@ const {
   sanitizeText,
   createErrorResponse 
 } = require('./utils/enhancedAuth');
+
+const sumChildBudgets = async (parentCategoryId, excludeCategoryId) => {
+  let query = supabase
+    .from('budget_categories')
+    .select('id, budget_amount')
+    .eq('parent_category_id', parentCategoryId);
+
+  if (excludeCategoryId) {
+    query = query.neq('id', excludeCategoryId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).reduce((sum, category) => sum + toNumber(category.budget_amount), 0);
+};
+
+const syncMainCategoryRemaining = async (categoryId) => {
+  if (!categoryId) return;
+
+  const { data: category, error } = await supabase
+    .from('budget_categories')
+    .select('id, parent_category_id, budget_amount')
+    .eq('id', categoryId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!category || category.parent_category_id) return;
+
+  const childTotal = await sumChildBudgets(category.id);
+  await supabase
+    .from('budget_categories')
+    .update({
+      remaining_amount: Math.max(0, toNumber(category.budget_amount) - childTotal),
+      updated_at: new Date(),
+    })
+    .eq('id', category.id);
+};
+
+const assertChildAllocationFitsParent = async (parentCategoryId, requestedBudget, excludeCategoryId) => {
+  const { data: parentCategory, error: parentError } = await supabase
+    .from('budget_categories')
+    .select('id, department_id, fiscal_year, parent_category_id, budget_amount, category_name')
+    .eq('id', parentCategoryId)
+    .maybeSingle();
+
+  if (parentError || !parentCategory) {
+    throw new Error('Parent category not found');
+  }
+  if (parentCategory.parent_category_id) {
+    throw new Error('Parent category cannot itself be a subcategory');
+  }
+
+  const existingChildTotal = await sumChildBudgets(parentCategoryId, excludeCategoryId);
+  const parentBudget = toNumber(parentCategory.budget_amount);
+
+  if (existingChildTotal + requestedBudget > parentBudget) {
+    throw new Error(`Sub-category allocations exceed "${parentCategory.category_name}" budget. Available: ${(parentBudget - existingChildTotal).toFixed(2)}, Requested: ${requestedBudget.toFixed(2)}`);
+  }
+
+  return parentCategory;
+};
 
 exports.handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -150,6 +212,13 @@ exports.handler = async (event, context) => {
           body: JSON.stringify(createErrorResponse('Category code and name are required', 400)) 
         };
       }
+
+      if (!parent_category_id && !isMainCategoryCode(cleanCategoryCode)) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify(createErrorResponse('Sub-categories must be assigned under a main category.', 400)),
+        };
+      }
       
       // Check for duplicate category code in same department/fiscal year
       const { data: existing, error: checkError } = await supabase
@@ -166,6 +235,17 @@ exports.handler = async (event, context) => {
           statusCode: 409, 
           body: JSON.stringify(createErrorResponse('Category code already exists in this department', 409)) 
         };
+      }
+
+      if (parent_category_id) {
+        validateUUID(parent_category_id);
+        const parentCategory = await assertChildAllocationFitsParent(parent_category_id, requestedBudget);
+        if (parentCategory.department_id !== department_id || Number(parentCategory.fiscal_year) !== Number(targetFiscalYear)) {
+          return {
+            statusCode: 400,
+            body: JSON.stringify(createErrorResponse('Parent category must belong to the same department and fiscal year', 400)),
+          };
+        }
       }
       
       const { data, error } = await supabase
@@ -202,6 +282,7 @@ exports.handler = async (event, context) => {
 
       // Sync department budget after adding category
       await syncDepartmentBudget(department_id, targetFiscalYear);
+      await syncMainCategoryRemaining(parent_category_id || data.id);
 
       return {
         statusCode: 200,
@@ -214,7 +295,7 @@ exports.handler = async (event, context) => {
       authorize(['accounting', 'admin'])(user);
       const pathParts = event.path.split('/');
       const id = pathParts[pathParts.length - 1];
-      const { budget_amount, category_name } = JSON.parse(event.body);
+      const { budget_amount, category_name, parent_category_id } = JSON.parse(event.body);
 
       validateUUID(id);
       const requestedBudget = validateAmount(budget_amount);
@@ -240,16 +321,61 @@ exports.handler = async (event, context) => {
         };
       }
 
-      const newRemaining = requestedBudget - toNumber(current.used_amount) - toNumber(current.committed_amount);
+      let nextParentCategoryId = current.parent_category_id || null;
+      const updatePayload = {
+        budget_amount: requestedBudget,
+        category_name: cleanCategoryName || current.category_name,
+        remaining_amount: Math.max(0, requestedBudget - toNumber(current.used_amount) - toNumber(current.committed_amount)),
+        updated_at: new Date()
+      };
+
+      if (parent_category_id !== undefined) {
+        if (parent_category_id === null || parent_category_id === '') {
+          if (!isMainCategoryCode(current.category_code)) {
+            return {
+              statusCode: 400,
+              body: JSON.stringify(createErrorResponse('Only main category codes can be moved to the top level.', 400)),
+            };
+          }
+          updatePayload.parent_category_id = null;
+          nextParentCategoryId = null;
+        } else if (parent_category_id === id) {
+          return {
+            statusCode: 400,
+            body: JSON.stringify(createErrorResponse('Category cannot be its own parent', 400)),
+          };
+        } else {
+          validateUUID(parent_category_id);
+          const parentCategory = await assertChildAllocationFitsParent(parent_category_id, requestedBudget, id);
+          if (parentCategory.department_id !== current.department_id || Number(parentCategory.fiscal_year) !== Number(current.fiscal_year)) {
+            return {
+              statusCode: 400,
+              body: JSON.stringify(createErrorResponse('Parent category must belong to the same department and fiscal year', 400)),
+            };
+          }
+          updatePayload.parent_category_id = parent_category_id;
+          nextParentCategoryId = parent_category_id;
+        }
+      }
+
+      if (nextParentCategoryId) {
+        await assertChildAllocationFitsParent(nextParentCategoryId, requestedBudget, id);
+      }
+
+      if (!nextParentCategoryId) {
+        const childTotal = await sumChildBudgets(id);
+        if (requestedBudget < childTotal) {
+          return {
+            statusCode: 400,
+            body: JSON.stringify(createErrorResponse(`Main category budget cannot be below its sub-category allocations. Allocated: ${childTotal.toFixed(2)}`, 400)),
+          };
+        }
+        updatePayload.remaining_amount = Math.max(0, requestedBudget - childTotal);
+      }
 
       const { data, error } = await supabase
         .from('budget_categories')
-        .update({
-          budget_amount: requestedBudget,
-          category_name: cleanCategoryName || current.category_name,
-          remaining_amount: Math.max(0, newRemaining),
-          updated_at: new Date()
-        })
+        .update(updatePayload)
         .eq('id', id)
         .select()
         .single();
@@ -276,6 +402,8 @@ exports.handler = async (event, context) => {
       await checkBudgetUtilizationWarning(id);
 
       await syncDepartmentBudget(current.department_id, current.fiscal_year);
+      await syncMainCategoryRemaining(current.parent_category_id);
+      await syncMainCategoryRemaining(nextParentCategoryId || id);
 
       return { 
         statusCode: 200, 
@@ -293,7 +421,7 @@ exports.handler = async (event, context) => {
 
       const { data: category, error: fetchError } = await supabase
         .from('budget_categories')
-        .select('department_id, fiscal_year, is_locked, used_amount, committed_amount, category_name')
+        .select('department_id, fiscal_year, is_locked, used_amount, committed_amount, category_name, parent_category_id')
         .eq('id', id)
         .single();
 
@@ -323,6 +451,7 @@ exports.handler = async (event, context) => {
 
       // Sync department budget after deleting category
       await syncDepartmentBudget(category.department_id, category.fiscal_year);
+      await syncMainCategoryRemaining(category.parent_category_id);
 
       return {
         statusCode: 200,

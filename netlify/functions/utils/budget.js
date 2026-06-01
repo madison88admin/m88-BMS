@@ -1,7 +1,10 @@
 const { supabase } = require('./supabase');
 const { getBudgetPresidentThreshold } = require('./approval');
+const { syncDepartmentBudget } = require('./fiscal');
 
 const toNumber = (value) => Number.parseFloat(value ?? 0) || 0;
+const TICKET_USED_STATUSES = new Set(['approved', 'released']);
+const TICKET_COMMITTED_STATUSES = new Set(['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'on_hold']);
 
 const getBudgetProposalAmount = (request) => toNumber(request?.amount);
 
@@ -168,15 +171,82 @@ const lockDepartmentBudgetMatrix = async (departmentId, fiscalYear) => {
     .eq('fiscal_year', fiscalYear);
 };
 
+const reconcileCategoryTicketUsage = async (categoryId, budgetAmount, reservedAmount = 0) => {
+  const { data: category } = await supabase
+    .from('budget_categories')
+    .select('id, department_id, fiscal_year')
+    .eq('id', categoryId)
+    .maybeSingle();
+
+  if (!category) return { used: 0, committed: 0 };
+
+  const relevantStatuses = [...TICKET_USED_STATUSES, ...TICKET_COMMITTED_STATUSES];
+  const { data: requests } = await supabase
+    .from('expense_requests')
+    .select('id, category_id, amount, status, request_type')
+    .eq('department_id', category.department_id)
+    .eq('fiscal_year', category.fiscal_year)
+    .in('status', relevantStatuses)
+    .not('request_type', 'in', '(budget_request,budget_revision)');
+
+  const requestRows = requests || [];
+  const requestIds = requestRows.map((request) => request.id);
+  const { data: items } = requestIds.length
+    ? await supabase
+      .from('request_items')
+      .select('request_id, category_id, amount')
+      .in('request_id', requestIds)
+    : { data: [] };
+
+  const requestsById = new Map(requestRows.map((request) => [request.id, request]));
+  const requestIdsWithItems = new Set((items || []).map((item) => item.request_id));
+  let used = 0;
+  let committed = 0;
+
+  const addAmount = (status, amount) => {
+    if (TICKET_USED_STATUSES.has(status)) used += amount;
+    if (TICKET_COMMITTED_STATUSES.has(status)) committed += amount;
+  };
+
+  for (const item of items || []) {
+    if (item.category_id !== categoryId) continue;
+    const request = requestsById.get(item.request_id);
+    if (!request) continue;
+    addAmount(request.status, toNumber(item.amount));
+  }
+
+  for (const request of requestRows) {
+    if (requestIdsWithItems.has(request.id)) continue;
+    if (request.category_id !== categoryId) continue;
+    addAmount(request.status, toNumber(request.amount));
+  }
+
+  const remainingAmount = Math.max(0, budgetAmount - reservedAmount - used - committed);
+  await supabase
+    .from('budget_categories')
+    .update({
+      used_amount: used,
+      committed_amount: committed,
+      remaining_amount: remainingAmount,
+      updated_at: new Date(),
+    })
+    .eq('id', categoryId);
+
+  return { used, committed };
+};
+
 const applyApprovedBudgetProposal = async (request) => {
   const category = await resolveMainCategory(request?.category_id);
   if (!category) return;
 
   const proposedAmount = getBudgetProposalAmount(request);
   const previousAmount = toNumber(category.budget_amount);
-  const usedAmount = toNumber(category.used_amount);
-  const committedAmount = toNumber(category.committed_amount);
-  const newRemaining = Math.max(0, proposedAmount - usedAmount - committedAmount);
+  const { data: children } = await supabase
+    .from('budget_categories')
+    .select('budget_amount')
+    .eq('parent_category_id', category.id);
+  const childTotal = (children || []).reduce((sum, child) => sum + toNumber(child.budget_amount), 0);
+  const newRemaining = Math.max(0, proposedAmount - childTotal);
 
   await supabase
     .from('budget_categories')
@@ -189,7 +259,10 @@ const applyApprovedBudgetProposal = async (request) => {
     })
     .eq('id', category.id);
 
+  await reconcileCategoryTicketUsage(category.id, proposedAmount, childTotal);
+
   await lockDepartmentBudgetMatrix(request.department_id, request.fiscal_year);
+  await syncDepartmentBudget(request.department_id, request.fiscal_year);
 
   await supabase.from('budget_revision_history').insert({
     category_id: category.id,

@@ -31,7 +31,8 @@ const syncDepartmentBudget = async (department_id, fiscal_year) => {
       .from('budget_categories')
       .select('budget_amount')
       .eq('department_id', department_id)
-      .eq('fiscal_year', fiscal_year);
+      .eq('fiscal_year', fiscal_year)
+      .is('parent_category_id', null);
 
     if (catError) throw catError;
 

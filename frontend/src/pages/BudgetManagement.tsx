@@ -195,8 +195,6 @@ const BudgetManagement = () => {
   const breakdownTotals = selectedBreakdown?.totals;
   const breakdownCounts = selectedBreakdown?.counts;
   const editableBudgetValue = breakdownTotals?.annual_budget ?? toNumber(selectedDepartment?.annual_budget);
-  const categoryAllocatedTotal = (selectedBreakdown?.categories || []).reduce((s: number, c: any) => s + toNumber(c.budget_amount), 0);
-  const categoryAllocationRemaining = Math.max(0, editableBudgetValue - categoryAllocatedTotal);
 
   const enrichedCategories = useMemo(
     () => enrichCategories(selectedBreakdown?.categories || []),
@@ -213,11 +211,27 @@ const BudgetManagement = () => {
     '6430', '6490', '6500', '6650', '6670', '6710', '6720', '6840', '6860', 
     '6870', '6900', '9900'
   ]), []);
+  const isNewMainCategory = MAIN_CATEGORY_CODES.has(newCategory.category_code.trim().toUpperCase());
 
   const parentCategoryOptions = useMemo(
-    () => enrichedCategories.filter((category) => !category.parent_category_id && MAIN_CATEGORY_CODES.has(category.category_code)),
-    [enrichedCategories, MAIN_CATEGORY_CODES]
+    () => enrichedCategories.filter((category) => !category.parent_category_id),
+    [enrichedCategories]
   );
+
+  const categoryAllocatedTotal = useMemo(() => {
+    const childParentIds = new Set(
+      enrichedCategories
+        .map((category) => category.parent_category_id)
+        .filter(Boolean)
+    );
+
+    return enrichedCategories.reduce((sum, category) => {
+      if (category.parent_category_id) return sum + toNumber(category.budget_amount);
+      if (!childParentIds.has(category.id)) return sum + toNumber(category.budget_amount);
+      return sum;
+    }, 0);
+  }, [enrichedCategories]);
+  const categoryAllocationRemaining = Math.max(0, editableBudgetValue - categoryAllocatedTotal);
 
   const paginatedCategories = useMemo(
     () => orderedCategories.slice((categoryPage - 1) * CATEGORY_PAGE_SIZE, categoryPage * CATEGORY_PAGE_SIZE),
@@ -333,6 +347,7 @@ const BudgetManagement = () => {
   const addNewCategory = async () => {
     const token = localStorage.getItem('token');
     if (!selectedDepartmentId || !newCategory.category_code || !newCategory.category_name) { toast.error('Fill in category code and name'); return; }
+    if (!isNewMainCategory && !newCategory.parent_category_id) { toast.error('Select a parent category for sub-categories'); return; }
     try {
       await api.post('/api/budget/categories', {
         department_id: selectedDepartmentId,
@@ -429,7 +444,7 @@ const BudgetManagement = () => {
 
   const submitBudgetProposals = async () => {
     if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
-    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id && MAIN_CATEGORY_CODES.has(c.category_code));
+    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
     const proposals = mainCategories
       .map((cat) => ({
         category: cat,
@@ -468,7 +483,7 @@ const BudgetManagement = () => {
 
   const submitBudgetRevisions = async () => {
     if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
-    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id && MAIN_CATEGORY_CODES.has(c.category_code));
+    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
     const revisions = mainCategories
       .map((cat) => ({
         category: cat,
@@ -889,7 +904,9 @@ const BudgetManagement = () => {
                     {showAddCategory && canEditMatrix && (
                       <div className="mb-4 p-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]/50 space-y-2">
                         <div>
-                          <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Under parent category (optional)</label>
+                          <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">
+                            Under parent category {isNewMainCategory ? '(optional)' : '(required)'}
+                          </label>
                           <select
                             value={newCategory.parent_category_id}
                             onChange={(e) => setNewCategory((prev) => ({ ...prev, parent_category_id: e.target.value }))}
@@ -907,7 +924,7 @@ const BudgetManagement = () => {
                           <input type="text" placeholder="Code" value={newCategory.category_code} onChange={e => setNewCategory(p => ({ ...p, category_code: e.target.value.toUpperCase() }))} className="w-20 px-2 py-1.5 text-sm rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)]" />
                           <input type="text" placeholder="Category Name" value={newCategory.category_name} onChange={e => setNewCategory(p => ({ ...p, category_name: e.target.value }))} className="flex-1 px-2 py-1.5 text-sm rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)]" />
                           <input type="number" step="0.01" min="0" placeholder="₱" value={newCategory.budget_amount} onChange={e => setNewCategory(p => ({ ...p, budget_amount: e.target.value }))} className="w-24 px-2 py-1.5 text-sm rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)]" />
-                          <button onClick={addNewCategory} disabled={!newCategory.category_code || !newCategory.category_name} className="px-3 py-1.5 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition">+</button>
+                          <button onClick={addNewCategory} disabled={!newCategory.category_code || !newCategory.category_name || (!isNewMainCategory && !newCategory.parent_category_id)} className="px-3 py-1.5 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition">+</button>
                         </div>
                       </div>
                     )}
