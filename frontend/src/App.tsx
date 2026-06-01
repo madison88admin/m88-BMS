@@ -19,6 +19,7 @@ import BudgetManagement from './pages/BudgetManagement';
 import NewRequestForm from './pages/NewRequestForm';
 import CashAdvanceAging from './pages/CashAdvanceAging';
 import AuditTrail from './pages/AuditTrail';
+import DocumentUploads from './pages/DocumentUploads';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
               <Route path="/budget-management" element={<BudgetManagement />} />
               <Route path="/budget-monitoring" element={<FinanceDashboard />} />
               <Route path="/requests/new" element={<NewRequestForm />} />
+              <Route path="/document-uploads" element={<DocumentUploads />} />
               <Route path="/reimbursement" element={<ReimbursementForm />} />
               <Route path="/tracker" element={<RequestTracker />} />
               <Route path="/request/edit/:id" element={<RequestForm />} />

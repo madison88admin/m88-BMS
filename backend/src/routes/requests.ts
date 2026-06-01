@@ -19,6 +19,7 @@ import { validateExpense, OFFICIAL_EXPENSE_LIST, mergeBudgetCategoriesIntoOffici
 import {
   filterOfficialExpenseList,
   resolveOfficialExpenseList,
+  departmentMatchesExpenseItem,
 } from '../utils/expenseCategories';
 import { PRESIDENT_THRESHOLD, getPresidentThreshold } from '../constants/approval';
 import { AUDIT_ACTIONS, logAuditEvent, logFailedApprovalAttempt } from '../utils/auditLog';
@@ -824,9 +825,30 @@ router.get('/official-list', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const departmentId = req.user.department_id;
   const requestType = req.query.request_type as 'cash_advance' | 'reimbursement' | undefined;
+  const mannerOfSubmission = String(req.query.manner_of_submission || '').trim() as 'for_submission' | 'for_upload' | '';
 
   try {
     const baseList = await resolveOfficialExpenseList();
+    if (mannerOfSubmission === 'for_upload') {
+      if (!departmentId) return res.json([]);
+      const { data: deptData } = await supabase.from('departments').select('name').eq('id', departmentId).maybeSingle();
+      const departmentName = String(deptData?.name || '').trim();
+      const isFinanceOrAdminDept = departmentName === 'Finance Department' || departmentName === 'Admin Department';
+
+      const list = baseList
+        .filter((item: any) => String(item.mannerOfSubmission || 'for_submission') === 'for_upload')
+        .filter((item: any) => {
+          if (item.canCA && item.canRE) return true;
+          if (!departmentName) return false;
+          return departmentMatchesExpenseItem(departmentName, item);
+        })
+        .filter((item: any) => {
+          if (item.canCA || item.canRE) return true;
+          return isFinanceOrAdminDept;
+        });
+
+      return res.json(list);
+    }
     let list = baseList;
 
     if (departmentId) {

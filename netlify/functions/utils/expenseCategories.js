@@ -1,5 +1,6 @@
 const { supabase } = require('./supabase');
 const { OFFICIAL_EXPENSE_LIST } = require('./expenseValidator');
+const departmentNameMap = require('../../../backend/src/constants/departmentNameMap.json');
 
 const FOR_UPLOAD_FALLBACK_CODES = new Set([
   '6020.1', '6020.2', '6020.3', '6020.5', '6020.6',
@@ -9,13 +10,12 @@ const FOR_UPLOAD_FALLBACK_CODES = new Set([
 ]);
 
 const mapSeedDepartmentToExpenseDept = (department) => {
-  const normalized = String(department || '').trim().toLowerCase();
-  if (normalized === 'all') return 'All Dept';
-  if (normalized === 'hr') return 'HR Department';
-  if (normalized === 'admin') return 'Admin Department';
-  if (normalized === 'accounting') return 'Finance Department';
-  if (normalized === 'it') return 'IT Department';
-  return department;
+  const key = String(department || '').trim();
+  if (!key) return 'All Dept';
+  const mapped = departmentNameMap[key];
+  if (mapped === null) return 'All Dept';
+  if (mapped !== undefined) return mapped;
+  return key;
 };
 
 const dbRowToExpenseItem = (row) => ({
@@ -83,7 +83,6 @@ const mergeBudgetCategoriesIntoOfficialList = (officialItems, budgetCategories, 
   return merged;
 };
 
-const isStaffRole = (role) => ['employee', 'manager', 'supervisor'].includes(String(role || '').toLowerCase());
 const isAccountingRole = (role) =>
   ['accounting', 'accounting_limited', 'admin', 'super_admin'].includes(String(role || '').toLowerCase());
 
@@ -102,12 +101,15 @@ const departmentMatchesExpenseItem = (departmentName, item) => {
 };
 
 const filterOfficialExpenseList = (items, options = {}) => {
-  const { requestType, departmentName, userRole } = options;
-  const staff = isStaffRole(userRole);
+  const { requestType, departmentName, userRole, mannerOfSubmission } = options;
 
   return items.filter((item) => {
     const submissionMode = item.mannerOfSubmission || 'for_submission';
-    if (staff && submissionMode === 'for_upload') return false;
+    if (mannerOfSubmission) {
+      if (submissionMode !== mannerOfSubmission) return false;
+    } else {
+      if (submissionMode === 'for_upload') return false;
+    }
     if (!isAccountingRole(userRole) && !item.canCA && !item.canRE) return false;
     if (requestType === 'cash_advance' && !item.canCA) return false;
     if (requestType === 'reimbursement' && !item.canRE) return false;
@@ -145,4 +147,5 @@ module.exports = {
   resolveOfficialExpenseList,
   filterOfficialExpenseList,
   buildOfficialListForDepartment,
+  departmentMatchesExpenseItem,
 };

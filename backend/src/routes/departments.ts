@@ -4,6 +4,7 @@ import { supabase } from '../utils/supabase';
 import { buildDepartmentBudgetSummaryMap, fetchRequestAllocationsByRequestId, isBudgetCommittedStatus, normalizeAllocations } from '../utils/budget';
 import { ensureDepartmentsForFiscalYear, toCanonicalDepartmentName, getAccessibleDepartmentIdsForUser, getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { loadBudgetCategoriesForBreakdown } from '../utils/restoreBudgetCategories';
+import { filterBudgetCategoriesForUser } from '../utils/budgetCategoryVisibility';
 import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
 
 const router = express.Router();
@@ -99,6 +100,14 @@ router.post('/', authenticate, authorize('admin', 'accounting'), async (req, res
 
 router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
   const departmentId = req.params.id;
+  if (req.user.role === 'employee' || req.user.role === 'manager' || req.user.role === 'supervisor' || req.user.role === 'accounting_limited') {
+    const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+    const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+    if (!accessibleDepartmentIds.includes(departmentId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
+
   const departmentResult = await supabase
     .from('departments')
     .select('id, name, fiscal_year, annual_budget, used_budget, petty_cash_balance, updated_at, created_at')
@@ -119,6 +128,7 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
 
   const relatedDepartments = duplicateDepartmentsResult.data || [selectedDepartment];
   const relatedDepartmentIds = relatedDepartments.map((department) => department.id);
+  const departmentNameById = new Map(relatedDepartments.map((department) => [department.id, department.name]));
   const department = relatedDepartments.reduce((current, candidate) => {
     if (toNumber(candidate.used_budget) !== toNumber(current.used_budget)) {
       return toNumber(candidate.used_budget) > toNumber(current.used_budget) ? candidate : current;
@@ -229,6 +239,10 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
       Number(selectedDepartment.fiscal_year),
       departmentId
     );
+    categories = await filterBudgetCategoriesForUser(supabase, categories, {
+      userRole: req.user.role,
+      departmentNameById
+    });
   } catch (categoryError: any) {
     return res.status(400).json({ error: categoryError?.message || categoryError });
   }

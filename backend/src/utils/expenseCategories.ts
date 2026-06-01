@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { ExpenseItem, OFFICIAL_EXPENSE_LIST } from './expenseValidator';
+import { resolveExpenseCategoryDepartmentName } from '../constants/departmentMapping';
 
 export type ExpenseCategoryRow = {
   code: string;
@@ -14,13 +15,8 @@ export type ExpenseCategoryRow = {
 
 /** Map seed department labels to department names used in the app. */
 export const mapSeedDepartmentToExpenseDept = (department: string): string => {
-  const normalized = String(department || '').trim().toLowerCase();
-  if (normalized === 'all') return 'All Dept';
-  if (normalized === 'hr') return 'HR Department';
-  if (normalized === 'admin') return 'Admin Department';
-  if (normalized === 'accounting') return 'Finance Department';
-  if (normalized === 'it') return 'IT Department';
-  return department;
+  const resolved = resolveExpenseCategoryDepartmentName(department);
+  return resolved === null ? 'All Dept' : resolved;
 };
 
 export const dbRowToExpenseItem = (row: ExpenseCategoryRow): ExpenseItem => ({
@@ -97,15 +93,19 @@ export const filterOfficialExpenseList = (
     requestType?: 'cash_advance' | 'reimbursement' | 'liquidation';
     departmentName?: string;
     userRole?: string;
+    mannerOfSubmission?: 'for_submission' | 'for_upload';
   } = {}
 ): ExpenseItem[] => {
-  const { requestType, departmentName, userRole } = options;
-  const staff = isStaffRole(userRole);
+  const { requestType, departmentName, userRole, mannerOfSubmission } = options;
 
   return items.filter((item) => {
     const submissionMode = item.mannerOfSubmission || 'for_submission';
 
-    if (staff && submissionMode === 'for_upload') return false;
+    if (mannerOfSubmission) {
+      if (submissionMode !== mannerOfSubmission) return false;
+    } else {
+      if (submissionMode === 'for_upload') return false;
+    }
 
     if (!isAccountingRole(userRole) && !item.canCA && !item.canRE) return false;
 

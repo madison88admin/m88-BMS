@@ -18,6 +18,8 @@ export const AUDIT_ACTIONS = {
   REIMBURSEMENT_SUBMITTED: 'reimbursement_submitted',
   REIMBURSEMENT_APPROVED: 'reimbursement_approved',
   REIMBURSEMENT_REJECTED: 'reimbursement_rejected',
+  DOCUMENT_UPLOADED: 'document_uploaded',
+  DOCUMENT_UPLOAD_REVIEWED: 'document_upload_reviewed',
   FAILED_APPROVAL_ATTEMPT: 'failed_approval_attempt',
 } as const;
 

@@ -51,6 +51,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/document-uploads/:id/review"
+  to = "/.netlify/functions/document-uploads/api/document-uploads/:id/review"
+  status = 200
+
+[[redirects]]
+  from = "/api/document-uploads"
+  to = "/.netlify/functions/document-uploads"
+  status = 200
+
+[[redirects]]
   from = "/api/requests/:id/:action"
   to = "/.netlify/functions/requests-approve-reject/api/requests/:id/:action"
   status = 200

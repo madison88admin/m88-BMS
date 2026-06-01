@@ -3,6 +3,7 @@ import { supabase } from '../utils/supabase';
 import { authenticate, authorize } from '../middleware/auth';
 import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { restoreAllBudgetCategoriesForFiscalYear } from '../utils/restoreBudgetCategories';
+import { filterBudgetCategoriesForUser } from '../utils/budgetCategoryVisibility';
 import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
 import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
 import { checkBudgetUtilizationWarning, notifyDepartmentSupervisor } from '../utils/workflowNotify';
@@ -87,7 +88,13 @@ router.get('/categories', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (
     }
 
     if (department_id && department_id !== '') {
-      query = query.eq('department_id', department_id);
+      if (req.user?.role === 'admin' || req.user?.role === 'super_admin' || req.user?.role === 'accounting') {
+        query = query.eq('department_id', department_id);
+      } else if (req.user?.department_id && String(req.user.department_id) === String(department_id)) {
+        query = query.eq('department_id', department_id);
+      } else {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     } else if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin' && req.user?.role !== 'accounting') {
       // Regular users use their own department_id from token
       if (req.user?.department_id) {
@@ -101,7 +108,7 @@ router.get('/categories', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (
     const { data, error } = await query.order('category_name');
     if (error) throw error;
 
-    const rows = data || [];
+    const rows = await filterBudgetCategoriesForUser(supabase, data || [], { userRole: req.user?.role });
     const nameById = new Map(rows.map((row: any) => [row.id, row.category_name]));
     const enriched = rows.map((row: any) => ({
       ...row,
@@ -456,6 +463,17 @@ router.get('/monitoring', authenticate, authorize('accounting', 'admin', 'super_
     const { department_id, fiscal_year } = req.query;
     const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
     const targetFiscalYear = fiscal_year ? parseInt(fiscal_year as string) : activeFiscalYear;
+    const normalizedRole = String(req.user?.role || '').trim().toLowerCase();
+    let effectiveDepartmentId = department_id ? String(department_id) : '';
+    if (normalizedRole === 'supervisor') {
+      if (!req.user?.department_id) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (effectiveDepartmentId && effectiveDepartmentId !== String(req.user.department_id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      effectiveDepartmentId = String(req.user.department_id);
+    }
 
     // Get budget categories with their stats
     let categoriesQuery = supabase
@@ -466,15 +484,16 @@ router.get('/monitoring', authenticate, authorize('accounting', 'admin', 'super_
       `)
       .eq('fiscal_year', targetFiscalYear);
 
-    if (department_id) {
-      categoriesQuery = categoriesQuery.eq('department_id', department_id);
+    if (effectiveDepartmentId) {
+      categoriesQuery = categoriesQuery.eq('department_id', effectiveDepartmentId);
     }
 
     const { data: categories, error: catError } = await categoriesQuery;
     if (catError) throw catError;
+    const visibleCategories = await filterBudgetCategoriesForUser(supabase, categories || [], { userRole: req.user?.role });
 
     // Get actual expenses (released requests) by category
-    const { data: expenses, error: expError } = await supabase
+    let expensesQuery = supabase
       .from('expense_requests')
       .select(`
         category_id,
@@ -485,11 +504,15 @@ router.get('/monitoring', authenticate, authorize('accounting', 'admin', 'super_
       .eq('fiscal_year', targetFiscalYear)
       .eq('status', 'released')
       .not('category_id', 'is', null);
+    if (effectiveDepartmentId) {
+      expensesQuery = expensesQuery.eq('department_id', effectiveDepartmentId);
+    }
+    const { data: expenses, error: expError } = await expensesQuery;
 
     if (expError) throw expError;
 
     // Get committed amounts (approved but not released)
-    const { data: committed, error: comError } = await supabase
+    let committedQuery = supabase
       .from('expense_requests')
       .select(`
         category_id,
@@ -499,11 +522,15 @@ router.get('/monitoring', authenticate, authorize('accounting', 'admin', 'super_
       .eq('fiscal_year', targetFiscalYear)
       .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'approved', 'on_hold'])
       .not('category_id', 'is', null);
+    if (effectiveDepartmentId) {
+      committedQuery = committedQuery.eq('department_id', effectiveDepartmentId);
+    }
+    const { data: committed, error: comError } = await committedQuery;
 
     if (comError) throw comError;
 
     // Build budget vs actual report
-    const report = (categories || []).map((cat: any) => {
+    const report = (visibleCategories || []).map((cat: any) => {
       const categoryExpenses = (expenses || []).filter((e: any) => e.category_id === cat.id);
       const categoryCommitted = (committed || []).filter((c: any) => c.category_id === cat.id);
 

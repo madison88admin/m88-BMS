@@ -20,6 +20,7 @@ const {
   resolveOfficialExpenseList,
   filterOfficialExpenseList,
   buildOfficialListForDepartment,
+  departmentMatchesExpenseItem,
 } = require('./utils/expenseCategories');
 
 const pathEndsWith = (event, segment) => (event.path || '').replace(/\/+$/, '').endsWith(`/${segment}`);
@@ -46,6 +47,7 @@ exports.handler = async (event, context) => {
 
       if (pathEndsWith(event, 'official-list')) {
         const requestType = event.queryStringParameters?.request_type;
+        const mannerOfSubmission = String(event.queryStringParameters?.manner_of_submission || '').trim();
         const baseList = await resolveOfficialExpenseList();
         let list = baseList;
 
@@ -55,6 +57,26 @@ exports.handler = async (event, context) => {
             .select('name')
             .eq('id', user.department_id)
             .maybeSingle();
+          if (mannerOfSubmission === 'for_upload') {
+            const departmentName = String(deptData?.name || '').trim();
+            const isFinanceOrAdminDept = departmentName === 'Finance Department' || departmentName === 'Admin Department';
+            list = baseList
+              .filter((item) => String(item.mannerOfSubmission || 'for_submission') === 'for_upload')
+              .filter((item) => {
+                if (item.canCA && item.canRE) return true;
+                if (!departmentName) return false;
+                return departmentMatchesExpenseItem(departmentName, item);
+              })
+              .filter((item) => {
+                if (item.canCA || item.canRE) return true;
+                return isFinanceOrAdminDept;
+              });
+            return {
+              statusCode: 200,
+              headers: { 'Access-Control-Allow-Origin': '*' },
+              body: JSON.stringify(list),
+            };
+          }
           list = await buildOfficialListForDepartment(user.department_id, activeFiscalYear, baseList);
           list = filterOfficialExpenseList(list.length ? list : baseList, {
             requestType,

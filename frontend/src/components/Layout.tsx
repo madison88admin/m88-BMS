@@ -68,7 +68,6 @@ const Layout = ({ children }: LayoutProps) => {
         if (currentUser.role === 'supervisor' || currentUser.role === 'accounting' || currentUser.role === 'admin' || currentUser.role === 'vp' || currentUser.role === 'president') {
           const reqRes = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
           if (cancelled) return;
-          const VP_THRESHOLD = 500;
           const pendingCount = reqRes.data.filter((r: any) => {
             if (currentUser.role === 'supervisor') return r.status === 'pending_supervisor';
             if (currentUser.role === 'accounting') return r.status === 'pending_accounting';
@@ -208,6 +207,7 @@ const Layout = ({ children }: LayoutProps) => {
         <>
           <Link to="/employee" className={getNavClassName('/employee')}>Overview</Link>
           <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>New Expense</Link>
+          <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Document Uploads</Link>
           <Link to="/tracker" className={getNavClassName('/tracker')}>My History</Link>
         </>
       ) : (
@@ -224,6 +224,7 @@ const Layout = ({ children }: LayoutProps) => {
           {(user.role !== 'super_admin' && user.role !== 'admin') && (
             <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>New Expense</Link>
           )}
+          <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Document Uploads</Link>
           {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'accounting') && (
             <Link to="/tracker" className={getNavClassName('/tracker')}>My History</Link>
           )}
