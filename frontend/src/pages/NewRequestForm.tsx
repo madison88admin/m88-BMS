@@ -376,8 +376,31 @@ const NewRequestForm = () => {
           api.get(`/api/budget/cost-centers?department_id=${targetDeptId}`)
         ]);
 
-        setCategories(categoriesRes.data || []);
-        setCostCenters(costCentersRes.data || []);
+        const categoriesData = categoriesRes.data || [];
+        const costCentersData = costCentersRes.data || [];
+
+        setCategories(categoriesData);
+        setCostCenters(costCentersData);
+
+        // Automatically select the first cost center if available and not yet set
+        if (costCentersData.length > 0) {
+          const defaultCostCenterId = costCentersData[0].id;
+          if (activeTab === 'reimbursement') {
+            setReimbursementForm(prev => {
+              if (!prev.cost_center_id) {
+                return { ...prev, cost_center_id: defaultCostCenterId };
+              }
+              return prev;
+            });
+          } else if (activeTab === 'cash_advance') {
+            setCashAdvanceForm(prev => {
+              if (!prev.cost_center_id) {
+                return { ...prev, cost_center_id: defaultCostCenterId };
+              }
+              return prev;
+            });
+          }
+        }
       } catch (err: any) {
         toast.error(getErrorMessage(err, 'Failed to load form data'));
       }

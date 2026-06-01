@@ -208,9 +208,15 @@ const BudgetManagement = () => {
     [enrichedCategories, categorySearch]
   );
 
+  const MAIN_CATEGORY_CODES = useMemo(() => new Set([
+    '6010', '6020', '6040', '6041', '6170', '6240', '6330', '6340', '6350', 
+    '6430', '6490', '6500', '6650', '6670', '6710', '6720', '6840', '6860', 
+    '6870', '6900', '9900'
+  ]), []);
+
   const parentCategoryOptions = useMemo(
-    () => enrichedCategories.filter((category) => !category.parent_category_id),
-    [enrichedCategories]
+    () => enrichedCategories.filter((category) => !category.parent_category_id && MAIN_CATEGORY_CODES.has(category.category_code)),
+    [enrichedCategories, MAIN_CATEGORY_CODES]
   );
 
   const paginatedCategories = useMemo(
