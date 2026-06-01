@@ -384,7 +384,7 @@ const RequestForm = () => {
                 </span>
               </div>
               
-              {budgetImpact && requestType !== 'reimbursement' && (
+              {budgetImpact && requestType !== 'reimbursement' && requestType !== 'cash_advance' && (
                 <div className="mt-4 pt-4 border-t border-[var(--role-secondary)]/10 space-y-3">
                   {/* Budget Overview */}
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -443,14 +443,14 @@ const RequestForm = () => {
 
             <button 
               className={`w-full py-4 text-lg font-bold rounded-2xl transition-all ${
-                budgetImpact?.isOverBudget && requestType !== 'reimbursement'
+                budgetImpact?.isOverBudget && requestType !== 'reimbursement' && requestType !== 'cash_advance'
                   ? 'bg-red-500 hover:bg-red-600 text-white' 
                   : 'btn-primary'
               }`} 
               type="submit" 
               disabled={loading}
             >
-              {loading ? 'Submitting Request...' : budgetImpact?.isOverBudget && requestType !== 'reimbursement' ? `⚠️ Submit Over-Budget Request (${formatMoney(totalAmount)})` : `Submit Request for ${formatMoney(totalAmount)}`}
+              {loading ? 'Submitting Request...' : budgetImpact?.isOverBudget && requestType !== 'reimbursement' && requestType !== 'cash_advance' ? `⚠️ Submit Over-Budget Request (${formatMoney(totalAmount)})` : `Submit Request for ${formatMoney(totalAmount)}`}
             </button>
           </form>
 
