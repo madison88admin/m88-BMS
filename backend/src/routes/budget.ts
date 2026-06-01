@@ -7,6 +7,7 @@ import { filterBudgetCategoriesForUser } from '../utils/budgetCategoryVisibility
 import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
 import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
 import { checkBudgetUtilizationWarning, notifyDepartmentSupervisor } from '../utils/workflowNotify';
+import { ensureDepartmentCostCenterCode } from '../utils/costCenters';
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
@@ -412,6 +413,10 @@ router.delete('/categories/:id', authenticate, authorize('accounting', 'admin', 
 router.get('/cost-centers', authenticate, async (req: any, res) => {
   try {
     const { department_id } = req.query;
+
+    if (department_id) {
+      await ensureDepartmentCostCenterCode(supabase, String(department_id));
+    }
 
     let query = supabase
       .from('cost_centers')
