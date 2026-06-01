@@ -3081,4 +3081,99 @@ router.patch('/:id/reconcile', authenticate, authorize('accounting', 'admin'), a
   res.json(data);
 });
 
+// POST /api/requests/bulk-approve-accounting - Bulk approve budget proposals per department
+router.post('/bulk-approve-accounting', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  const { department_id, note } = req.body;
+
+  if (!department_id) {
+    return res.status(400).json({ error: 'Department ID is required' });
+  }
+
+  const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+
+  // Fetch all pending_accounting budget proposals for the department
+  const { data: requests, error: fetchError } = await supabase
+    .from('expense_requests')
+    .select('*')
+    .eq('department_id', department_id)
+    .eq('status', 'pending_accounting')
+    .in('request_type', ['budget_request', 'budget_revision'])
+    .eq('fiscal_year', activeFiscalYear);
+
+  if (fetchError) return res.status(400).json({ error: fetchError });
+  if (!requests || requests.length === 0) {
+    return res.status(404).json({ error: 'No pending budget proposals found for this department' });
+  }
+
+  const PRESIDENT_THRESHOLD = 500;
+  const approvedRequests = [];
+  const failedRequests = [];
+
+  for (const request of requests) {
+    try {
+      const requestAmount = toNumber(request.amount);
+      const nextStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+
+      const { data: updatedRequest, error: updateError } = await supabase
+        .from('expense_requests')
+        .update({ status: nextStatus, updated_at: new Date() })
+        .eq('id', request.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        failedRequests.push({ request_code: request.request_code, error: updateError.message });
+        continue;
+      }
+
+      await supabase.from('approval_logs').insert({
+        request_id: request.id,
+        actor_id: req.user.id,
+        action: 'approved',
+        stage: 'accounting',
+        note: note || 'Bulk approved by accounting'
+      });
+
+      await insertAuditLogs(request.id, req.user.id, [
+        {
+          entity_type: 'request',
+          action: 'status_changed',
+          field_name: 'status',
+          old_value: request.status,
+          new_value: nextStatus,
+          note: `Accounting bulk approved budget proposal — forwarded to ${nextStatus === 'pending_president' ? 'President' : 'VP'} for final approval`
+        }
+      ]);
+
+      await logAuditEvent({
+        user: req.user,
+        actionType: AUDIT_ACTIONS.BUDGET_SUBMITTED,
+        recordType: 'budget',
+        recordId: request.id,
+        recordLabel: request.request_code,
+        oldValue: { status: request.status },
+        newValue: { status: nextStatus },
+        remarks: note || 'Bulk approved by accounting',
+      });
+
+      if (nextStatus === 'pending_president') {
+        await notifyPresident(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires President review.`);
+      } else {
+        await notifyVp(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`);
+      }
+
+      approvedRequests.push(updatedRequest);
+    } catch (error: any) {
+      failedRequests.push({ request_code: request.request_code, error: error.message });
+    }
+  }
+
+  res.json({
+    message: `Bulk approved ${approvedRequests.length} budget proposals`,
+    approved: approvedRequests.length,
+    failed: failedRequests.length,
+    failed_requests: failedRequests
+  });
+});
+
 export default router;

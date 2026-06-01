@@ -422,14 +422,104 @@ exports.handler = async (event, context) => {
       };
     }
 
-    return { 
-      statusCode: 405, 
-      body: JSON.stringify(createErrorResponse('Method not allowed', 405)) 
+    // Bulk approve budget proposals per department
+    if (pathEndsWith(event, 'bulk-approve-accounting')) {
+      authorize(['accounting', 'admin'])(user);
+
+      const { department_id, note } = JSON.parse(event.body);
+
+      if (!department_id) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify(createErrorResponse('Department ID is required', 400)),
+        };
+      }
+
+      const { data: fiscalYearData } = await supabase
+        .from('config')
+        .select('value')
+        .eq('key', 'active_fiscal_year')
+        .single();
+      const activeFiscalYear = fiscalYearData?.value ? parseInt(fiscalYearData.value) : new Date().getFullYear();
+
+      // Fetch all pending_accounting budget proposals for the department
+      const { data: requests, error: fetchError } = await supabase
+        .from('expense_requests')
+        .select('*')
+        .eq('department_id', department_id)
+        .eq('status', 'pending_accounting')
+        .in('request_type', ['budget_request', 'budget_revision'])
+        .eq('fiscal_year', activeFiscalYear);
+
+      if (fetchError) throw fetchError;
+      if (!requests || requests.length === 0) {
+        return {
+          statusCode: 404,
+          body: JSON.stringify(createErrorResponse('No pending budget proposals found for this department', 404)),
+        };
+      }
+
+      const PRESIDENT_THRESHOLD = 500;
+      const approvedRequests = [];
+      const failedRequests = [];
+
+      for (const request of requests) {
+        try {
+          const requestAmount = toNumber(request.amount);
+          const nextStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+
+          const { data: updatedRequest, error: updateError } = await supabase
+            .from('expense_requests')
+            .update({ status: nextStatus, updated_at: new Date() })
+            .eq('id', request.id)
+            .select()
+            .single();
+
+          if (updateError) {
+            failedRequests.push({ request_code: request.request_code, error: updateError.message });
+            continue;
+          }
+
+          await supabase.from('approval_logs').insert({
+            request_id: request.id,
+            actor_id: user.id,
+            action: 'approved',
+            stage: 'accounting',
+            note: note || 'Bulk approved by accounting'
+          });
+
+          if (nextStatus === 'pending_president') {
+            await notifyPresident(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires President review.`);
+          } else {
+            await notifyVp(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`);
+          }
+
+          approvedRequests.push(updatedRequest);
+        } catch (error) {
+          failedRequests.push({ request_code: request.request_code, error: error.message });
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({
+          message: `Bulk approved ${approvedRequests.length} budget proposals`,
+          approved: approvedRequests.length,
+          failed: failedRequests.length,
+          failed_requests: failedRequests
+        }),
+      };
+    }
+
+    return {
+      statusCode: 405,
+      body: JSON.stringify(createErrorResponse('Method not allowed', 405))
     };
   } catch (error) {
     console.error('Requests error:', error);
     return {
-      statusCode: error.message.includes('Forbidden') ? 403 : 
+      statusCode: error.message.includes('Forbidden') ? 403 :
                  error.message.includes('Access denied') ? 401 : 500,
       body: JSON.stringify(createErrorResponse(error.message || 'Internal server error', 500)),
     };

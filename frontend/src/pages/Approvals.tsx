@@ -890,6 +890,21 @@ const Approvals = () => {
 
 
 
+  const handleBulkApproveDepartment = async (departmentId: string) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await api.post('/api/requests/bulk-approve-accounting', 
+        { department_id: departmentId, note: 'Bulk approved by accounting' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success(res.data.message || `Bulk approved ${res.data.approved} budget proposals`);
+      await fetchRequests();
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || 'Bulk approve failed';
+      toast.error(errorMsg);
+    }
+  };
+
   const handleCoApprove = async (request: any) => {
 
     const token = localStorage.getItem('token');
@@ -1646,6 +1661,51 @@ const Approvals = () => {
         </div>
 
       )}
+
+      {/* Bulk approve by department for accounting - only for budget proposals */}
+      {(user?.role === 'accounting' || user?.role === 'admin') && view === 'pending' && (() => {
+        const budgetProposals = filteredRequests.filter(r =>
+          (r.request_type === 'budget_request' || r.request_type === 'budget_revision') &&
+          r.status === 'pending_accounting'
+        );
+        if (budgetProposals.length === 0) return null;
+
+        const groupedByDept = budgetProposals.reduce((acc, req) => {
+          const deptId = req.department_id;
+          const deptName = req.department_name || 'Unknown Department';
+          if (!acc[deptId]) {
+            acc[deptId] = { name: deptName, count: 0, requests: [] };
+          }
+          acc[deptId].count++;
+          acc[deptId].requests.push(req);
+          return acc;
+        }, {} as Record<string, { name: string; count: number; requests: any[] }>);
+
+        return (
+          <div className="panel mb-6">
+            <h3 className="text-lg font-bold text-[var(--role-text)] mb-4">Bulk Approve Budget Proposals by Department</h3>
+            <div className="space-y-3">
+              {Object.entries(groupedByDept).map(([deptId, dept]) => (
+                <div key={deptId} className="flex items-center justify-between rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]/30 p-4">
+                  <div>
+                    <div className="font-medium text-[var(--role-text)]">{dept.name}</div>
+                    <div className="text-sm text-[var(--role-text)]/60">{dept.count} pending budget proposal{dept.count !== 1 ? 's' : ''}</div>
+                  </div>
+                  <button
+                    onClick={() => handleBulkApproveDepartment(deptId)}
+                    className="btn-success !py-2 !px-4 !text-sm flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Approve All ({dept.count})
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
 
 
