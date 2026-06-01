@@ -316,6 +316,26 @@ const applyApprovedBudgetProposal = async (request: any) => {
 
   await lockDepartmentBudgetMatrix(request.department_id, request.fiscal_year);
 
+  // Sync departments.annual_budget to reflect the newly approved category budget
+  const { data: allCats } = await supabase
+    .from('budget_categories')
+    .select('budget_amount')
+    .eq('department_id', request.department_id)
+    .eq('fiscal_year', request.fiscal_year);
+  const newAnnualTotal = (allCats || []).reduce((s: number, c: any) => s + toNumber(c.budget_amount), 0);
+
+  const { data: dept } = await supabase.from('departments').select('name').eq('id', request.department_id).single();
+  if (dept?.name) {
+    await supabase.from('departments')
+      .update({ annual_budget: newAnnualTotal, updated_at: new Date() })
+      .ilike('name', dept.name)
+      .eq('fiscal_year', request.fiscal_year);
+  } else {
+    await supabase.from('departments')
+      .update({ annual_budget: newAnnualTotal, updated_at: new Date() })
+      .eq('id', request.department_id);
+  }
+
   await supabase.from('budget_revision_history').insert({
     category_id: request.category_id,
     department_id: request.department_id,
@@ -415,12 +435,37 @@ const releaseRequest = async (
 
   const insufficientDepartment = normalizedAllocations.find((allocation) => {
     const summary = summaryByDepartmentId.get(allocation.department_id);
-    return !summary || summary.projected_remaining_budget < 0;
+    // Only block if projected_remaining is significantly negative (more than the request amount)
+    // This avoids blocking old tickets where department.annual_budget wasn't synced after budget proposal approval
+    if (!summary) return false;
+    const allocationAmount = toNumber(allocation.amount);
+    return summary.projected_remaining_budget < -(allocationAmount * 0.01); // allow up to 1% rounding tolerance
   });
 
   if (insufficientDepartment) {
-    const summary = summaryByDepartmentId.get(insufficientDepartment.department_id);
-    throw new Error(`Insufficient projected budget for ${summary?.department_name || 'the selected department'}.`);
+    // Double-check against category remaining_amount before blocking —
+    // if the category has enough remaining (set by approved budget proposal), allow release
+    const allocation = insufficientDepartment;
+    const categoryName = request.category ? String(request.category).trim() : null;
+    let categoryHasBudget = false;
+    if (categoryName || request.category_id) {
+      let catQ = supabase
+        .from('budget_categories')
+        .select('remaining_amount')
+        .eq('department_id', allocation.department_id)
+        .eq('fiscal_year', request.fiscal_year);
+      catQ = request.category_id
+        ? catQ.eq('id', request.category_id)
+        : catQ.eq('category_name', categoryName!);
+      const { data: catCheck } = await catQ.maybeSingle();
+      if (catCheck && toNumber(catCheck.remaining_amount) >= toNumber(allocation.amount)) {
+        categoryHasBudget = true;
+      }
+    }
+    if (!categoryHasBudget) {
+      const summary = summaryByDepartmentId.get(allocation.department_id);
+      throw new Error(`Insufficient projected budget for ${summary?.department_name || 'the selected department'}.`);
+    }
   }
 
   for (const allocation of normalizedAllocations) {

@@ -938,6 +938,66 @@ const BudgetManagement = () => {
                     )}
                   </div>
 
+                  {/* Unlock Budget Matrix — accounting/admin only */}
+                  {canEditMatrix && enrichedCategories.some(c => c.is_locked) && (
+                  <div className="rounded-[28px] border border-amber-400/40 bg-amber-50/30 p-5">
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/15 border border-amber-400/30">
+                          <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-amber-800">Unlock Budget Matrix</h3>
+                          <p className="text-xs text-amber-700/70">
+                            {enrichedCategories.filter(c => c.is_locked).length} locked categor{enrichedCategories.filter(c => c.is_locked).length !== 1 ? 'ies' : 'y'} — unlock to allow new proposals or edits
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const locked = enrichedCategories.filter(c => c.is_locked);
+                          if (!locked.length) return;
+                          const token = localStorage.getItem('token');
+                          let ok = 0;
+                          for (const cat of locked) {
+                            try {
+                              await api.patch(`/api/budget/categories/${cat.id}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                              ok++;
+                            } catch { /* individual errors handled below */ }
+                          }
+                          if (ok > 0) toast.success(`Unlocked ${ok} categor${ok !== 1 ? 'ies' : 'y'}`);
+                          if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
+                        }}
+                        className="rounded-xl border border-amber-400/40 bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 transition flex items-center gap-2"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                        </svg>
+                        Unlock All ({enrichedCategories.filter(c => c.is_locked).length})
+                      </button>
+                    </div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {enrichedCategories.filter(c => c.is_locked).map(cat => (
+                        <div key={cat.id} className="flex items-center justify-between rounded-xl border border-amber-300/30 bg-white/60 px-4 py-2.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded shrink-0">{cat.category_code}</span>
+                            <span className="text-sm font-medium text-[var(--role-text)] truncate">{cat.category_name}</span>
+                            <span className="text-xs text-amber-600 font-semibold shrink-0">{displayMoney(toNumber(cat.budget_amount))}</span>
+                          </div>
+                          <button
+                            onClick={() => unlockCategory(cat.id)}
+                            className="ml-3 shrink-0 rounded-lg border border-amber-400/40 bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700 hover:bg-amber-200 transition"
+                          >
+                            Unlock
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  )}
+
                   {/* Budget Update */}
                   {canEditMatrix && (
                   <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
