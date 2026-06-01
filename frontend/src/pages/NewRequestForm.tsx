@@ -757,7 +757,7 @@ const NewRequestForm = () => {
                     {getItemsByMainCategory(item.main_category, 'canRE')
                       .map(i => (
                         <option key={i.code} value={`${i.code} | ${i.itemName}`}>
-                          {i.code} | {i.itemName}
+                          {i.category} - {i.itemName}
                         </option>
                       ))}
                   </select>
@@ -1065,7 +1065,7 @@ const NewRequestForm = () => {
                 {getItemsByMainCategory(cashAdvanceMainCategory, 'canCA')
                   .map(item => (
                     <option key={item.code} value={`${item.code} | ${item.itemName}`}>
-                      {item.code} | {item.itemName}
+                      {item.category} - {item.itemName}
                     </option>
                   ))}
               </select>
