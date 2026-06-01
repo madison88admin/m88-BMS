@@ -2513,10 +2513,10 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
 
   const newAmount = normalizedAmount || request.amount;
   
-  // Validate budget before resubmit (skip for reimbursement and cash_advance)
+  // Validate budget before resubmit (skip for reimbursement, cash_advance, budget_request, budget_revision)
   const targetDeptId = req.body?.department_id || request.department_id;
   const requestType = request.request_type || 'reimbursement';
-  const shouldBypassBudget = requestType === 'reimbursement' || requestType === 'cash_advance';
+  const shouldBypassBudget = requestType === 'reimbursement' || requestType === 'cash_advance' || requestType === 'budget_request' || requestType === 'budget_revision';
 
   if (targetDeptId && !shouldBypassBudget) {
     const { data: deptSummary, error: summaryError } = await supabase
