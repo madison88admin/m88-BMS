@@ -2122,7 +2122,7 @@ const Approvals = () => {
 
                                 <tr className="bg-[var(--role-border)]/5 font-bold">
 
-                                  <td colSpan={item.expense_date !== undefined ? 3 : 3} className="px-4 py-2 text-right">Total</td>
+                                  <td colSpan={3} className="px-4 py-2 text-right">Total</td>
 
                                   <td className="px-4 py-2 text-right">{formatMoney(req.amount)}</td>
 
