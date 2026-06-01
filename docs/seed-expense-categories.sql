@@ -1,6 +1,7 @@
 -- Seed official expense sub-categories (upsert by code)
 -- Prerequisite: docs/create-expense-categories-table.sql
 -- department: All | HR | Admin | Accounting | IT
+-- Updated with complete category set including all submission rules
 
 INSERT INTO expense_categories (
   code, description, main_category_code, main_category_name, department,
