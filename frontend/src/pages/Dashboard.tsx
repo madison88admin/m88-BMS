@@ -193,12 +193,6 @@ const Dashboard = () => {
           return;
         }
 
-        // Redirect supervisor to Approvals
-        if (userResponse.data.role === 'supervisor') {
-          navigate('/approvals');
-          return;
-        }
-
         // Fetch all departments for VP and President overview
         if (userResponse.data.role === 'vp' || userResponse.data.role === 'president') {
           await fetchDepartmentsInternal();
