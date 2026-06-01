@@ -1004,18 +1004,30 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Cost Center</label>
-            <select
-              value={cashAdvanceForm.cost_center_id}
-              onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, cost_center_id: e.target.value }))}
-              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-            >
-              <option value="">Select cost center...</option>
-              {costCenters.map(cc => (
-                <option key={cc.id} value={cc.id}>{cc.cost_center_code} - {cc.cost_center_name}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Expected Use Date *</label>
+              <input
+                type="date"
+                required
+                value={cashAdvanceForm.expected_use_date}
+                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, expected_use_date: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Cost Center</label>
+              <select
+                value={cashAdvanceForm.cost_center_id}
+                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, cost_center_id: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                <option value="">Select cost center...</option>
+                {costCenters.map(cc => (
+                  <option key={cc.id} value={cc.id}>{cc.cost_center_code} - {cc.cost_center_name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="mb-4">
@@ -1074,15 +1086,6 @@ const NewRequestForm = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Expected Use Date</label>
-              <input
-                type="date"
-                value={cashAdvanceForm.expected_use_date}
-                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, expected_use_date: e.target.value }))}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium mb-2">Expected Liquidation Date *</label>
               <input
                 type="date"
@@ -1090,6 +1093,17 @@ const NewRequestForm = () => {
                 value={cashAdvanceForm.expected_liquidation_date}
                 onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, expected_liquidation_date: e.target.value }))}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Purpose *</label>
+              <input
+                type="text"
+                required
+                value={cashAdvanceForm.purpose}
+                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, purpose: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                placeholder="Brief description of the cash advance purpose"
               />
             </div>
           </div>
@@ -1131,7 +1145,7 @@ const NewRequestForm = () => {
                       .filter(off => isVisibleForRequestForm(off, 'canCA'))
                       .map(off => (
                         <option key={off.code} value={`${off.code} | ${off.itemName}`}>
-                          {off.code} | {off.itemName}
+                          {off.category} - {off.itemName}
                         </option>
                       ))}
                   </select>
