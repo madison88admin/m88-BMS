@@ -1,152 +1,687 @@
 const { supabase } = require('./utils/supabase');
 const { authenticate, authorize } = require('./utils/auth');
-const { sendEmail } = require('./utils/email');
-const { adjustCategoryCommitted, adjustCategoryReleased, toNumber } = require('./utils/budget');
+const { getPresidentThreshold } = require('./utils/approval');
+const { AUDIT_ACTIONS, logAuditEvent, logFailedApprovalAttempt } = require('./utils/auditLog');
+const {
+  notifyAccounting,
+  notifyVp,
+  notifyPresident,
+  notifyDepartmentSupervisor,
+  notifyEmployee,
+  checkBudgetUtilizationWarning,
+  isBudgetWorkflow,
+  notifyPreviousActor,
+  resolveRejectAuditAction,
+  resolveReturnAuditAction,
+} = require('./utils/workflowNotify');
+const {
+  adjustCategoryReleased,
+  applyApprovedBudgetProposal,
+  lockCashAdvanceCategory,
+  toNumber,
+} = require('./utils/budget');
 
-exports.handler = async (event, context) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'PATCH, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      },
-      body: '',
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'PATCH, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+const json = (statusCode, body) => ({
+  statusCode,
+  headers: corsHeaders,
+  body: JSON.stringify(body),
+});
+
+const parseBody = (event) => {
+  try {
+    return event.body ? JSON.parse(event.body) : {};
+  } catch {
+    return {};
+  }
+};
+
+const parseRoute = (event) => {
+  const path = event.path || '';
+  const parts = path.split('/').filter(Boolean);
+  const action = parts[parts.length - 1];
+  const requestId = parts[parts.length - 2];
+  return { requestId, action };
+};
+
+const insertApprovalLog = async (requestId, actorId, action, stage, note = '') => {
+  await supabase.from('approval_logs').insert({
+    request_id: requestId,
+    actor_id: actorId,
+    action,
+    stage,
+    note,
+  });
+};
+
+const fetchRequest = async (requestId) => {
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .select('*')
+    .eq('id', requestId)
+    .single();
+  if (error || !data) throw new Error('Request not found');
+  return data;
+};
+
+const handleSupervisorApprove = async (request, user, body) => {
+  authorize(['supervisor', 'admin'])(user);
+
+  if (user.role === 'supervisor' && request.department_id !== user.department_id) {
+    throw new Error('Forbidden');
+  }
+  if (request.status !== 'pending_supervisor') {
+    throw new Error('Only requests waiting for supervisor approval can be approved here');
+  }
+  if (request.employee_id === user.id) {
+    throw new Error('You cannot approve your own request');
+  }
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({ status: 'pending_accounting', updated_at: new Date() })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await insertApprovalLog(request.id, user.id, 'approved', 'supervisor', body.note || '');
+  await notifyAccounting(`Request ${request.request_code} approved by supervisor — pending accounting review.`);
+
+  return data;
+};
+
+const handleAccountingReview = async (request, user, body) => {
+  authorize(['accounting', 'admin'])(user);
+
+  if (request.status !== 'pending_accounting') {
+    throw new Error('Only requests waiting for accounting approval can be approved here');
+  }
+  if (request.co_approved_by) {
+    throw new Error('Request already cleared for fund release. Use the release action instead.');
+  }
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({ status: 'pending_vp', updated_at: new Date() })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await insertApprovalLog(request.id, user.id, 'approved', 'accounting', body.note || '');
+
+  const budgetFlow = isBudgetWorkflow(request.request_type);
+  if (budgetFlow) {
+    await logAuditEvent({
+      user,
+      actionType: AUDIT_ACTIONS.BUDGET_SUBMITTED,
+      recordType: 'budget',
+      recordId: request.id,
+      recordLabel: request.request_code,
+      oldValue: { status: request.status },
+      newValue: { status: 'pending_vp' },
+      remarks: body.note || undefined,
+    });
+  }
+
+  await notifyVp(
+    budgetFlow
+      ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
+      : `Request ${request.request_code} requires VP review.`
+  );
+
+  if (!budgetFlow) {
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Request Approved',
+      `Your request ${request.request_code} has moved to VP review.`
+    );
+  }
+
+  return data;
+};
+
+const handleVpApprove = async (request, user, body) => {
+  authorize(['vp', 'admin'])(user);
+
+  if (request.status !== 'pending_vp') {
+    throw new Error('Only requests waiting for VP review can be approved here');
+  }
+
+  if (isBudgetWorkflow(request.request_type)) {
+    await logFailedApprovalAttempt(
+      user,
+      request.id,
+      request.request_code,
+      'Budget proposals require VP Mark as Viewed action'
+    );
+    throw new Error(
+      'Budget proposals must be marked as viewed using the Mark as Viewed action before President review.'
+    );
+  }
+
+  const amount = toNumber(request.amount);
+  const currency = request.metadata?.currency || 'PHP';
+  const presidentThreshold = getPresidentThreshold(currency);
+
+  let nextStatus = 'pending_president';
+  let updatePayload = { status: nextStatus, updated_at: new Date() };
+
+  if (amount <= presidentThreshold) {
+    nextStatus = 'pending_accounting';
+    updatePayload = {
+      status: nextStatus,
+      co_approved_by: user.id,
+      co_approved_at: new Date(),
+      co_approver_role: 'vp',
+      updated_at: new Date(),
     };
   }
 
-  if (event.httpMethod !== 'PATCH') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update(updatePayload)
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await insertApprovalLog(request.id, user.id, 'approved', 'vp', body.note || 'VP approved request');
+
+  await logAuditEvent({
+    user,
+    actionType: request.request_type === 'cash_advance'
+      ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
+      : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+    recordType: 'request',
+    recordId: request.id,
+    recordLabel: request.request_code,
+    oldValue: { status: request.status },
+    newValue: { status: nextStatus },
+    remarks: amount <= presidentThreshold ? 'VP final approval' : 'Forwarded to President',
+  });
+
+  if (amount > presidentThreshold) {
+    await notifyPresident(`Request ${request.request_code} requires President approval (amount above threshold).`);
+  } else if (request.request_type === 'cash_advance') {
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Cash Advance Approved',
+      `Your request ${request.request_code} has VP approval and is awaiting fund release.`
+    );
+    await notifyDepartmentSupervisor(
+      request.department_id,
+      `Cash advance ${request.request_code} has been approved by VP.`
+    );
+  } else if (request.request_type === 'reimbursement') {
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Reimbursement Approved',
+      `Your request ${request.request_code} has VP approval and is awaiting fund release.`
+    );
+  } else {
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Request Approved',
+      `Your request ${request.request_code} has VP approval and is awaiting fund release.`
+    );
+  }
+
+  return data;
+};
+
+const handleMarkViewed = async (request, user, body) => {
+  authorize(['vp', 'admin'])(user);
+
+  if (!isBudgetWorkflow(request.request_type)) {
+    await logFailedApprovalAttempt(user, request.id, request.request_code, 'Mark as Viewed only applies to budget workflows');
+    throw new Error('Mark as Viewed applies only to budget proposals and revisions.');
+  }
+  if (request.status !== 'pending_vp') {
+    await logFailedApprovalAttempt(user, request.id, request.request_code, `Invalid status ${request.status} for mark-viewed`);
+    throw new Error('Only requests waiting for VP review can be marked as viewed.');
+  }
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({ status: 'pending_president', updated_at: new Date() })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await insertApprovalLog(request.id, user.id, 'viewed', 'vp', body.note || 'VP marked budget proposal as viewed');
+
+  await logAuditEvent({
+    user,
+    actionType: AUDIT_ACTIONS.BUDGET_SUBMITTED,
+    recordType: 'budget',
+    recordId: request.id,
+    recordLabel: request.request_code,
+    oldValue: { status: 'pending_vp' },
+    newValue: { status: 'pending_president' },
+    remarks: body.note || 'VP marked as viewed',
+  });
+
+  await notifyPresident(
+    `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} is ready for final approval.`
+  );
+  await notifyEmployee(
+    request.employee_id,
+    request.request_code,
+    'Budget Update',
+    `Your ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been reviewed by VP and sent to President.`
+  );
+
+  return data;
+};
+
+const handlePresidentApprove = async (request, user, body) => {
+  authorize(['president', 'admin'])(user);
+
+  if (request.status !== 'pending_president') {
+    throw new Error('Only requests waiting for President approval can be approved here');
+  }
+
+  const isBudgetProposalFlow = isBudgetWorkflow(request.request_type);
+  const nextStatus = isBudgetProposalFlow ? 'approved' : 'pending_accounting';
+  const updatePayload = { status: nextStatus, updated_at: new Date() };
+
+  if (!isBudgetProposalFlow) {
+    updatePayload.co_approved_by = user.id;
+    updatePayload.co_approved_at = new Date();
+    updatePayload.co_approver_role = 'president';
+  }
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update(updatePayload)
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  if (isBudgetProposalFlow) {
+    await applyApprovedBudgetProposal(request);
+  }
+
+  await insertApprovalLog(request.id, user.id, 'approved', 'president', body.note || '');
+
+  if (isBudgetProposalFlow) {
+    const budgetAuditAction =
+      request.request_type === 'budget_revision'
+        ? AUDIT_ACTIONS.BUDGET_REVISED
+        : AUDIT_ACTIONS.BUDGET_APPROVED;
+
+    await logAuditEvent({
+      user,
+      actionType: budgetAuditAction,
+      recordType: 'budget',
+      recordId: request.category_id || request.id,
+      recordLabel: request.request_code,
+      oldValue: { status: request.status },
+      newValue: { status: nextStatus, amount: request.amount },
+      remarks: body.note || undefined,
+    });
+    await logAuditEvent({
+      user,
+      actionType: AUDIT_ACTIONS.BUDGET_LOCKED,
+      recordType: 'budget',
+      recordId: request.department_id,
+      recordLabel: request.request_code,
+      newValue: { locked: true },
+      remarks: 'Auto-locked after President approval',
+    });
+    await notifyDepartmentSupervisor(
+      request.department_id,
+      `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved by the President.`
+    );
+    await notifyAccounting(`Budget ${request.request_code} approved and matrix locked.`);
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Budget Approved',
+      `Your budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved.`
+    );
+  } else {
+    await logAuditEvent({
+      user,
+      actionType: request.request_type === 'cash_advance'
+        ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
+        : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+      recordType: 'request',
+      recordId: request.id,
+      recordLabel: request.request_code,
+      oldValue: { status: request.status },
+      newValue: { status: nextStatus },
+    });
+
+    const notifyMessage = `Your request ${request.request_code} has President approval and is awaiting fund release.`;
+    if (request.request_type === 'cash_advance') {
+      await notifyEmployee(request.employee_id, request.request_code, 'Cash Advance Approved', notifyMessage);
+      await notifyDepartmentSupervisor(
+        request.department_id,
+        `Cash advance ${request.request_code} approved by President.`
+      );
+    } else if (request.request_type === 'reimbursement') {
+      await notifyEmployee(request.employee_id, request.request_code, 'Reimbursement Approved', notifyMessage);
+    } else {
+      await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', notifyMessage);
+    }
+    await notifyAccounting(`Request ${request.request_code} approved by President — ready for fund release.`);
+  }
+
+  return data;
+};
+
+const handleCoApprove = async (request, user) => {
+  authorize(['vp', 'president', 'admin'])(user);
+
+  const amount = toNumber(request.amount);
+  const currency = request.metadata?.currency || 'PHP';
+  const vpThreshold = getPresidentThreshold(currency);
+
+  if (user.role === 'vp' && amount > vpThreshold) {
+    throw new Error(`VP can only approve requests up to ${currency}${vpThreshold.toLocaleString()}. President approval required.`);
+  }
+  if (request.status !== 'pending_accounting') {
+    throw new Error(`Cannot co-approve request with status '${request.status}'. Only 'pending_accounting' requests can be co-approved.`);
+  }
+  if (request.co_approved_by) {
+    throw new Error('Request already co-approved');
+  }
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({
+      co_approved_by: user.id,
+      co_approved_at: new Date(),
+      co_approver_role: user.role,
+      updated_at: new Date(),
+    })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  return data;
+};
+
+const handleRelease = async (request, user, body) => {
+  authorize(['accounting', 'admin'])(user);
+
+  if (request.status === 'on_hold') {
+    throw new Error('Cannot release request that is On Hold. Remove from hold first.');
+  }
+  if (request.status !== 'pending_accounting') {
+    throw new Error('Only requests waiting for accounting approval can be released here');
+  }
+  if (!request.co_approved_by) {
+    throw new Error('All requests require VP or President co-approval before accounting can release.');
+  }
+  if (isBudgetWorkflow(request.request_type)) {
+    throw new Error('Budget proposals cannot be released as expenses.');
+  }
+
+  const { data: dept, error: deptError } = await supabase
+    .from('departments')
+    .select('*')
+    .eq('id', request.department_id)
+    .single();
+  if (deptError || !dept) throw new Error('Department not found');
+
+  if (toNumber(dept.annual_budget) - toNumber(dept.used_budget) < toNumber(request.amount)) {
+    throw new Error('Insufficient department budget');
+  }
+
+  const releaseMethod = ['cash', 'bank_transfer', 'check', 'petty_cash', 'other'].includes(String(body.release_method || ''))
+    ? String(body.release_method)
+    : 'other';
+
+  if (releaseMethod === 'petty_cash' && toNumber(dept.petty_cash_balance) < toNumber(request.amount)) {
+    throw new Error(`Insufficient petty cash. Balance: ${toNumber(dept.petty_cash_balance).toFixed(2)}`);
+  }
+
+  const deptUpdate = {
+    used_budget: toNumber(dept.used_budget) + toNumber(request.amount),
+    updated_at: new Date(),
+  };
+  if (releaseMethod === 'petty_cash') {
+    deptUpdate.petty_cash_balance = toNumber(dept.petty_cash_balance) - toNumber(request.amount);
+  }
+
+  await supabase.from('departments').update(deptUpdate).eq('id', dept.id);
+
+  const categoryResult = await adjustCategoryReleased(request);
+  if (categoryResult?.category?.id) {
+    await checkBudgetUtilizationWarning(categoryResult.category.id);
+  }
+
+  await lockCashAdvanceCategory(request);
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({
+      status: 'released',
+      disbursement_status: 'released',
+      release_method: releaseMethod,
+      release_reference_no: body.release_reference_no || null,
+      release_note: body.release_note || null,
+      released_by: user.id,
+      released_at: new Date(),
+      updated_at: new Date(),
+    })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  if (request.request_type === 'cash_advance') {
+    const { data: existingCashAdvance } = await supabase
+      .from('cash_advances')
+      .select('id')
+      .eq('request_id', request.id)
+      .maybeSingle();
+
+    if (!existingCashAdvance) {
+      await supabase.from('cash_advances').insert({
+        advance_code: `CA-${Date.now()}`,
+        request_id: request.id,
+        employee_id: request.employee_id,
+        department_id: request.department_id,
+        amount_issued: toNumber(request.amount),
+        balance: toNumber(request.amount),
+        amount_liquidated: 0,
+        status: 'outstanding',
+        purpose: request.purpose || '',
+        liquidation_due_at: body.liquidation_due_at ? new Date(body.liquidation_due_at) : null,
+        issued_by: user.id,
+        issued_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+    }
+  }
+
+  await insertApprovalLog(request.id, user.id, 'released', 'finance', body.release_note || `Released via ${releaseMethod}`);
+  await notifyEmployee(request.employee_id, request.request_code, 'Request Released', `Your request ${request.request_code} has been released.`);
+
+  return data;
+};
+
+const handleReject = async (request, user, body) => {
+  authorize(['supervisor', 'accounting', 'vp', 'president', 'admin'])(user);
+
+  if (user.role === 'supervisor' && request.department_id !== user.department_id) {
+    throw new Error('Forbidden');
+  }
+
+  const reason = body.reason;
+  if (!reason) throw new Error('A rejection reason is required');
+
+  const stage = ['vp', 'president'].includes(user.role)
+    ? user.role
+    : user.role === 'supervisor'
+      ? 'supervisor'
+      : 'accounting';
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({
+      status: 'rejected',
+      rejection_reason: reason,
+      rejection_stage: stage,
+      archived: true,
+      updated_at: new Date(),
+    })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await insertApprovalLog(request.id, user.id, 'rejected', stage, reason);
+
+  await logAuditEvent({
+    user,
+    actionType: resolveRejectAuditAction(request.request_type),
+    recordType: isBudgetWorkflow(request.request_type) ? 'budget' : 'request',
+    recordId: request.id,
+    recordLabel: request.request_code,
+    oldValue: { status: request.status },
+    newValue: { status: 'rejected' },
+    remarks: reason,
+  });
+
+  await notifyPreviousActor(request, `Request ${request.request_code} has been rejected: ${reason}`);
+
+  return data;
+};
+
+const handleReturn = async (request, user, body) => {
+  authorize(['supervisor', 'accounting', 'vp', 'president', 'admin'])(user);
+
+  if (user.role === 'supervisor' && request.department_id !== user.department_id) {
+    throw new Error('Forbidden');
+  }
+  if (!['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].includes(request.status)) {
+    throw new Error('Only pending requests can be returned for revision.');
+  }
+
+  const reason = body.reason;
+  if (!reason) throw new Error('A return reason is required');
+
+  const stage = ['vp', 'president'].includes(user.role)
+    ? user.role
+    : user.role === 'supervisor'
+      ? 'supervisor'
+      : 'accounting';
+
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({
+      status: 'returned_for_revision',
+      returned_by: user.id,
+      returned_at: new Date(),
+      return_reason: reason,
+      updated_at: new Date(),
+    })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await insertApprovalLog(request.id, user.id, 'returned', stage, reason);
+
+  await logAuditEvent({
+    user,
+    actionType: resolveReturnAuditAction(request.request_type),
+    recordType: isBudgetWorkflow(request.request_type) ? 'budget' : 'request',
+    recordId: request.id,
+    recordLabel: request.request_code,
+    oldValue: { status: request.status },
+    newValue: { status: 'returned_for_revision' },
+    remarks: reason,
+  });
+
+  await notifyPreviousActor(request, `Request ${request.request_code} was returned for revision: ${reason}`);
+
+  return data;
+};
+
+exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers: corsHeaders, body: '' };
+  }
+
+  if (!['PATCH', 'POST'].includes(event.httpMethod)) {
+    return json(405, { error: 'Method not allowed' });
   }
 
   try {
     const token = event.headers.authorization;
     const user = authenticate(token);
-    const pathParts = event.path.split('/');
-    const requestId = pathParts[pathParts.length - 2];
-    const action = pathParts[pathParts.length - 1];
+    const { requestId, action } = parseRoute(event);
+    const body = parseBody(event);
 
-    const { data: request, error: fetchError } = await supabase
-      .from('expense_requests')
-      .select('*')
-      .eq('id', requestId)
-      .single();
-
-    if (fetchError) return { statusCode: 400, body: JSON.stringify({ error: fetchError }) };
-
-    if (action === 'approve') {
-      authorize(['supervisor', 'accounting'])(user);
-
-      if (user.role === 'supervisor' && request.department_id !== user.department_id) {
-        return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) };
-      }
-
-      let newStatus = '';
-      let stage = '';
-      
-      if (user.role === 'supervisor') {
-        newStatus = 'pending_accounting';
-        stage = 'accounting';
-        
-        // COMMIT budget in category when supervisor approves
-        await adjustCategoryCommitted(request, request.amount);
-      } else if (user.role === 'accounting') {
-        const { data: dept } = await supabase.from('departments').select('*').eq('id', request.department_id).single();
-        if (toNumber(dept.annual_budget) - toNumber(dept.used_budget) < toNumber(request.amount)) {
-          return { statusCode: 400, body: JSON.stringify({ error: 'Insufficient department budget' }) };
-        }
-        
-        newStatus = 'released';
-        stage = 'finance';
-        
-        // DEDUCT from annual budget
-        await supabase.from('departments').update({ used_budget: toNumber(dept.used_budget) + toNumber(request.amount) }).eq('id', dept.id);
-        
-        // DEDUCT from category budget (and release commitment)
-        await adjustCategoryReleased(request);
-      }
-
-      const { data, error } = await supabase
-        .from('expense_requests')
-        .update({ status: newStatus, updated_at: new Date() })
-        .eq('id', requestId)
-        .select()
-        .single();
-
-      if (error) return { statusCode: 400, body: JSON.stringify({ error }) };
-
-      await supabase.from('approval_logs').insert({
-        request_id: requestId,
-        actor_id: user.id,
-        action: 'approved',
-        stage,
-        note: JSON.parse(event.body).note || ''
-      });
-
-      // Notify employee
-      const { data: employee } = await supabase.from('users').select('email').eq('id', request.employee_id).single();
-      if (employee) {
-        sendEmail(employee.email, 'Request Approved', `Your request ${request.request_code} has been approved.`);
-      }
-
-      return {
-        statusCode: 200,
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(data),
-      };
+    if (!requestId || !action) {
+      return json(404, { error: 'Invalid route' });
     }
 
-    if (action === 'reject') {
-      authorize(['supervisor', 'accounting'])(user);
+    const request = await fetchRequest(requestId);
+    let data;
 
-      if (user.role === 'supervisor' && request.department_id !== user.department_id) {
-        return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) };
-      }
-
-      const { reason } = JSON.parse(event.body);
-      const stage = user.role === 'supervisor' ? 'supervisor' : 'accounting';
-
-      // If accounting rejects, un-commit the budget
-      if (user.role === 'accounting' && request.status === 'pending_accounting') {
-        await adjustCategoryCommitted(request, -request.amount);
-      }
-
-      const { data, error } = await supabase
-        .from('expense_requests')
-        .update({ status: 'rejected', rejection_reason: reason, rejection_stage: stage, updated_at: new Date() })
-        .eq('id', requestId)
-        .select()
-        .single();
-
-      if (error) return { statusCode: 400, body: JSON.stringify({ error }) };
-
-      await supabase.from('approval_logs').insert({
-        request_id: requestId,
-        actor_id: user.id,
-        action: 'rejected',
-        stage,
-        note: reason
-      });
-
-      // Notify employee
-      const { data: employee } = await supabase.from('users').select('email').eq('id', request.employee_id).single();
-      if (employee) {
-        sendEmail(employee.email, 'Request Rejected', `Your request ${request.request_code} has been rejected: ${reason}`);
-      }
-
-      return {
-        statusCode: 200,
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(data),
-      };
+    switch (action) {
+      case 'approve':
+        data = await handleSupervisorApprove(request, user, body);
+        break;
+      case 'approve-accounting':
+        data = await handleAccountingReview(request, user, body);
+        break;
+      case 'approve-vp':
+        data = await handleVpApprove(request, user, body);
+        break;
+      case 'mark-viewed':
+        data = await handleMarkViewed(request, user, body);
+        break;
+      case 'approve-president':
+        data = await handlePresidentApprove(request, user, body);
+        break;
+      case 'co-approve':
+        data = await handleCoApprove(request, user);
+        break;
+      case 'release':
+        data = await handleRelease(request, user, body);
+        break;
+      case 'reject':
+        data = await handleReject(request, user, body);
+        break;
+      case 'return':
+        data = await handleReturn(request, user, body);
+        break;
+      default:
+        return json(404, { error: 'Action not found' });
     }
 
-    return { statusCode: 404, body: JSON.stringify({ error: 'Action not found' }) };
+    return json(200, data);
   } catch (error) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
-    };
+    const message = error.message || 'Internal server error';
+    const statusCode = message === 'Forbidden'
+      ? 403
+      : message === 'Access denied' || message === 'Invalid token'
+        ? 401
+        : message === 'Request not found'
+          ? 404
+          : 400;
+    return json(statusCode, { error: message });
   }
 };

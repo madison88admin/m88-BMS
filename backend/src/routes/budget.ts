@@ -4,6 +4,8 @@ import { authenticate, authorize } from '../middleware/auth';
 import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { restoreAllBudgetCategoriesForFiscalYear } from '../utils/restoreBudgetCategories';
 import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
+import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
+import { checkBudgetUtilizationWarning, notifyDepartmentSupervisor } from '../utils/workflowNotify';
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
@@ -233,6 +235,21 @@ router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'ad
 
     if (error) return res.status(400).json({ error });
 
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.BUDGET_UNLOCKED,
+      recordType: 'budget',
+      recordId: id,
+      recordLabel: current.category_name,
+      oldValue: { is_locked: true },
+      newValue: { is_locked: false },
+      remarks: req.body?.reason || 'Unlocked by accounting',
+    });
+    await notifyDepartmentSupervisor(
+      current.department_id,
+      `Budget category "${current.category_name}" was unlocked by accounting. You may submit revisions if needed.`
+    );
+
     // Sync department budget after unlock
     await syncDepartmentBudget(current.department_id, current.fiscal_year);
 
@@ -261,6 +278,10 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
 
     if (!current) {
       return res.status(404).json({ error: 'Category not found' });
+    }
+
+    if (current.is_locked) {
+      return res.status(403).json({ error: 'This budget category is locked. Only accounting can unlock it before editing.' });
     }
 
     const requestedBudget = budget_amount !== undefined && budget_amount !== null ? toNumber(budget_amount) : toNumber(current.budget_amount);
@@ -313,6 +334,17 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
 
     if (error) throw error;
 
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.BUDGET_UPDATED,
+      recordType: 'budget',
+      recordId: id,
+      recordLabel: current.category_name,
+      oldValue: { budget_amount: current.budget_amount, category_name: current.category_name },
+      newValue: { budget_amount: requestedBudget, category_name: updatePayload.category_name },
+    });
+    await checkBudgetUtilizationWarning(id);
+
     await syncDepartmentBudget(current.department_id, current.fiscal_year);
 
     // Invalidate cache for budget categories
@@ -332,12 +364,16 @@ router.delete('/categories/:id', authenticate, authorize('accounting', 'admin', 
 
     const { data: current } = await supabase
       .from('budget_categories')
-      .select('id, used_amount, committed_amount, category_name, department_id, fiscal_year')
+      .select('id, used_amount, committed_amount, category_name, department_id, fiscal_year, is_locked')
       .eq('id', id)
       .single();
 
     if (!current) {
       return res.status(404).json({ error: 'Category not found' });
+    }
+
+    if (current.is_locked) {
+      return res.status(403).json({ error: 'This budget category is locked. Only accounting can unlock it before deleting.' });
     }
 
     if (toNumber(current.used_amount) > 0 || toNumber(current.committed_amount) > 0) {

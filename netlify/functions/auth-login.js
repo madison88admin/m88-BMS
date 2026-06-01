@@ -1,6 +1,5 @@
 const { supabase } = require('./utils/supabase');
 const { 
-  checkAuthRateLimit, 
   sanitizeEmail, 
   sanitizePassword, 
   verifyPassword, 
@@ -34,16 +33,6 @@ exports.handler = async (event, context) => {
     const clientIP = event.headers['x-forwarded-for'] || 
                    event.headers['x-real-ip'] || 
                    event.requestContext.identity.sourceIp;
-
-    // Apply rate limiting
-    try {
-      checkAuthRateLimit(sanitizeEmail(email));
-    } catch (rateLimitError) {
-      return { 
-        statusCode: 429, 
-        body: JSON.stringify(createErrorResponse(rateLimitError.message, 429)) 
-      };
-    }
 
     // Sanitize and validate inputs
     const cleanEmail = sanitizeEmail(email);

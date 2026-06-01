@@ -16,9 +16,28 @@ export interface ExpenseItem {
   dept: string | string[]; // 'All Dept' or specific names
   canCA: boolean;
   canRE: boolean;
+  mannerOfSubmission?: 'for_submission' | 'for_upload';
 }
 
 export const OFFICIAL_EXPENSE_LIST: ExpenseItem[] = [
+  // 4790 Sales
+  { code: '4790', itemName: 'Sales', category: 'Sales', dept: 'All Dept', canCA: false, canRE: false },
+
+  // 6600 Cost of Services
+  { code: '66001', itemName: 'Payroll Expense Executive', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66002', itemName: 'Payroll Expense Accounting', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66003', itemName: 'Payroll Expense H.R.', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66004', itemName: 'Payroll Expense Logistics', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66005', itemName: 'Payroll Expense Planning', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66006', itemName: 'Payroll Expense Purchasing', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66007', itemName: 'Payroll Expense Costing', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66008', itemName: 'Payroll Expense I.T.', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66009', itemName: 'Payroll Expense OJT', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '660010', itemName: 'Payroll Expense Supply Chain', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66012', itemName: 'Phil. Health Insurance', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '66017', itemName: 'Home Development Company', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+  { code: '6606', itemName: 'Social Security Company', category: 'Cost of Services', dept: 'All Dept', canCA: false, canRE: false },
+
   // 6010 Advertising and Promotion
   { code: '6010.1', itemName: 'Zoom', category: 'Advertising and Promotion', dept: 'HR Department', canCA: true, canRE: true },
   { code: '6010.2', itemName: 'LinkedIn', category: 'Advertising and Promotion', dept: 'HR Department', canCA: true, canRE: true },
@@ -171,7 +190,8 @@ export function validateExpense(
   itemName: string,
   departmentName: string,
   requestType: 'cash_advance' | 'reimbursement' | 'liquidation',
-  extraItems: ExpenseItem[] = []
+  extraItems: ExpenseItem[] = [],
+  userRole?: string
 ): ExpenseEligibility {
   // Liquidations don't need validation against official expense list
   if (requestType === 'liquidation') {
@@ -201,6 +221,20 @@ export function validateExpense(
       canCA: false,
       canRE: false,
       reason: `"${itemName}" is not an approved expense item on the official list.`
+    };
+  }
+
+  const staffRoles = ['employee', 'manager', 'supervisor'];
+  const submissionMode = item.mannerOfSubmission || 'for_submission';
+  if (staffRoles.includes(String(userRole || '').toLowerCase()) && submissionMode === 'for_upload') {
+    return {
+      allowed: false,
+      code: item.code,
+      category: item.category,
+      department: item.dept.toString(),
+      canCA: item.canCA,
+      canRE: item.canRE,
+      reason: 'This expense category is for accounting upload only and cannot be selected on employee or supervisor forms.'
     };
   }
 

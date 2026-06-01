@@ -1,5 +1,17 @@
 // Expense validation utilities for Netlify functions (matching backend logic)
 
+const FOR_UPLOAD_CODES = new Set([
+  '6020.1', '6020.2', '6020.3', '6020.5', '6020.6',
+  '6040', '6041', '6240', '6330', '6340', '6351', '6352',
+  '6670.01', '6670.08', '6670.1', '6670.12', '6670.18', '6670.24',
+  '6711', '6860.1', '6860.2', '6860.3', '6870.1', '6870.2', '6870.3', '6870.5',
+]);
+
+const withSubmissionMode = (item) => ({
+  ...item,
+  mannerOfSubmission: FOR_UPLOAD_CODES.has(item.code) ? 'for_upload' : 'for_submission',
+});
+
 const OFFICIAL_EXPENSE_LIST = [
   // 6010 Advertising and Promotion
   { code: '6010.1', itemName: 'Zoom', category: 'Advertising and Promotion', dept: 'HR Department', canCA: true, canRE: true },
@@ -102,7 +114,7 @@ const OFFICIAL_EXPENSE_LIST = [
   { code: '9900', itemName: 'Sundry & Misc', category: 'Sundry', dept: 'All Dept', canCA: true, canRE: true }
 ];
 
-const validateExpense = (itemName, departmentName, requestType = 'reimbursement') => {
+const validateExpense = (itemName, departmentName, requestType = 'reimbursement', userRole = '') => {
   // Liquidations don't need validation against official expense list
   if (requestType === 'liquidation') {
     return {
@@ -130,6 +142,19 @@ const validateExpense = (itemName, departmentName, requestType = 'reimbursement'
       canCA: false,
       canRE: false,
       reason: `"${itemName}" is not an approved expense item on the official list.`
+    };
+  }
+
+  const submissionMode = withSubmissionMode(item).mannerOfSubmission;
+  if (['employee', 'manager', 'supervisor'].includes(String(userRole).toLowerCase()) && submissionMode === 'for_upload') {
+    return {
+      allowed: false,
+      code: item.code,
+      category: item.category,
+      department: item.dept.toString(),
+      canCA: item.canCA,
+      canRE: item.canRE,
+      reason: 'This expense category is for accounting upload only and cannot be selected on employee or supervisor forms.'
     };
   }
 

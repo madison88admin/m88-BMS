@@ -75,9 +75,9 @@ const Approvals = () => {
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
 
   const [thresholds, setThresholds] = useState<Record<string, { vp: number; president: number }>>({
-    PHP: { vp: 500000, president: 500000 },
-    USD: { vp: 500000, president: 500000 },
-    IDR: { vp: 500000, president: 500000 }
+    PHP: { vp: 500, president: 500 },
+    USD: { vp: 500, president: 500 },
+    IDR: { vp: 500, president: 500 }
   });
   const [currentCurrency, setCurrentCurrency] = useState<'PHP' | 'USD' | 'IDR'>('PHP');
 
@@ -371,6 +371,7 @@ const Approvals = () => {
     const token = localStorage.getItem('token');
     const requestId = request.id;
     const requestStatus = request.status;
+    const requestType = request.request_type;
 
     if (!request) return;
 
@@ -384,50 +385,75 @@ const Approvals = () => {
 
     try {
 
-      // Determine the correct endpoint based on user role and request status
-      const isAccountingOrAdmin = user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'super_admin';
-      const isVPresident = user?.role === 'vp' || user?.role === 'president';
-      const isPendingAccounting = requestStatus === 'pending_accounting';
+      const role = user?.role;
+      const amount = toNumber(request.amount);
+      const vpThreshold = thresholds[currentCurrency]?.vp || 500;
 
-      if (isAccountingOrAdmin) {
-
-        // Accounting/Admin uses release endpoint — pass disbursement details
-        const draft = disbursementDrafts[requestId] || {};
+      if (role === 'accounting' || role === 'admin' || role === 'super_admin') {
+        if (requestStatus === 'pending_accounting' && !request.co_approved_by) {
+          await api.patch(
+            `/api/requests/${requestId}/approve-accounting`,
+            { note },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          toast.success(requestType === 'budget_request' ? 'Budget proposal forwarded to VP review.' : 'Request forwarded to VP review.');
+        } else if (requestStatus === 'pending_accounting' && request.co_approved_by) {
+          const draft = disbursementDrafts[requestId] || {};
+          await api.patch(
+            `/api/requests/${requestId}/release`,
+            {
+              release_method: draft.disbursement_method || 'bank_transfer',
+              release_reference_no: draft.disbursement_reference_no || '',
+              release_note: draft.disbursement_note || '',
+              liquidation_due_at: draft.liquidation_due_at || ''
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          toast.success('Request released successfully!');
+        } else {
+          throw new Error('This request is not ready for accounting action.');
+        }
+      } else if (role === 'vp' && requestStatus === 'pending_vp') {
+        const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
+        if (isBudgetFlow) {
+          await api.patch(
+            `/api/requests/${requestId}/mark-viewed`,
+            { note },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          toast.success('Budget marked as viewed — forwarded to President.');
+        } else {
+          await api.patch(
+            `/api/requests/${requestId}/approve-vp`,
+            { note },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          toast.success(
+            amount > vpThreshold
+              ? 'Review recorded — forwarded to President.'
+              : 'Request approved — returned to accounting for fund release.'
+          );
+        }
+      } else if (role === 'president' && requestStatus === 'pending_president') {
         await api.patch(
-          `/api/requests/${requestId}/release`,
-          {
-            release_method: draft.disbursement_method || 'bank_transfer',
-            release_reference_no: draft.disbursement_reference_no || '',
-            release_note: draft.disbursement_note || '',
-            liquidation_due_at: draft.liquidation_due_at || ''
-          },
+          `/api/requests/${requestId}/approve-president`,
+          { note },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-
-        toast.success('Request released successfully!');
-
-      } else if (isVPresident && isPendingAccounting) {
-
-        // VP/President on pending_accounting requests uses co-approve endpoint
-        await api.post(
-          `/api/requests/${requestId}/co-approve`,
-          {},
-          { headers: { Authorization: `Bearer ${token}` } }
+        toast.success(
+          requestType === 'budget_request' || requestType === 'budget_revision'
+            ? 'Budget approved and matrix locked.'
+            : 'Request approved — returned to accounting for fund release.'
         );
-
-        toast.success('Request co-approved successfully!');
-
-      } else {
-
-        // Supervisor uses approve endpoint
+      } else if (role === 'supervisor' && requestStatus === 'pending_supervisor') {
         await api.patch(
           `/api/requests/${requestId}/approve`,
           { note },
           { headers: { Authorization: `Bearer ${token}` } }
         );
-
         toast.success('Request approved successfully!');
-
+      } else {
+        throw new Error('You cannot approve this request at its current stage.');
       }
 
       fetchRequests();
@@ -508,36 +534,28 @@ const Approvals = () => {
         const res = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
 
         filtered = (res.data || []).filter((request: any) => {
-          // Supervisors see anything that is pending supervisor approval for their department
           if (role === 'supervisor') {
             return request.status === 'pending_supervisor';
           }
 
           const amount = toNumber(request.amount);
-          const threshold = thresholds[currentCurrency]?.vp || 500000;
+          const threshold = thresholds[currentCurrency]?.vp || 500;
 
           if (effectiveView === 'pending') {
-            // Accounting can only release requests that have been co-approved by VP/President.
-            // All requests require co-approval regardless of amount.
             if (!(role === 'accounting' || role === 'admin')) return false;
             if (request.status !== 'pending_accounting') return false;
-            return !!request.co_approved_by;
+            return true;
           }
 
           if (effectiveView === 'vp_approval') {
-            // ALL requests awaiting accounting release need VP/President co-approval first.
-            // VP handles amounts <= threshold; President handles amounts > threshold.
-            const isActionable = request.status === 'pending_accounting' || request.status === 'on_hold';
-            if (!isActionable || request.co_approved_by) return false;
-            if (role === 'vp')        return amount <= threshold;
-            if (role === 'president') return true; // President can approve any amount
-            if (role === 'admin')     return true;
+            if (role === 'vp') return request.status === 'pending_vp';
+            if (role === 'president') return request.status === 'pending_president';
+            if (role === 'admin') return request.status === 'pending_vp' || request.status === 'pending_president';
             return false;
           }
 
           if (effectiveView === 'approved') {
-            // Show requests that have been co-approved and are ready for release
-            return request.status === 'pending_accounting' && request.co_approved_by;
+            return request.status === 'pending_accounting' && !!request.co_approved_by;
           }
 
           if (effectiveView === 'liquidations') {
@@ -1917,6 +1935,8 @@ const Approvals = () => {
                                   case 'reimbursement': return 'Reimbursement';
                                   case 'cash_advance': return 'Cash Advance';
                                   case 'liquidation': return 'Liquidation';
+                                  case 'budget_request': return 'Budget Proposal';
+                                  case 'budget_revision': return 'Budget Revision';
                                   default: return 'Expense';
                                 }
                               })()}
@@ -2336,6 +2356,17 @@ const Approvals = () => {
 
                         </div>
 
+                        {req.within_budget !== undefined && (
+                          <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-semibold ${req.within_budget ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-red-300 bg-red-50 text-red-700'}`}>
+                            {req.within_budget ? 'Within approved budget' : 'Outside approved budget'}
+                            {budgetSummary && (
+                              <p className="mt-1 text-xs font-normal opacity-80">
+                                Dept remaining: {formatMoney(requestingDepartmentRemaining)} · After approval: {formatMoney(projectedRemainingAfterApproval)}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
                       </div>
 
                     )}
@@ -2568,7 +2599,7 @@ const Approvals = () => {
 
 
 
-                    {(user.role === 'accounting' || user.role === 'admin') && (
+                    {(user.role === 'accounting' || user.role === 'admin') && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision' && (
 
                       <div className="mb-5 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
 
@@ -2767,29 +2798,26 @@ const Approvals = () => {
                       {/* VP/President/Supervisor/Admin - Approval Actions */}
                       {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin') && (
                         <>
+                          {(() => {
+                            const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
+                            const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow;
+                            const canActAtStage =
+                              (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
+                              (user.role === 'vp' && req.status === 'pending_vp') ||
+                              (user.role === 'president' && req.status === 'pending_president') ||
+                              (user.role === 'admin' && ['pending_supervisor', 'pending_vp', 'pending_president'].includes(req.status));
+                            if (!canActAtStage) return null;
+                            return (
                           <button 
                             onClick={() => void handleApprove(req)} 
-                            className="btn-success"
-                            disabled={
-                              (() => {
-                                return req.status === 'on_hold' ||
-                                ((user.role === 'vp' || user.role === 'president' || user.role === 'admin') && !req.co_approved_by);
-                              })()
-                            }
-                            title={
-                              (() => {
-                                const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
-                                const vpThreshold = currencyThreshold.vp;
-                                return req.status === 'on_hold'
-                                ? 'Cannot approve - request is On Hold'
-                                : (!req.co_approved_by && (user.role === 'vp' || user.role === 'president' || user.role === 'admin'))
-                                  ? `${requestAmount <= vpThreshold ? 'VP' : 'President'} approval required`
-                                  : '';
-                              })()
-                            }
+                            className={vpMarkViewed ? 'btn-secondary' : 'btn-success'}
+                            disabled={req.status === 'on_hold'}
+                            title={req.status === 'on_hold' ? 'Cannot approve - request is On Hold' : undefined}
                           >
-                            Approve
+                            {vpMarkViewed ? 'Mark as Viewed' : 'Approve'}
                           </button>
+                            );
+                          })()}
 
                           <button
                             onClick={() => {

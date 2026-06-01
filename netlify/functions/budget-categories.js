@@ -1,10 +1,12 @@
 const { supabase } = require('./utils/supabase');
 const { authenticate, authorize } = require('./utils/auth');
 const { toNumber } = require('./utils/budget');
-const { 
-  getLatestConfiguredFiscalYear, 
+const { AUDIT_ACTIONS, logAuditEvent } = require('./utils/auditLog');
+const { notifyDepartmentSupervisor, checkBudgetUtilizationWarning } = require('./utils/workflowNotify');
+const {
+  getLatestConfiguredFiscalYear,
   syncDepartmentBudget,
-  validateFiscalYear 
+  validateFiscalYear
 } = require('./utils/fiscal');
 const { 
   validateUUID, 
@@ -19,7 +21,7 @@ exports.handler = async (event, context) => {
       statusCode: 200,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       },
       body: '',
@@ -29,6 +31,63 @@ exports.handler = async (event, context) => {
   try {
     const token = event.headers.authorization;
     const user = authenticate(token);
+    const pathParts = (event.path || '').split('/').filter(Boolean);
+    const lastSegment = pathParts[pathParts.length - 1];
+    const secondLast = pathParts[pathParts.length - 2];
+
+    if (event.httpMethod === 'PATCH' && lastSegment === 'unlock') {
+      authorize(['accounting', 'admin'])(user);
+      validateUUID(secondLast);
+
+      const { data: current, error: fetchError } = await supabase
+        .from('budget_categories')
+        .select('*')
+        .eq('id', secondLast)
+        .single();
+
+      if (fetchError || !current) {
+        return {
+          statusCode: 404,
+          body: JSON.stringify(createErrorResponse('Category not found', 404)),
+        };
+      }
+
+      const { data, error } = await supabase
+        .from('budget_categories')
+        .update({ is_locked: false, locked_at: null, unlocked_at: new Date(), updated_at: new Date() })
+        .eq('id', secondLast)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const unlockBody = (() => {
+        try { return event.body ? JSON.parse(event.body) : {}; } catch { return {}; }
+      })();
+
+      await logAuditEvent({
+        user,
+        actionType: AUDIT_ACTIONS.BUDGET_UNLOCKED,
+        recordType: 'budget',
+        recordId: secondLast,
+        recordLabel: current.category_name,
+        oldValue: { is_locked: true },
+        newValue: { is_locked: false },
+        remarks: unlockBody.reason || 'Unlocked by accounting',
+      });
+      await notifyDepartmentSupervisor(
+        current.department_id,
+        `Budget category "${current.category_name}" was unlocked by accounting. You may submit revisions if needed.`
+      );
+
+      await syncDepartmentBudget(current.department_id, current.fiscal_year);
+
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify(data),
+      };
+    }
 
     if (event.httpMethod === 'GET') {
       const { department_id, fiscal_year, all_years } = event.queryStringParameters || {};
@@ -150,6 +209,13 @@ exports.handler = async (event, context) => {
         };
       }
 
+      if (current.is_locked) {
+        return {
+          statusCode: 403,
+          body: JSON.stringify(createErrorResponse('This budget category is locked. Only accounting can unlock it before editing.', 403)),
+        };
+      }
+
       const newRemaining = requestedBudget - toNumber(current.used_amount) - toNumber(current.committed_amount);
 
       const { data, error } = await supabase
@@ -166,7 +232,17 @@ exports.handler = async (event, context) => {
 
       if (error) throw error;
 
-      // Sync department budget after updating category
+      await logAuditEvent({
+        user,
+        actionType: AUDIT_ACTIONS.BUDGET_UPDATED,
+        recordType: 'budget',
+        recordId: id,
+        recordLabel: current.category_name,
+        oldValue: { budget_amount: current.budget_amount, category_name: current.category_name },
+        newValue: { budget_amount: requestedBudget, category_name: cleanCategoryName || current.category_name },
+      });
+      await checkBudgetUtilizationWarning(id);
+
       await syncDepartmentBudget(current.department_id, current.fiscal_year);
 
       return { 
@@ -183,10 +259,9 @@ exports.handler = async (event, context) => {
 
       validateUUID(id);
 
-      // Get category info before deletion for budget sync
       const { data: category, error: fetchError } = await supabase
         .from('budget_categories')
-        .select('department_id, fiscal_year')
+        .select('department_id, fiscal_year, is_locked, used_amount, committed_amount, category_name')
         .eq('id', id)
         .single();
 
@@ -194,6 +269,20 @@ exports.handler = async (event, context) => {
         return { 
           statusCode: 404, 
           body: JSON.stringify(createErrorResponse('Category not found', 404)) 
+        };
+      }
+
+      if (category.is_locked) {
+        return {
+          statusCode: 403,
+          body: JSON.stringify(createErrorResponse('This budget category is locked. Only accounting can unlock it before deleting.', 403)),
+        };
+      }
+
+      if (toNumber(category.used_amount) > 0 || toNumber(category.committed_amount) > 0) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify(createErrorResponse(`Cannot delete category "${category.category_name}" — it has existing used or committed budget amounts.`, 400)),
         };
       }
 

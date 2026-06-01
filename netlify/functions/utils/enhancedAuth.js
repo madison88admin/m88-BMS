@@ -2,12 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
-// Rate limiting store (in production, use Redis or similar)
-const rateLimitStore = new Map();
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX_ATTEMPTS = 5;
-
-// Enhanced authentication with rate limiting and security
+// Enhanced authentication and security helpers
 const authenticate = (token) => {
   if (!token) {
     throw new Error('Access denied: No token provided');
@@ -85,18 +80,6 @@ const checkRateLimit = (identifier, maxAttempts = RATE_LIMIT_MAX_ATTEMPTS) => {
   // Add current attempt
   validAttempts.push(now);
   return true;
-};
-
-// Email-based rate limiting for auth endpoints
-const checkAuthRateLimit = (email) => {
-  const identifier = `auth_${email.toLowerCase()}`;
-  return checkRateLimit(identifier, 5); // 5 attempts per 15 minutes
-};
-
-// IP-based rate limiting for general endpoints
-const checkIPRateLimit = (ip) => {
-  const identifier = `ip_${ip}`;
-  return checkRateLimit(identifier, 100); // 100 requests per 15 minutes
 };
 
 // Input sanitization helpers
@@ -210,9 +193,6 @@ const createErrorResponse = (message, statusCode = 500, details = null) => {
 module.exports = {
   authenticate,
   authorize,
-  checkRateLimit,
-  checkAuthRateLimit,
-  checkIPRateLimit,
   sanitizeEmail,
   sanitizePassword,
   sanitizeText,

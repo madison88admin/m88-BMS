@@ -750,7 +750,14 @@ router.delete('/users/:id', authenticate, async (req: any, res) => {
     .delete()
     .eq('id', req.params.id);
 
-  if (error) return res.status(400).json({ error: error.message || error });
+  if (error) {
+    if (error.code === '23503' || String(error.message).includes('violates foreign key constraint')) {
+      return res.status(400).json({
+        error: 'This user cannot be deleted because they have associated records (such as expense requests, approvals, or audit logs) in the system. To prevent them from accessing the system, you can update their email/password or remove their department access.'
+      });
+    }
+    return res.status(400).json({ error: error.message || error });
+  }
   res.json({ success: true });
 });
 

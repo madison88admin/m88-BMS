@@ -1,16 +1,18 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth';
+import { PRESIDENT_THRESHOLD } from '../constants/approval';
 
 const router = Router();
 
 // GET /api/config/auth-thresholds
 router.get('/auth-thresholds', authenticate, (req, res) => {
   res.json({
-    // Thresholds for each currency (500K in each currency)
+    // VP approves up to threshold; President required above threshold
+    president_threshold: PRESIDENT_THRESHOLD,
     thresholds: {
-      PHP: { vp: 500000, president: 500000 }, // ₱500K
-      USD: { vp: 500000, president: 500000 }, // $500K
-      IDR: { vp: 500000, president: 500000 }  // Rp500K
+      PHP: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD },
+      USD: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD },
+      IDR: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD }
     },
     // Exchange rates for conversion reference (base: PHP)
     exchange_rates: {

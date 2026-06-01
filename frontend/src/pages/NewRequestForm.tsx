@@ -37,6 +37,7 @@ interface OfficialExpense {
   dept: string | string[];
   canCA: boolean;
   canRE: boolean;
+  mannerOfSubmission?: 'for_submission' | 'for_upload';
 }
 
 const resolveCategoryIdFromOfficialItem = (
@@ -70,7 +71,7 @@ const NewRequestForm = () => {
   const [officialList, setOfficialList] = useState<OfficialExpense[]>([]);
   const [selectedAdvance, setSelectedAdvance] = useState<CashAdvance | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const isEmployeeView = user?.role === 'employee' || user?.role === 'manager';
 
   // Selected main categories for hierarchical dropdowns
   const [cashAdvanceMainCategory, setCashAdvanceMainCategory] = useState('');
@@ -84,11 +85,34 @@ const NewRequestForm = () => {
     return Array.from(categories).sort();
   };
 
+  const isStaffUser = !user?.role || user.role === 'employee' || user.role === 'manager' || user.role === 'supervisor';
+
+  const departmentNameForFilter = () =>
+    departments.find((d) => d.id === (activeTab === 'reimbursement' ? reimbursementForm.department_id : cashAdvanceForm.department_id))?.name || '';
+
+  const matchesDepartment = (item: OfficialExpense) => {
+    const userDeptName = departmentNameForFilter();
+    if (!userDeptName) return true;
+    const allowedDepts = Array.isArray(item.dept) ? item.dept : [item.dept];
+    return allowedDepts.includes('All Dept') || allowedDepts.some((d) => {
+      const allowedCore = d.toLowerCase().replace(/\s+department$/i, '').trim();
+      const userCore = userDeptName.toLowerCase().replace(/\s+department$/i, '').trim();
+      return d.toLowerCase() === userDeptName.toLowerCase() || allowedCore === userCore || userDeptName.toLowerCase().includes(allowedCore);
+    });
+  };
+
+  const isVisibleForRequestForm = (item: OfficialExpense, canUse: 'canRE' | 'canCA') => {
+    if (isStaffUser && item.mannerOfSubmission === 'for_upload') return false;
+    if (!item[canUse]) return false;
+    if (!item.canCA && !item.canRE && isStaffUser) return false;
+    return matchesDepartment(item);
+  };
+
   // Helper: Filter items by main category
   const getItemsByMainCategory = (mainCategory: string, canUse: 'canRE' | 'canCA') => {
     return officialList.filter(item => 
       item.category === mainCategory && 
-      item[canUse] === true
+      isVisibleForRequestForm(item, canUse)
     );
   };
 
@@ -245,7 +269,8 @@ const NewRequestForm = () => {
         setCashAdvances(advancesRes.data || []);
 
         // Load official expense list (includes budget-matrix categories)
-        const officialRes = await api.get('/api/requests/official-list');
+        const initialRequestType = initialType === 'cash_advance' ? 'cash_advance' : initialType === 'reimbursement' ? 'reimbursement' : '';
+        const officialRes = await api.get(`/api/requests/official-list${initialRequestType ? `?request_type=${initialRequestType}` : ''}`);
         setOfficialList(officialRes.data || []);
 
         // If initial advance_id provided, select it
@@ -319,15 +344,17 @@ const NewRequestForm = () => {
 
     const refreshOfficialList = async () => {
       try {
-        const officialRes = await api.get('/api/requests/official-list');
+        const requestTypeParam = activeTab === 'cash_advance' ? 'cash_advance' : activeTab === 'reimbursement' ? 'reimbursement' : '';
+        const officialRes = await api.get(`/api/requests/official-list${requestTypeParam ? `?request_type=${requestTypeParam}` : ''}`);
         setOfficialList(officialRes.data || []);
       } catch {
         // silent refresh
       }
     };
+    refreshOfficialList();
     const officialListIntervalId = setInterval(refreshOfficialList, 5000);
     return () => clearInterval(officialListIntervalId);
-  }, [navigate, initialAdvanceId]);
+  }, [navigate, initialAdvanceId, activeTab]);
 
   // Re-fetch categories when department or fiscal year changes
   useEffect(() => {
@@ -606,6 +633,27 @@ const NewRequestForm = () => {
               />
             </div>
             <div>
+              <label className="block text-sm font-medium mb-2">Department *</label>
+              <select
+                required
+                value={reimbursementForm.department_id}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setReimbursementForm(prev => ({ ...prev, department_id: val, category_id: '', cost_center_id: '' }));
+                }}
+                disabled={user?.role !== 'admin' && user?.role !== 'accounting'}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
+              >
+                {!reimbursementForm.department_id && <option value="">Select department...</option>}
+                {departments.map(dept => (
+                  <option key={dept.id} value={dept.id}>{dept.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
               <label className="block text-sm font-medium mb-2">Expense Date *</label>
               <input
                 type="date"
@@ -614,6 +662,19 @@ const NewRequestForm = () => {
                 onChange={(e) => setReimbursementForm(prev => ({ ...prev, expense_date: e.target.value }))}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Cost Center</label>
+              <select
+                value={reimbursementForm.cost_center_id}
+                onChange={(e) => setReimbursementForm(prev => ({ ...prev, cost_center_id: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                <option value="">Select cost center...</option>
+                {costCenters.map(cc => (
+                  <option key={cc.id} value={cc.id}>{cc.cost_center_code} - {cc.cost_center_name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -642,7 +703,31 @@ const NewRequestForm = () => {
                 </div>
                 
                 <div className="mb-3">
-                  <label className="block text-xs text-[var(--role-text)]/60 mb-1">Expense Item *</label>
+                  <label className="block text-xs text-[var(--role-text)]/60 mb-1">Main Category *</label>
+                  <select
+                    required
+                    value={item.main_category}
+                    onChange={(e) => {
+                      const newItems = [...reimbursementForm.items];
+                      newItems[index].main_category = e.target.value;
+                      newItems[index].item_name = '';
+                      newItems[index].category_id = '';
+                      setReimbursementForm(prev => ({ ...prev, items: newItems }));
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm mb-3"
+                  >
+                    <option value="">Select main category...</option>
+                    {getUniqueMainCategories()
+                      .filter(cat => getItemsByMainCategory(cat, 'canRE').length > 0)
+                      .map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                  </select>
+                </div>
+
+                {item.main_category && (
+                <div className="mb-3">
+                  <label className="block text-xs text-[var(--role-text)]/60 mb-1">Sub-category / Item *</label>
                   <select
                     required
                     value={item.item_name}
@@ -651,32 +736,22 @@ const NewRequestForm = () => {
                       const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === selectedItemValue);
                       const newItems = [...reimbursementForm.items];
                       newItems[index].item_name = selectedItemValue;
-                      newItems[index].main_category = selectedItem?.category || '';
+                      newItems[index].main_category = selectedItem?.category || item.main_category;
                       newItems[index].category_id = resolveCategoryIdFromOfficialItem(selectedItem, categories);
                       setReimbursementForm(prev => ({ ...prev, items: newItems }));
                     }}
                     className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
                   >
-                    <option value="">Select expense item...</option>
-                    {getUniqueMainCategories()
-                      .filter(cat => getItemsByMainCategory(cat, 'canRE').length > 0)
-                      .map(cat => (
-                        <optgroup key={cat} label={cat}>
-                          {getItemsByMainCategory(cat, 'canRE')
-                            .filter(i => {
-                              const userDeptName = departments.find(d => d.id === reimbursementForm.department_id)?.name || '';
-                              const allowedDepts = Array.isArray(i.dept) ? i.dept : [i.dept];
-                              return allowedDepts.includes('All Dept') || allowedDepts.some(d => d.toLowerCase() === userDeptName.toLowerCase());
-                            })
-                            .map(i => (
-                              <option key={i.code} value={`${i.code} | ${i.itemName}`}>
-                                {i.code} | {i.itemName}
-                              </option>
-                            ))}
-                        </optgroup>
+                    <option value="">Select sub-category...</option>
+                    {getItemsByMainCategory(item.main_category, 'canRE')
+                      .map(i => (
+                        <option key={i.code} value={`${i.code} | ${i.itemName}`}>
+                          {i.code} | {i.itemName}
+                        </option>
                       ))}
                   </select>
                 </div>
+                )}
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
@@ -724,8 +799,8 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          {/* Budget Status Indicator - Shows if selected items have budget available */}
-          {reimbursementForm.items.some(i => i.category_id) && (
+          {/* Budget status hidden from employees — they can only submit within approved budget */}
+          {!isEmployeeView && reimbursementForm.items.some(i => i.category_id) && (
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">Budget Status</label>
               {(() => {
@@ -784,41 +859,6 @@ const NewRequestForm = () => {
               })()}
             </div>
           )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Department *</label>
-              <select
-                required
-                value={reimbursementForm.department_id}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setReimbursementForm(prev => ({ ...prev, department_id: val, category_id: '', cost_center_id: '' }));
-                }}
-                disabled={user?.role !== 'admin' && user?.role !== 'accounting'}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
-              >
-                {!reimbursementForm.department_id && <option value="">Select department...</option>}
-                {departments.map(dept => (
-                  <option key={dept.id} value={dept.id}>{dept.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Cost Center</label>
-            <select
-              value={reimbursementForm.cost_center_id}
-              onChange={(e) => setReimbursementForm(prev => ({ ...prev, cost_center_id: e.target.value }))}
-              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-            >
-              <option value="">Select cost center...</option>
-              {costCenters.map(cc => (
-                <option key={cc.id} value={cc.id}>{cc.cost_center_code} - {cc.cost_center_name}</option>
-              ))}
-            </select>
-          </div>
 
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Project (Optional)</label>
@@ -1012,12 +1052,6 @@ const NewRequestForm = () => {
               >
                 <option value="">Select sub-category...</option>
                 {getItemsByMainCategory(cashAdvanceMainCategory, 'canCA')
-                  .filter(item => {
-                    const userDeptName = departments.find(d => d.id === cashAdvanceForm.department_id)?.name || '';
-                    const allowedDepts = Array.isArray(item.dept) ? item.dept : [item.dept];
-                    const isDeptAllowed = allowedDepts.includes('All Dept') || allowedDepts.some(d => d.toLowerCase() === userDeptName.toLowerCase());
-                    return isDeptAllowed;
-                  })
                   .map(item => (
                     <option key={item.code} value={`${item.code} | ${item.itemName}`}>
                       {item.code} | {item.itemName}
@@ -1083,11 +1117,7 @@ const NewRequestForm = () => {
                   >
                     <option value="">Select approved item...</option>
                     {officialList
-                      .filter(off => {
-                        const userDeptName = departments.find(d => d.id === cashAdvanceForm.department_id)?.name || '';
-                        const allowedDepts = Array.isArray(off.dept) ? off.dept : [off.dept];
-                        return (allowedDepts.includes('All Dept') || allowedDepts.some(d => d.toLowerCase() === userDeptName.toLowerCase())) && off.canCA;
-                      })
+                      .filter(off => isVisibleForRequestForm(off, 'canCA'))
                       .map(off => (
                         <option key={off.code} value={`${off.code} | ${off.itemName}`}>
                           {off.code} | {off.itemName}
@@ -1198,8 +1228,8 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          {/* Budget Status Indicator for Cash Advance */}
-          {cashAdvanceForm.department_id && categories.length > 0 && (
+          {/* Budget status hidden from employees */}
+          {!isEmployeeView && cashAdvanceForm.department_id && categories.length > 0 && (
             <div className="mb-6">
               <label className="block text-sm font-medium mb-3">Budget Status</label>
               <div className="space-y-2">

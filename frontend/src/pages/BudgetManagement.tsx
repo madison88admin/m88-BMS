@@ -123,6 +123,13 @@ const BudgetManagement = () => {
   const [recentRequestsPage, setRecentRequestsPage] = useState(1);
   const [recentPettyPage, setRecentPettyPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [proposalDrafts, setProposalDrafts] = useState<Record<string, string>>({});
+  const [revisionDrafts, setRevisionDrafts] = useState<Record<string, string>>({});
+  const [revisionHistory, setRevisionHistory] = useState<Record<string, any[]>>({});
+  const [submittingProposal, setSubmittingProposal] = useState(false);
+
+  const canEditMatrix = user?.role === 'accounting' || user?.role === 'admin';
+  const isViewOnlyMatrix = user?.role === 'supervisor' || user?.role === 'vp' || user?.role === 'president';
 
   const visibleDepartments = useMemo(() => {
     const map = new Map<string, any>();
@@ -214,10 +221,13 @@ const BudgetManagement = () => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
-    try {
-      const userData = JSON.parse(localStorage.getItem('user') || '{}');
-      setUser(userData);
-    } catch {}
+    api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => setUser(res.data))
+      .catch(() => {
+        try {
+          setUser(JSON.parse(localStorage.getItem('user') || '{}'));
+        } catch {}
+      });
     fetchDepartments();
     fetchExchangeRate(false);
     const id = window.setInterval(() => fetchExchangeRate(false), 60000);
@@ -402,6 +412,105 @@ const BudgetManagement = () => {
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to update petty cash')); }
   };
 
+  const unlockCategory = async (catId: string) => {
+    const token = localStorage.getItem('token');
+    try {
+      await api.patch(`/api/budget/categories/${catId}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      toast.success('Category unlocked');
+      if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
+    } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to unlock category')); }
+  };
+
+  const submitBudgetProposals = async () => {
+    if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
+    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
+    const proposals = mainCategories
+      .map((cat) => ({
+        category: cat,
+        amount: toNumber(proposalDrafts[cat.id] ?? cat.budget_amount)
+      }))
+      .filter(({ category, amount }) => !category.is_locked && amount >= 0 && amount !== toNumber(category.budget_amount));
+
+    if (!proposals.length) {
+      toast.error('Enter proposed amounts for unlocked categories that differ from current budgets');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    setSubmittingProposal(true);
+    try {
+      for (const { category, amount } of proposals) {
+        await api.post('/api/requests', {
+          request_type: 'budget_request',
+          department_id: selectedDepartmentId,
+          category_id: category.id,
+          category: category.category_name,
+          item_name: `Budget Proposal: ${category.category_name}`,
+          amount,
+          purpose: `Proposed budget for ${category.category_name}`,
+          priority: 'normal'
+        }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      toast.success(`Submitted ${proposals.length} budget proposal(s) for approval`);
+      setProposalDrafts({});
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to submit budget proposal'));
+    } finally {
+      setSubmittingProposal(false);
+    }
+  };
+
+  const submitBudgetRevisions = async () => {
+    if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
+    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
+    const revisions = mainCategories
+      .map((cat) => ({
+        category: cat,
+        amount: toNumber(revisionDrafts[cat.id] ?? 0)
+      }))
+      .filter(({ category, amount }) => category.is_locked && amount > toNumber(category.budget_amount));
+
+    if (!revisions.length) {
+      toast.error('Enter increased amounts for locked categories (must exceed current approved budget)');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    setSubmittingProposal(true);
+    try {
+      for (const { category, amount } of revisions) {
+        await api.post('/api/requests', {
+          request_type: 'budget_revision',
+          department_id: selectedDepartmentId,
+          category_id: category.id,
+          category: category.category_name,
+          item_name: `Budget Revision: ${category.category_name}`,
+          amount,
+          purpose: `Mid-period budget increase for ${category.category_name}`,
+          priority: 'normal'
+        }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      toast.success(`Submitted ${revisions.length} budget revision request(s) for approval`);
+      setRevisionDrafts({});
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to submit budget revision'));
+    } finally {
+      setSubmittingProposal(false);
+    }
+  };
+
+  const loadRevisionHistory = async (categoryId: string) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await api.get(`/api/audit-logs/budget-revisions/${categoryId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setRevisionHistory((prev) => ({ ...prev, [categoryId]: res.data || [] }));
+    } catch {
+      toast.error('Failed to load revision history');
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center py-20"><div className="bms-spinner" /></div>;
 
   const overviewCards = [
@@ -417,8 +526,14 @@ const BudgetManagement = () => {
       <div className="page-header">
         <div className="flex flex-col gap-6">
           <div>
-            <h1 className="page-title">Budget Matrix</h1>
-            <p className="page-subtitle">Live FX conversion, department budgets, category management, and fiscal year planning.</p>
+            <h1 className="page-title">{isViewOnlyMatrix && !canEditMatrix ? 'Budget Matrix (View Only)' : 'Budget Matrix'}</h1>
+            <p className="page-subtitle">
+              {user?.role === 'supervisor'
+                ? 'Propose budgets for your department. Locked matrices cannot be edited — contact accounting to unlock.'
+                : user?.role === 'vp' || user?.role === 'president'
+                  ? 'View-only access to department budget proposals and approved matrices.'
+                  : 'Live FX conversion, department budgets, category management, and fiscal year planning.'}
+            </p>
             <p className="mt-2 text-sm text-[var(--role-text)]/60">Active fiscal year: <span className="font-semibold text-[var(--role-text)]">FY {activeFiscalYear}</span></p>
           </div>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.15fr)_360px]">
@@ -596,7 +711,7 @@ const BudgetManagement = () => {
                         <h3 className="text-lg font-semibold text-[var(--role-text)]">Category Budgets</h3>
                         <p className="text-xs text-[var(--role-text)]/50 mt-0.5">FY{selectedDepartment?.fiscal_year} · {selectedBreakdown?.categories?.length || 0} categories · {displayMoney(editableBudgetValue)} budget</p>
                       </div>
-                      <button onClick={() => setShowAddCategory(v => !v)} className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-600 transition flex items-center gap-1">
+                      <button onClick={() => setShowAddCategory(v => !v)} disabled={!canEditMatrix} className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-600 transition flex items-center gap-1 disabled:opacity-50">
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                         {showAddCategory ? 'Cancel' : 'Add'}
                       </button>
@@ -635,8 +750,73 @@ const BudgetManagement = () => {
                       </div>
                     )}
 
+                    {user?.role === 'supervisor' && parentCategoryOptions.some((c) => c.is_locked) && (
+                      <div className="mb-4 p-4 rounded-xl border border-amber-200 bg-amber-50/50 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <h4 className="text-sm font-semibold text-[var(--role-text)]">Budget Revision Request</h4>
+                            <p className="text-xs text-[var(--role-text)]/60">Request a mid-period increase for locked categories. Follows the same approval flow as a new proposal.</p>
+                          </div>
+                          <button type="button" onClick={() => void submitBudgetRevisions()} disabled={submittingProposal} className="btn-secondary !px-4 !py-2 !text-xs disabled:opacity-50">
+                            {submittingProposal ? 'Submitting…' : 'Submit Revision'}
+                          </button>
+                        </div>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {parentCategoryOptions.filter((c) => c.is_locked).map((cat) => (
+                            <div key={`rev-${cat.id}`} className="flex items-center gap-2 text-sm">
+                              <span className="flex-1 truncate font-medium">{cat.category_name}</span>
+                              <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Approved: {displayMoney(toNumber(cat.budget_amount))}</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min={toNumber(cat.budget_amount) + 0.01}
+                                placeholder="New amount"
+                                value={revisionDrafts[cat.id] ?? ''}
+                                onChange={(e) => setRevisionDrafts((prev) => ({ ...prev, [cat.id]: e.target.value }))}
+                                className="w-28 px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                              />
+                              <button type="button" onClick={() => void loadRevisionHistory(cat.id)} className="text-[10px] text-[var(--role-primary)] underline">History</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Add form */}
-                    {showAddCategory && (
+                    {user?.role === 'supervisor' && parentCategoryOptions.length > 0 && (
+                      <div className="mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <h4 className="text-sm font-semibold text-[var(--role-text)]">Budget Proposal</h4>
+                            <p className="text-xs text-[var(--role-text)]/60">Propose amounts per main category, then submit for accounting → VP → President approval.</p>
+                          </div>
+                          <button type="button" onClick={() => void submitBudgetProposals()} disabled={submittingProposal} className="btn-primary !px-4 !py-2 !text-xs disabled:opacity-50">
+                            {submittingProposal ? 'Submitting…' : 'Submit Proposal'}
+                          </button>
+                        </div>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {parentCategoryOptions.map((cat) => (
+                            <div key={cat.id} className="flex items-center gap-2 text-sm">
+                              <span className="flex-1 truncate font-medium">{cat.category_name}</span>
+                              <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Current: {displayMoney(toNumber(cat.budget_amount))}</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="Proposed"
+                                value={proposalDrafts[cat.id] ?? ''}
+                                onChange={(e) => setProposalDrafts((prev) => ({ ...prev, [cat.id]: e.target.value }))}
+                                disabled={cat.is_locked}
+                                className="w-28 px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
+                              />
+                              {cat.is_locked && <span className="text-[10px] text-amber-700 font-semibold">LOCKED</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {showAddCategory && canEditMatrix && (
                       <div className="mb-4 p-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]/50 space-y-2">
                         <div>
                           <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Under parent category (optional)</label>
@@ -667,33 +847,62 @@ const BudgetManagement = () => {
                       <>
                         <div className="space-y-1 max-h-64 overflow-y-auto">
                           {paginatedCategories.map(({ cat, depth }) => {
-                              const budget = toNumber(cat.budget_amount), used = toNumber(cat.used_amount), rem = toNumber(cat.remaining_amount);
-                              const pct = budget > 0 ? (used / budget) * 100 : 0;
+                              const budget = toNumber(cat.budget_amount), used = toNumber(cat.used_amount), committed = toNumber(cat.committed_amount);
+                              const totalConsumed = used + committed;
+                              const rem = Math.max(0, budget - totalConsumed);
+                              const pct = budget > 0 ? (totalConsumed / budget) * 100 : 0;
+                              const utilizationWarning = user?.role === 'supervisor' && pct >= 80;
                               return (
-                                <div key={cat.id} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-3" style={{ marginLeft: `${depth * 16}px` }}>
+                                <div key={cat.id} className={`rounded-xl border p-3 ${utilizationWarning ? 'border-amber-400 bg-amber-50/40' : 'border-[var(--role-border)] bg-[var(--role-surface)]'}`} style={{ marginLeft: `${depth * 16}px` }}>
                                   <div className="flex items-center gap-2 mb-1">
                                     <span className="font-mono text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">{cat.category_code}</span>
                                     <span className="flex-1 text-sm font-medium truncate text-[var(--role-text)]">
                                       {depth > 0 ? '↳ ' : ''}{cat.category_name}
                                     </span>
+                                    {utilizationWarning && (
+                                      <span className="text-[10px] font-semibold text-amber-800 bg-amber-200 px-1.5 py-0.5 rounded" title="80%+ of approved budget used">
+                                        ⚠ {pct.toFixed(0)}% used
+                                      </span>
+                                    )}
+                                    {cat.is_locked && (
+                                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">LOCKED</span>
+                                    )}
                                     {cat.parent_category_name && (
                                       <span className="text-[10px] text-[var(--role-text)]/50 whitespace-nowrap">
                                         under {cat.parent_category_name}
                                       </span>
                                     )}
+                                    {canEditMatrix ? (
                                     <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                                      <input type="number" step="0.01" min="0" value={budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount} onChange={e => setBudgetInputs(p => ({ ...p, [`cat_${cat.id}`]: e.target.value }))} className="w-20 px-2 py-1 text-right text-xs rounded border border-[var(--role-border)] bg-[var(--role-accent)]" />
-                                      <button onClick={() => { const v = parseFloat(budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount); if (v >= 0) updateCategoryBudget(cat.id, v); }} className="px-2 py-1 text-[10px] bg-emerald-500 text-white rounded hover:bg-emerald-600">✓</button>
-                                      <button onClick={() => deleteCategory(cat.id)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title="Delete"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                      <input type="number" step="0.01" min="0" value={budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount} onChange={e => setBudgetInputs(p => ({ ...p, [`cat_${cat.id}`]: e.target.value }))} className="w-20 px-2 py-1 text-right text-xs rounded border border-[var(--role-border)] bg-[var(--role-accent)]" disabled={cat.is_locked} />
+                                      <button onClick={() => { const v = parseFloat(budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount); if (v >= 0) updateCategoryBudget(cat.id, v); }} disabled={cat.is_locked} className="px-2 py-1 text-[10px] bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:opacity-50">✓</button>
+                                      {cat.is_locked ? (
+                                        <button onClick={() => unlockCategory(cat.id)} className="px-2 py-1 text-[10px] bg-amber-500 text-white rounded hover:bg-amber-600">Unlock</button>
+                                      ) : (
+                                        <button onClick={() => deleteCategory(cat.id)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title="Delete"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                      )}
                                     </div>
+                                    ) : (
+                                    <span className="text-sm font-semibold text-emerald-600">{displayMoney(budget)}</span>
+                                    )}
                                   </div>
                                   <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
-                                    <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} />
+                                    <div className={`h-1.5 rounded-full ${utilizationWarning ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
                                   </div>
                                   <div className="flex justify-between text-[10px] text-[var(--role-text)]/50">
-                                    <span>Used: <span className="text-amber-600 font-medium">{displayMoney(used)}</span> ({pct.toFixed(1)}%)</span>
-                                    <span>Rem: <span className="text-emerald-600 font-medium">{displayMoney(rem)}</span></span>
+                                    <span>Used: <span className={`font-medium ${utilizationWarning ? 'text-amber-700' : 'text-amber-600'}`}>{displayMoney(used)}</span> + Committed: {displayMoney(committed)} ({pct.toFixed(1)}%)</span>
+                                    <span>Approved: {displayMoney(budget)} · Rem: <span className="text-emerald-600 font-medium">{displayMoney(rem)}</span></span>
                                   </div>
+                                  {(revisionHistory[cat.id]?.length ?? 0) > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-[var(--role-border)] text-[10px] text-[var(--role-text)]/60 space-y-1">
+                                      <p className="font-semibold">Revision history</p>
+                                      {revisionHistory[cat.id].slice(0, 3).map((entry: any) => (
+                                        <p key={entry.id}>
+                                          {formatDateTime(entry.approved_at || entry.created_at)} — {displayMoney(toNumber(entry.previous_amount))} → {displayMoney(toNumber(entry.approved_amount ?? entry.proposed_amount))} ({entry.revision_type?.replace(/_/g, ' ')})
+                                        </p>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -724,6 +933,7 @@ const BudgetManagement = () => {
                   </div>
 
                   {/* Budget Update */}
+                  {canEditMatrix && (
                   <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
                     <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                       <h3 className="text-lg font-semibold text-[var(--role-text)]">Update Annual Budget</h3>
@@ -734,8 +944,10 @@ const BudgetManagement = () => {
                       <button className="btn-success" onClick={() => { const v = parseFloat(budgetInputs[selectedDepartmentId]); if (v > 0) updateBudget(selectedDepartmentId, v); }}>Update Budget</button>
                     </div>
                   </div>
+                  )}
 
                   {/* Petty Cash */}
+                  {canEditMatrix && (
                   <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
                     <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                       <h3 className="text-lg font-semibold text-[var(--role-text)]">Petty Cash Adjustment</h3>
@@ -751,6 +963,7 @@ const BudgetManagement = () => {
                       <button className="btn-success" onClick={submitPettyCash}>Save</button>
                     </div>
                   </div>
+                  )}
                 </div>
 
                 {/* Right sidebar: Quick Totals + Recent Requests + Recent Petty Cash */}

@@ -68,13 +68,13 @@ const Layout = ({ children }: LayoutProps) => {
         if (currentUser.role === 'supervisor' || currentUser.role === 'accounting' || currentUser.role === 'admin' || currentUser.role === 'vp' || currentUser.role === 'president') {
           const reqRes = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
           if (cancelled) return;
-          const VP_THRESHOLD = 500000;
+          const VP_THRESHOLD = 500;
           const pendingCount = reqRes.data.filter((r: any) => {
             if (currentUser.role === 'supervisor') return r.status === 'pending_supervisor';
-            if (currentUser.role === 'accounting') return r.status === 'pending_accounting' && (Number(r.amount) < VP_THRESHOLD || r.co_approved_by);
-            if (currentUser.role === 'admin') return r.status === 'pending_supervisor' || r.status === 'pending_accounting';
-            if (currentUser.role === 'vp') return r.status === 'pending_accounting' && !r.co_approved_by && Number(r.amount) <= VP_THRESHOLD;
-            if (currentUser.role === 'president') return r.status === 'pending_accounting' && !r.co_approved_by && Number(r.amount) > VP_THRESHOLD;
+            if (currentUser.role === 'accounting') return r.status === 'pending_accounting';
+            if (currentUser.role === 'admin') return r.status === 'pending_supervisor' || r.status === 'pending_accounting' || r.status === 'pending_vp' || r.status === 'pending_president';
+            if (currentUser.role === 'vp') return r.status === 'pending_vp';
+            if (currentUser.role === 'president') return r.status === 'pending_president';
             return false;
           }).length;
           // Also count submitted liquidations for accounting/admin
@@ -250,6 +250,9 @@ const Layout = ({ children }: LayoutProps) => {
       )}
       {user.role === 'supervisor' && (
         <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Matrix</Link>
+      )}
+      {(user.role === 'vp' || user.role === 'president') && (
+        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget View</Link>
       )}
       {user.role === 'admin' && (
         <Link to="/reports" className={getNavClassName('/reports')}>Reports</Link>

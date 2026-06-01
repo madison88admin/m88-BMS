@@ -8,6 +8,94 @@
 [functions]
   directory = "netlify/functions"
 
+# API routes → Netlify Functions (sequential approval parity with Express backend)
+# To use Render instead, override these in the site UI or use frontend/netlify.toml proxy.
+[[redirects]]
+  from = "/api/config/auth-thresholds"
+  to = "/.netlify/functions/config-auth-thresholds"
+  status = 200
+
+[[redirects]]
+  from = "/api/requests/official-list"
+  to = "/.netlify/functions/requests/api/requests/official-list"
+  status = 200
+
+[[redirects]]
+  from = "/api/requests/audit-logs"
+  to = "/.netlify/functions/requests/api/requests/audit-logs"
+  status = 200
+
+[[redirects]]
+  from = "/api/audit-logs/*"
+  to = "/.netlify/functions/audit-logs/api/audit-logs/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/audit-logs"
+  to = "/.netlify/functions/audit-logs"
+  status = 200
+
+[[redirects]]
+  from = "/api/requests/:id/liquidation/review"
+  to = "/.netlify/functions/requests-liquidation/api/requests/:id/liquidation/review"
+  status = 200
+
+[[redirects]]
+  from = "/api/requests/:id/liquidation"
+  to = "/.netlify/functions/requests-liquidation/api/requests/:id/liquidation"
+  status = 200
+
+[[redirects]]
+  from = "/api/cash-advances-liquidate"
+  to = "/.netlify/functions/cash-advances-liquidate"
+  status = 200
+
+[[redirects]]
+  from = "/api/requests/:id/:action"
+  to = "/.netlify/functions/requests-approve-reject/api/requests/:id/:action"
+  status = 200
+
+[[redirects]]
+  from = "/api/requests"
+  to = "/.netlify/functions/requests"
+  status = 200
+
+[[redirects]]
+  from = "/api/budget/categories/:id/unlock"
+  to = "/.netlify/functions/budget-categories/api/budget/categories/:id/unlock"
+  status = 200
+
+[[redirects]]
+  from = "/api/budget/categories/*"
+  to = "/.netlify/functions/budget-categories/api/budget/categories/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/departments/*"
+  to = "/.netlify/functions/departments/api/departments/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api/departments"
+  to = "/.netlify/functions/departments"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/login"
+  to = "/.netlify/functions/auth-login"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth/me"
+  to = "/.netlify/functions/auth-me"
+  status = 200
+
+# SPA fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
 # Configure secrets scanning
 [secrets-scanning]
   enabled = true

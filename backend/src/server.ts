@@ -19,6 +19,7 @@ import budgetRoutes from './routes/budget';
 import cashAdvanceRoutes from './routes/cashAdvances';
 import uploadRoutes from './routes/upload';
 import configRoutes from './routes/config';
+import auditLogRoutes from './routes/auditLogs';
 
 dotenv.config();
 
@@ -50,6 +51,7 @@ app.use('/api/budget', budgetRoutes);
 app.use('/api/cash-advances', cashAdvanceRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/audit-logs', auditLogRoutes);
 
 // Health check endpoint
 app.get('/api/system/health', async (req, res) => {
