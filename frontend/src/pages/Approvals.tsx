@@ -49,8 +49,8 @@ const getMainCategoryDisplay = (request: any): string => {
         .filter(Boolean)
     ),
   ];
-  if (fromItems.length === 1) return fromItems[0];
-  if (fromItems.length > 1) return fromItems.join(' / ');
+  if (fromItems.length === 1) return fromItems[0] as string;
+  if (fromItems.length > 1) return (fromItems as string[]).join(' / ');
   return '';
 };
 
@@ -103,6 +103,12 @@ const Approvals = () => {
   const [endDate, setEndDate] = useState('');
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
+
+  const [requestTypeFilter, setRequestTypeFilter] = useState<string>('all');
+
+  const [priorityFilter, setPriorityFilter] = useState<string>('all');
 
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
 
@@ -586,9 +592,6 @@ const Approvals = () => {
             return request.status === 'pending_supervisor';
           }
 
-          const amount = toNumber(request.amount);
-          const threshold = thresholds[currentCurrency]?.vp || 500;
-
           if (effectiveView === 'pending') {
             if (!(role === 'accounting' || role === 'admin')) return false;
             if (request.status !== 'pending_accounting') return false;
@@ -792,9 +795,39 @@ const Approvals = () => {
 
     
 
+    // Department filter
+
+    if (departmentFilter !== 'all') {
+
+      result = result.filter(req => req.department_id === departmentFilter);
+
+    }
+
+    
+
+    // Request type filter
+
+    if (requestTypeFilter !== 'all') {
+
+      result = result.filter(req => req.request_type === requestTypeFilter);
+
+    }
+
+    
+
+    // Priority filter
+
+    if (priorityFilter !== 'all') {
+
+      result = result.filter(req => (req.priority || 'normal') === priorityFilter);
+
+    }
+
+    
+
     return result;
 
-  }, [requests, searchQuery, statusFilter, startDate, endDate]);
+  }, [requests, searchQuery, statusFilter, departmentFilter, requestTypeFilter, priorityFilter, startDate, endDate]);
 
 
 
@@ -995,132 +1028,6 @@ const Approvals = () => {
     document.body.removeChild(link);
 
     toast.success(`Exported ${filteredRequests.length} requests to Excel`);
-
-  };
-
-
-
-  // Bulk approve selected requests
-
-  const handleBulkApprove = async () => {
-
-    if (selectedRequests.size === 0) {
-
-      toast.error('No requests selected');
-
-      return;
-
-    }
-
-    
-
-    const token = localStorage.getItem('token');
-
-    let successCount = 0;
-
-    let failCount = 0;
-
-    
-
-    const isAccountingOrAdmin = user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'super_admin';
-    const isVPOrPresident = user?.role === 'vp' || user?.role === 'president';
-    
-    const promises = Array.from(selectedRequests).map(async (requestId) => {
-
-      try {
-
-        // Accounting/Admin users use /release endpoint with disbursement details, VP/President use /approve, Supervisors use /approve
-        if (isAccountingOrAdmin) {
-          const draft = disbursementDrafts[requestId] || {};
-          await api.patch(
-            `/api/requests/${requestId}/release`,
-            {
-              release_method: draft.disbursement_method || 'bank_transfer',
-              release_reference_no: draft.disbursement_reference_no || '',
-              release_note: draft.disbursement_note || '',
-              liquidation_due_at: draft.liquidation_due_at || ''
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-        } else if (isVPOrPresident) {
-          await api.patch(`/api/requests/${requestId}/approve`, {}, { headers: { Authorization: `Bearer ${token}` } });
-        } else {
-          await api.patch(`/api/requests/${requestId}/approve`, {}, { headers: { Authorization: `Bearer ${token}` } });
-        }
-
-        successCount++;
-
-      } catch {
-
-        failCount++;
-
-      }
-
-    });
-
-    
-
-    await Promise.all(promises);
-
-    
-
-    if (successCount > 0) {
-
-      toast.success(`Approved ${successCount} requests`);
-
-    }
-
-    if (failCount > 0) {
-
-      toast.error(`Failed to approve ${failCount} requests`);
-
-    }
-
-    
-
-    setSelectedRequests(new Set());
-
-  };
-
-
-
-  const selectAllVisible = () => {
-
-    const visibleIds = filteredRequests.map(r => r.id);
-
-    const allSelected = visibleIds.every(id => selectedRequests.has(id));
-
-    
-
-    if (allSelected) {
-
-      // Deselect all visible
-
-      setSelectedRequests(prev => {
-
-        const newSet = new Set(prev);
-
-        visibleIds.forEach(id => newSet.delete(id));
-
-        return newSet;
-
-      });
-
-    } else {
-
-      // Select all visible
-
-      setSelectedRequests(prev => {
-
-        const newSet = new Set(prev);
-
-        visibleIds.forEach(id => newSet.add(id));
-
-        return newSet;
-
-      });
-
-    }
 
   };
 
@@ -1483,14 +1390,20 @@ const Approvals = () => {
                 </>
               )}
               
-              {/* Accounting sees disbursement tabs */}
+              {/* Accounting sees disbursement + liquidation tabs */}
               {(user?.role === 'accounting' || user?.role === 'admin') && (
                 <>
                   <button 
-                    onClick={() => setView('pending')} 
+                    onClick={() => { setView('pending'); setSelectedRequests(new Set()); }}
                     className={`btn-secondary !rounded-full !px-6 ${view === 'pending' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                   >
                     Pending Disbursements
+                  </button>
+                  <button
+                    onClick={() => { setView('liquidations'); setSelectedRequests(new Set()); }}
+                    className={`btn-secondary !rounded-full !px-6 ${view === 'liquidations' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
+                  >
+                    Liquidations
                   </button>
                 </>
               )}
@@ -1523,419 +1436,530 @@ const Approvals = () => {
           </div>
 
           
-
           {/* Filters Row */}
+          <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)]/50 p-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Filters:</span>
 
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)]/50 p-3">
-
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Filters:</span>
-
-            
-
-            {/* Status Filter */}
-
-            <select
-
-              className="field-input !py-1.5 !text-xs"
-
-              value={statusFilter}
-
-              onChange={(e) => setStatusFilter(e.target.value)}
-
-            >
-
-              <option value="all">All Status</option>
-
-              <option value="pending_supervisor">Pending Supervisor</option>
-
-              <option value="pending_accounting">Pending Accounting</option>
-
-              <option value="released">Disbursed</option>
-
-              <option value="approved">Approved</option>
-
-              <option value="rejected">Rejected</option>
-
-              <option value="returned_for_revision">Returned</option>
-
-            </select>
-
-            
-
-            {/* Date Range */}
-
-            <input
-
-              type="date"
-
-              className="field-input !py-1.5 !text-xs"
-
-              value={startDate}
-
-              onChange={(e) => setStartDate(e.target.value)}
-
-              placeholder="From"
-
-            />
-
-            <span className="text-[var(--role-text)]/40">-</span>
-
-            <input
-
-              type="date"
-
-              className="field-input !py-1.5 !text-xs"
-
-              value={endDate}
-
-              onChange={(e) => setEndDate(e.target.value)}
-
-              placeholder="To"
-
-            />
-
-            
-
-            {/* Clear Filters */}
-
-            {(startDate || endDate || statusFilter !== 'all' || searchQuery) && (
-
-              <button
-
-                onClick={() => {
-
-                  setStartDate('');
-
-                  setEndDate('');
-
-                  setStatusFilter('all');
-
-                  setSearchQuery('');
-
-                }}
-
-                className="text-xs text-[var(--role-primary)] hover:underline"
-
+              {/* Status Filter */}
+              <select
+                className="field-input !py-1.5 !text-xs"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
               >
+                <option value="all">All Status</option>
+                <option value="pending_supervisor">Pending Supervisor</option>
+                <option value="pending_accounting">Pending Accounting</option>
+                <option value="released">Disbursed</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="returned_for_revision">Returned</option>
+              </select>
 
-                Clear all
+              {/* Request Type Filter — accounting/admin only */}
+              {(user?.role === 'accounting' || user?.role === 'admin') && (
+                <select
+                  className="field-input !py-1.5 !text-xs"
+                  value={requestTypeFilter}
+                  onChange={(e) => setRequestTypeFilter(e.target.value)}
+                >
+                  <option value="all">All Types</option>
+                  <option value="reimbursement">Reimbursement</option>
+                  <option value="cash_advance">Cash Advance</option>
+                  <option value="liquidation">Liquidation</option>
+                  <option value="budget_request">Budget Proposal</option>
+                  <option value="budget_revision">Budget Revision</option>
+                </select>
+              )}
 
-              </button>
+              {/* Department Filter — accounting/admin only */}
+              {(user?.role === 'accounting' || user?.role === 'admin') && departments.length > 0 && (
+                <select
+                  className="field-input !py-1.5 !text-xs"
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                >
+                  <option value="all">All Departments</option>
+                  {[...new Map(departments.map(d => [d.name, d])).values()].map((dept: any) => (
+                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                  ))}
+                </select>
+              )}
 
-            )}
-
-            
-
-            <div className="ml-auto flex items-center gap-2">
-
-              <span className="text-xs text-[var(--role-text)]/60">
-
-                {filteredRequests.length} result{filteredRequests.length !== 1 ? 's' : ''}
-
-              </span>
-
-              <button
-
-                onClick={exportToExcel}
-
-                className="btn-secondary !py-1.5 !px-3 !text-xs flex items-center gap-1"
-
-                title="Export to Excel"
-
+              {/* Priority Filter */}
+              <select
+                className="field-input !py-1.5 !text-xs"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
               >
+                <option value="all">All Priorities</option>
+                <option value="urgent">Urgent</option>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+              </select>
 
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {/* Date Range */}
+              <input
+                type="date"
+                className="field-input !py-1.5 !text-xs"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                placeholder="From"
+              />
+              <span className="text-[var(--role-text)]/40">-</span>
+              <input
+                type="date"
+                className="field-input !py-1.5 !text-xs"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                placeholder="To"
+              />
 
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              {/* Clear Filters */}
+              {(startDate || endDate || statusFilter !== 'all' || searchQuery || departmentFilter !== 'all' || requestTypeFilter !== 'all' || priorityFilter !== 'all') && (
+                <button
+                  onClick={() => {
+                    setStartDate('');
+                    setEndDate('');
+                    setStatusFilter('all');
+                    setSearchQuery('');
+                    setDepartmentFilter('all');
+                    setRequestTypeFilter('all');
+                    setPriorityFilter('all');
+                  }}
+                  className="text-xs text-[var(--role-primary)] hover:underline"
+                >
+                  Clear all
+                </button>
+              )}
 
-                </svg>
-
-                Export
-
-              </button>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      )}
-
-      {/* Bulk approve by department for accounting - only for budget proposals */}
-      {(user?.role === 'accounting' || user?.role === 'admin') && view === 'pending' && (() => {
-        const budgetProposals = filteredRequests.filter(r =>
-          (r.request_type === 'budget_request' || r.request_type === 'budget_revision') &&
-          r.status === 'pending_accounting'
-        );
-        if (budgetProposals.length === 0) return null;
-
-        const groupedByDept = budgetProposals.reduce((acc, req) => {
-          const deptId = req.department_id;
-          const deptName = req.department_name || 'Unknown Department';
-          if (!acc[deptId]) {
-            acc[deptId] = { name: deptName, count: 0, requests: [] };
-          }
-          acc[deptId].count++;
-          acc[deptId].requests.push(req);
-          return acc;
-        }, {} as Record<string, { name: string; count: number; requests: any[] }>);
-
-        return (
-          <div className="panel mb-6">
-            <h3 className="text-lg font-bold text-[var(--role-text)] mb-4">Bulk Approve Budget Proposals by Department</h3>
-            <div className="space-y-3">
-              {Object.entries(groupedByDept).map(([deptId, dept]) => (
-                <div key={deptId} className="flex items-center justify-between rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]/30 p-4">
-                  <div>
-                    <div className="font-medium text-[var(--role-text)]">{dept.name}</div>
-                    <div className="text-sm text-[var(--role-text)]/60">{dept.count} pending budget proposal{dept.count !== 1 ? 's' : ''}</div>
-                  </div>
+              <div className="ml-auto flex items-center gap-2">
+                {/* Bulk approve selected — accounting/admin on pending view */}
+                {(user?.role === 'accounting' || user?.role === 'admin') && view === 'pending' && selectedRequests.size > 0 && (
                   <button
-                    onClick={() => handleBulkApproveDepartment(deptId)}
-                    className="btn-success !py-2 !px-4 !text-sm flex items-center gap-2"
+                    onClick={async () => {
+                      const token = localStorage.getItem('token');
+                      let successCount = 0;
+                      let failCount = 0;
+                      const budgetIds = Array.from(selectedRequests).filter(id => {
+                        const req = filteredRequests.find(r => r.id === id);
+                        return req?.request_type === 'budget_request' || req?.request_type === 'budget_revision';
+                      });
+                      await Promise.all(budgetIds.map(async (requestId) => {
+                        try {
+                          await api.patch(`/api/requests/${requestId}/approve-accounting`, { note: 'Bulk approved by accounting' }, { headers: { Authorization: `Bearer ${token}` } });
+                          successCount++;
+                        } catch { failCount++; }
+                      }));
+                      if (successCount > 0) toast.success(`Approved ${successCount} budget proposal${successCount !== 1 ? 's' : ''}`);
+                      if (failCount > 0) toast.error(`Failed to approve ${failCount} request${failCount !== 1 ? 's' : ''}`);
+                      setSelectedRequests(new Set());
+                      await fetchRequests();
+                    }}
+                    className="btn-success !py-1.5 !px-3 !text-xs flex items-center gap-1"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    Approve All ({dept.count})
+                    Approve Selected ({selectedRequests.size})
                   </button>
-                </div>
-              ))}
+                )}
+                <span className="text-xs text-[var(--role-text)]/60">
+                  {filteredRequests.length} result{filteredRequests.length !== 1 ? 's' : ''}
+                </span>
+                <button
+                  onClick={exportToExcel}
+                  className="btn-secondary !py-1.5 !px-3 !text-xs flex items-center gap-1"
+                  title="Export to Excel"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Export
+                </button>
+              </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supervisor search + filters — shown before the grouped table */}
+      {user?.role === 'supervisor' && (
+        <div className="mb-6 space-y-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full sm:w-80">
+              <input
+                type="text"
+                placeholder="Search by category, code, item..."
+                className="field-input !pl-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <svg className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--role-text)]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)]/50 p-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Filters:</span>
+            <select className="field-input !py-1.5 !text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="all">All Status</option>
+              <option value="pending_supervisor">Pending My Review</option>
+              <option value="pending_accounting">Pending Accounting</option>
+              <option value="released">Disbursed</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="returned_for_revision">Returned</option>
+            </select>
+            <select className="field-input !py-1.5 !text-xs" value={requestTypeFilter} onChange={(e) => setRequestTypeFilter(e.target.value)}>
+              <option value="all">All Types</option>
+              <option value="reimbursement">Reimbursement</option>
+              <option value="cash_advance">Cash Advance</option>
+              <option value="budget_request">Budget Proposal</option>
+              <option value="budget_revision">Budget Revision</option>
+            </select>
+            <select className="field-input !py-1.5 !text-xs" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
+              <option value="all">All Priorities</option>
+              <option value="urgent">Urgent</option>
+              <option value="normal">Normal</option>
+              <option value="low">Low</option>
+            </select>
+            <input type="date" className="field-input !py-1.5 !text-xs" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            <span className="text-[var(--role-text)]/40">-</span>
+            <input type="date" className="field-input !py-1.5 !text-xs" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            {(startDate || endDate || statusFilter !== 'all' || searchQuery || requestTypeFilter !== 'all' || priorityFilter !== 'all') && (
+              <button onClick={() => { setStartDate(''); setEndDate(''); setStatusFilter('all'); setSearchQuery(''); setRequestTypeFilter('all'); setPriorityFilter('all'); }} className="text-xs text-[var(--role-primary)] hover:underline">
+                Clear all
+              </button>
+            )}
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-[var(--role-text)]/60">{filteredRequests.length} result{filteredRequests.length !== 1 ? 's' : ''}</span>
+              <button onClick={exportToExcel} className="btn-secondary !py-1.5 !px-3 !text-xs flex items-center gap-1" title="Export to Excel">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Export
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Budget Proposals Grouped Table — accounting/admin (pending view) and supervisor */}
+      {((user?.role === 'accounting' || user?.role === 'admin') && view === 'pending') || user?.role === 'supervisor' ? (() => {
+        const isSupervisor = user?.role === 'supervisor';
+        const budgetProposals = filteredRequests.filter(r =>
+          (r.request_type === 'budget_request' || r.request_type === 'budget_revision') &&
+          (isSupervisor ? r.status === 'pending_supervisor' : r.status === 'pending_accounting')
+        );
+
+        if (budgetProposals.length === 0 && isSupervisor) return null;
+        if (budgetProposals.length === 0 && !isSupervisor) return null;
+
+        // Group by department
+        const grouped: Record<string, { deptId: string; deptName: string; supervisorName: string; requests: any[] }> = budgetProposals.reduce((acc: Record<string, { deptId: string; deptName: string; supervisorName: string; requests: any[] }>, req: any) => {
+          const key = req.department_id || 'unknown';
+          if (!acc[key]) {
+            acc[key] = {
+              deptId: key,
+              deptName: req.department_name || req.departments?.name || 'Unknown Department',
+              supervisorName: req.supervisor_name || req.submitted_by_name || '',
+              requests: [] as any[]
+            };
+          }
+          acc[key].requests.push(req);
+          return acc;
+        }, {} as Record<string, { deptId: string; deptName: string; supervisorName: string; requests: any[] }>);
+
+        const groups: { deptId: string; deptName: string; supervisorName: string; requests: any[] }[] = Object.values(grouped);
+
+        return (
+          <div className="mb-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-[var(--role-text)]">
+                Budget Proposals
+                <span className="ml-2 rounded-full bg-[var(--role-accent)] border border-[var(--role-border)] px-2.5 py-0.5 text-sm font-semibold">
+                  {budgetProposals.length}
+                </span>
+              </h3>
+              {/* Global select all + bulk approve */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    const allIds = budgetProposals.map(r => r.id);
+                    const allSelected = allIds.every(id => selectedRequests.has(id));
+                    setSelectedRequests(prev => {
+                      const next = new Set(prev);
+                      if (allSelected) { allIds.forEach(id => next.delete(id)); }
+                      else { allIds.forEach(id => next.add(id)); }
+                      return next;
+                    });
+                  }}
+                  className="flex items-center gap-2 text-xs font-medium text-[var(--role-text)] hover:text-[var(--role-primary)]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={budgetProposals.length > 0 && budgetProposals.every(r => selectedRequests.has(r.id))}
+                    onChange={() => {}}
+                    className="h-4 w-4 rounded border-[var(--role-border)] text-emerald-500"
+                  />
+                  Select All
+                </button>
+                {selectedRequests.size > 0 && (
+                  <button
+                    onClick={async () => {
+                      const token = localStorage.getItem('token');
+                      let ok = 0; let fail = 0;
+                      const ids = Array.from(selectedRequests).filter(id => budgetProposals.some(r => r.id === id));
+                      await Promise.all(ids.map(async id => {
+                        try {
+                          if (isSupervisor) {
+                            await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved' }, { headers: { Authorization: `Bearer ${token}` } });
+                          } else {
+                            await api.patch(`/api/requests/${id}/approve-accounting`, { note: 'Bulk approved by accounting' }, { headers: { Authorization: `Bearer ${token}` } });
+                          }
+                          ok++;
+                        } catch { fail++; }
+                      }));
+                      if (ok > 0) toast.success(`Approved ${ok} budget proposal${ok !== 1 ? 's' : ''}`);
+                      if (fail > 0) toast.error(`Failed: ${fail}`);
+                      setSelectedRequests(new Set());
+                      await fetchRequests();
+                    }}
+                    className="btn-success !py-1.5 !px-4 !text-xs flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Approve Selected ({selectedRequests.size})
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {groups.map(group => {
+              const groupIds = group.requests.map(r => r.id);
+              const allGroupSelected = groupIds.every(id => selectedRequests.has(id));
+              const someGroupSelected = groupIds.some(id => selectedRequests.has(id));
+              const groupTotal = group.requests.reduce((sum, r) => sum + toNumber(r.amount), 0);
+
+              return (
+                <div key={group.deptId} className="panel overflow-hidden !p-0">
+                  {/* Department header */}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-[var(--role-accent)]/60 border-b border-[var(--role-border)] px-5 py-4">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={allGroupSelected}
+                        ref={el => { if (el) el.indeterminate = someGroupSelected && !allGroupSelected; }}
+                        onChange={() => {
+                          setSelectedRequests(prev => {
+                            const next = new Set(prev);
+                            if (allGroupSelected) { groupIds.forEach(id => next.delete(id)); }
+                            else { groupIds.forEach(id => next.add(id)); }
+                            return next;
+                          });
+                        }}
+                        className="h-4 w-4 rounded border-[var(--role-border)] text-emerald-500"
+                      />
+                      <div>
+                        <h4 className="font-bold text-[var(--role-text)]">{group.deptName}</h4>
+                        {group.supervisorName && (
+                          <p className="text-xs text-[var(--role-text)]/55">Supervisor: {group.supervisorName}</p>
+                        )}
+                      </div>
+                      <span className="rounded-full bg-[var(--role-border)]/20 border border-[var(--role-border)] px-2.5 py-0.5 text-xs font-semibold text-[var(--role-text)]/70">
+                        {group.requests.length} proposal{group.requests.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Total Amount</p>
+                        <p className="font-bold text-[var(--role-text)]">{formatMoney(groupTotal)}</p>
+                      </div>
+                      {!isSupervisor && (
+                        <button
+                          onClick={() => handleBulkApproveDepartment(group.deptId)}
+                          className="btn-success !py-2 !px-4 !text-sm flex items-center gap-2 whitespace-nowrap"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Approve All ({group.requests.length})
+                        </button>
+                      )}
+                      {isSupervisor && (
+                        <button
+                          onClick={async () => {
+                            const token = localStorage.getItem('token');
+                            let ok = 0; let fail = 0;
+                            await Promise.all(groupIds.map(async id => {
+                              try {
+                                await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved by supervisor' }, { headers: { Authorization: `Bearer ${token}` } });
+                                ok++;
+                              } catch { fail++; }
+                            }));
+                            if (ok > 0) toast.success(`Approved ${ok} proposal${ok !== 1 ? 's' : ''} for ${group.deptName}`);
+                            if (fail > 0) toast.error(`Failed: ${fail}`);
+                            setSelectedRequests(new Set());
+                            await fetchRequests();
+                          }}
+                          className="btn-success !py-2 !px-4 !text-sm flex items-center gap-2 whitespace-nowrap"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Approve All ({group.requests.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-b border-[var(--role-border)]/30 bg-[var(--role-accent)]/30">
+                        <tr>
+                          <th className="w-10 px-4 py-3"></th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Code</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Category / Item</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Type</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Submitted By</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Priority</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Date</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Amount</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--role-border)]/20">
+                        {group.requests.map((req, idx) => {
+                          const sla = calculateSLA(req);
+                          const isSelected = selectedRequests.has(req.id);
+                          return (
+                            <tr
+                              key={req.id}
+                              className={`transition-colors ${isSelected ? 'bg-emerald-500/5' : idx % 2 === 0 ? 'bg-transparent' : 'bg-[var(--role-accent)]/20'} hover:bg-[var(--role-accent)]/40`}
+                            >
+                              {/* Checkbox */}
+                              <td className="px-4 py-3">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleRequestSelection(req.id)}
+                                  className="h-4 w-4 rounded border-[var(--role-border)] text-emerald-500 cursor-pointer"
+                                />
+                              </td>
+                              {/* Code */}
+                              <td className="px-4 py-3 font-mono text-xs text-[var(--role-text)]/70 whitespace-nowrap">
+                                {req.request_code || '—'}
+                              </td>
+                              {/* Category / Item */}
+                              <td className="px-4 py-3 max-w-[220px]">
+                                <p className="font-semibold text-[var(--role-text)] truncate" title={req.item_name}>{req.item_name}</p>
+                                {req.category && (
+                                  <p className="text-xs text-[var(--role-text)]/55 truncate" title={req.category}>{formatCategoryWithCodes(req.category)}</p>
+                                )}
+                                {req.purpose && (
+                                  <p className="text-xs text-[var(--role-text)]/40 truncate mt-0.5" title={req.purpose}>{req.purpose}</p>
+                                )}
+                              </td>
+                              {/* Type */}
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${req.request_type === 'budget_revision' ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20' : 'bg-blue-500/10 text-blue-700 border border-blue-500/20'}`}>
+                                  {req.request_type === 'budget_revision' ? 'Revision' : 'Proposal'}
+                                </span>
+                              </td>
+                              {/* Submitted By */}
+                              <td className="px-4 py-3 text-[var(--role-text)]/70 whitespace-nowrap text-xs">
+                                {getRequesterName(req)}
+                              </td>
+                              {/* Priority */}
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${
+                                  req.priority === 'urgent' ? 'bg-red-500/10 text-red-600 border border-red-500/20' :
+                                  req.priority === 'low' ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20' :
+                                  'bg-[var(--role-accent)] text-[var(--role-text)]/60 border border-[var(--role-border)]'
+                                }`}>
+                                  {req.priority || 'normal'}
+                                </span>
+                                {sla.hours > 0 && (
+                                  <span className={`ml-1.5 text-[10px] font-medium ${sla.breached ? 'text-red-500' : 'text-blue-500'}`}>
+                                    ⏱{formatSLA(sla.hours)}{sla.breached ? ' ⚠️' : ''}
+                                  </span>
+                                )}
+                              </td>
+                              {/* Date */}
+                              <td className="px-4 py-3 text-xs text-[var(--role-text)]/60 whitespace-nowrap">
+                                {req.submitted_at ? new Date(req.submitted_at).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                              </td>
+                              {/* Amount */}
+                              <td className="px-4 py-3 text-right font-bold text-[var(--role-text)] whitespace-nowrap">
+                                {formatMoney(toNumber(req.amount))}
+                              </td>
+                              {/* Actions */}
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => void executeApprove(req)}
+                                    className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 transition whitespace-nowrap"
+                                    title="Approve"
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => setModalConfig({
+                                      isOpen: true,
+                                      requestId: req.id,
+                                      type: 'return',
+                                      title: 'Return for Revision',
+                                      message: 'Explain what needs to be corrected.',
+                                      placeholder: 'Enter revision details...',
+                                      confirmLabel: 'Send Back'
+                                    })}
+                                    className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-500/20 transition whitespace-nowrap"
+                                    title="Return for revision"
+                                  >
+                                    Return
+                                  </button>
+                                  <button
+                                    onClick={() => setModalConfig({
+                                      isOpen: true,
+                                      requestId: req.id,
+                                      type: 'reject',
+                                      title: 'Reject Request',
+                                      message: 'Provide a reason for rejecting this request.',
+                                      placeholder: 'Enter rejection reason...',
+                                      confirmLabel: 'Reject Request'
+                                    })}
+                                    className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-500/20 transition whitespace-nowrap"
+                                    title="Reject"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {/* Group total row */}
+                        <tr className="bg-[var(--role-accent)]/50 border-t-2 border-[var(--role-border)]/40">
+                          <td colSpan={7} className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">
+                            Department Total
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[var(--role-text)]">
+                            {formatMoney(groupTotal)}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         );
-      })()}
-
-
-
-      {user?.role === 'supervisor' && (
-
-        <div className="mb-6 space-y-4">
-
-          {/* Search */}
-
-          <div className="flex justify-end">
-
-            <div className="relative w-full sm:w-80">
-
-              <input
-
-                type="text"
-
-                placeholder="Search by category, code, item..."
-
-                className="field-input !pl-10"
-
-                value={searchQuery}
-
-                onChange={(e) => setSearchQuery(e.target.value)}
-
-              />
-
-              <svg className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--role-text)]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-
-              </svg>
-
-            </div>
-
-          </div>
-
-          
-
-          {/* Filters Row */}
-
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)]/50 p-3">
-
-            {/* Select All Checkbox - only when there are pending requests */}
-
-            {filteredRequests.some(r => r.status === 'pending_supervisor') && (
-
-              <button
-
-                onClick={selectAllVisible}
-
-                className="flex items-center gap-2 text-xs font-medium text-[var(--role-text)] hover:text-[var(--role-primary)]"
-
-              >
-
-                <input
-
-                  type="checkbox"
-
-                  checked={filteredRequests.filter(r => r.status === 'pending_supervisor').every(r => selectedRequests.has(r.id))}
-
-                  onChange={() => {}}
-
-                  className="h-4 w-4 rounded border-[var(--role-border)] text-emerald-500"
-
-                />
-
-                Select All
-
-              </button>
-
-            )}
-
-            <span className="text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Filters:</span>
-
-            
-
-            {/* Status Filter */}
-
-            <select
-
-              className="field-input !py-1.5 !text-xs"
-
-              value={statusFilter}
-
-              onChange={(e) => setStatusFilter(e.target.value)}
-
-            >
-
-              <option value="all">All Status</option>
-
-              <option value="pending_supervisor">Pending My Review</option>
-
-              <option value="pending_accounting">Pending Accounting</option>
-
-              <option value="released">Disbursed</option>
-
-              <option value="approved">Approved</option>
-
-              <option value="rejected">Rejected</option>
-
-              <option value="returned_for_revision">Returned</option>
-
-            </select>
-
-            
-
-            {/* Date Range */}
-
-            <input
-
-              type="date"
-
-              className="field-input !py-1.5 !text-xs"
-
-              value={startDate}
-
-              onChange={(e) => setStartDate(e.target.value)}
-
-              placeholder="From"
-
-            />
-
-            <span className="text-[var(--role-text)]/40">-</span>
-
-            <input
-
-              type="date"
-
-              className="field-input !py-1.5 !text-xs"
-
-              value={endDate}
-
-              onChange={(e) => setEndDate(e.target.value)}
-
-              placeholder="To"
-
-            />
-
-            
-
-            {/* Clear Filters */}
-
-            {(startDate || endDate || statusFilter !== 'all' || searchQuery) && (
-
-              <button
-
-                onClick={() => {
-
-                  setStartDate('');
-
-                  setEndDate('');
-
-                  setStatusFilter('all');
-
-                  setSearchQuery('');
-
-                }}
-
-                className="text-xs text-[var(--role-primary)] hover:underline"
-
-              >
-
-                Clear all
-
-              </button>
-
-            )}
-
-            
-
-            <div className="ml-auto flex items-center gap-2">
-
-              {/* Bulk approve only for Supervisor, Accounting, Admin - NOT for VP/President */}
-
-              {selectedRequests.size > 0 && user?.role !== 'vp' && user?.role !== 'president' && (
-
-                <button
-
-                  onClick={handleBulkApprove}
-
-                  className="btn-success !py-1.5 !px-3 !text-xs flex items-center gap-1"
-
-                >
-
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-
-                  </svg>
-
-                  Approve ({selectedRequests.size})
-
-                </button>
-
-              )}
-
-              <span className="text-xs text-[var(--role-text)]/60">
-
-                {filteredRequests.length} result{filteredRequests.length !== 1 ? 's' : ''}
-
-              </span>
-
-              <button
-
-                onClick={exportToExcel}
-
-                className="btn-secondary !py-1.5 !px-3 !text-xs flex items-center gap-1"
-
-                title="Export to Excel"
-
-              >
-
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-
-                </svg>
-
-                Export
-
-              </button>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      )}
+      })() : null}
 
 
 
@@ -1952,12 +1976,22 @@ const Approvals = () => {
       ) : (
 
         (() => {
+          // Budget proposals are shown in the grouped table above — exclude them from the card list
+          const isBudgetTableView =
+            ((user?.role === 'accounting' || user?.role === 'admin') && view === 'pending') ||
+            user?.role === 'supervisor';
+          const cardRequests = isBudgetTableView
+            ? filteredRequests.filter(r => r.request_type !== 'budget_request' && r.request_type !== 'budget_revision')
+            : filteredRequests;
+
+          // If all items are budget proposals (shown in table), no cards to render
+          if (cardRequests.length === 0) return null;
 
           const startIndex = (currentPage - 1) * pageSize;
 
-          const paginatedData = filteredRequests.slice(startIndex, startIndex + pageSize);
+          const paginatedData = cardRequests.slice(startIndex, startIndex + pageSize);
 
-          const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
+          const totalPages = Math.max(1, Math.ceil(cardRequests.length / pageSize));
 
           
 
@@ -2001,11 +2035,43 @@ const Approvals = () => {
 
                       <div className="flex flex-wrap items-center gap-3">
 
-                        {/* Checkbox for bulk approve - only for supervisor on pending requests */}
+                        {/* Checkbox for bulk approve - supervisor on pending requests, or accounting/admin on budget proposals */}
 
-                        {user?.role === 'supervisor' && req.status === 'pending_supervisor' && (
+                        {(user?.role === 'supervisor' && req.status === 'pending_supervisor') && (
 
                           <div 
+
+                            onClick={(e) => {
+
+                              e.stopPropagation();
+
+                              toggleRequestSelection(req.id);
+
+                            }}
+
+                            className="flex items-center"
+
+                          >
+
+                            <input
+
+                              type="checkbox"
+
+                              checked={selectedRequests.has(req.id)}
+
+                              onChange={() => {}}
+
+                              className="h-5 w-5 rounded border-[var(--role-border)] text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+
+                            />
+
+                          </div>
+
+                        )}
+
+                        {(user?.role === 'accounting' || user?.role === 'admin') && view === 'pending' && (req.request_type === 'budget_request' || req.request_type === 'budget_revision') && req.status === 'pending_accounting' && (
+
+                          <div
 
                             onClick={(e) => {
 
@@ -3084,7 +3150,7 @@ const Approvals = () => {
 
                   <p className="text-sm text-[var(--role-text)]/60">
 
-                    Showing {startIndex + 1} to {Math.min(startIndex + pageSize, filteredRequests.length)} of {filteredRequests.length} requests
+                    Showing {startIndex + 1} to {Math.min(startIndex + pageSize, cardRequests.length)} of {cardRequests.length} requests
 
                   </p>
 
