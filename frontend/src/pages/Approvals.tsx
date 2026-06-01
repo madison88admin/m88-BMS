@@ -2873,8 +2873,8 @@ const Approvals = () => {
 
 
                     <div className="flex flex-wrap gap-3">
-                      {/* VP/President/Supervisor/Admin - Approval Actions */}
-                      {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin') && (
+                      {/* VP/President/Supervisor/Admin/Accounting - Approval Actions */}
+                      {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin' || (user.role === 'accounting' && !req.co_approved_by)) && (
                         <>
                           {(() => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
@@ -2883,9 +2883,10 @@ const Approvals = () => {
                             const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow && budgetAmount >= budgetThreshold;
                             const canActAtStage =
                               (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
+                              (user.role === 'accounting' && req.status === 'pending_accounting' && !req.co_approved_by) ||
                               (user.role === 'vp' && req.status === 'pending_vp') ||
                               (user.role === 'president' && req.status === 'pending_president') ||
-                              (user.role === 'admin' && ['pending_supervisor', 'pending_vp', 'pending_president'].includes(req.status));
+                              (user.role === 'admin' && ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].includes(req.status));
                             if (!canActAtStage) return null;
                             return (
                           <button 

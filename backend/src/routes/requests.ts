@@ -915,7 +915,9 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     if (userRole === 'employee' || userRole === 'manager') {
       initialStatus = 'pending_supervisor';
     } else if (userRole === 'supervisor') {
-      initialStatus = 'pending_accounting';
+      const currency = metadata?.currency || 'PHP';
+      const presidentThreshold = getPresidentThreshold(currency);
+      initialStatus = requestAmount >= presidentThreshold ? 'pending_president' : 'pending_vp';
     } else if (userRole === 'accounting') {
       // Accounting routes based on amount: $500+ goes to President, <$500 goes to VP
       initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
@@ -1790,10 +1792,19 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     return res.status(403).json({ error: 'You cannot approve your own request' });
   }
 
-  // Budget approval workflow: Supervisor -> Accounting -> VP -> President
+  const isBudgetFlow = request.request_type === 'budget_request' || request.request_type === 'budget_revision';
+  const requestAmount = toNumber(request.amount);
+  const currency = request.metadata?.currency || 'PHP';
+  const presidentThreshold = getPresidentThreshold(currency);
+
+  let nextStatus = 'pending_accounting';
+  if (!isBudgetFlow) {
+    nextStatus = requestAmount >= presidentThreshold ? 'pending_president' : 'pending_vp';
+  }
+
   const { data, error } = await supabase
     .from('expense_requests')
-    .update({ status: 'pending_accounting', updated_at: new Date() })
+    .update({ status: nextStatus, updated_at: new Date() })
     .eq('id', id)
     .select()
     .single();
@@ -1813,12 +1824,21 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
       action: 'status_changed',
       field_name: 'status',
       old_value: request.status,
-      new_value: 'pending_accounting',
+      new_value: nextStatus,
       note: 'Supervisor approved request'
     }
   ]);
 
-  await notifyAccounting(`Request ${request.request_code} approved by supervisor — pending accounting review.`);
+  if (!isBudgetFlow) {
+    if (nextStatus === 'pending_president') {
+      await notifyPresident(`Request ${request.request_code} approved by supervisor — requires President review.`);
+    } else {
+      await notifyVp(`Request ${request.request_code} approved by supervisor — requires VP review.`);
+    }
+  } else {
+    await notifyAccounting(`Budget proposal ${request.request_code} approved by supervisor — pending accounting review.`);
+  }
+
   res.json(data);
 });
 
