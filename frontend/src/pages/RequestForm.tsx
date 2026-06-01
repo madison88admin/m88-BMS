@@ -151,12 +151,6 @@ const RequestForm = () => {
       return;
     }
 
-    // For reimbursements, prevent submission if over budget
-    if (budgetImpact?.isOverBudget && requestType === 'reimbursement') {
-      toast.error('Reimbursement amount exceeds remaining budget. Please reduce the amount or contact accounting.');
-      return;
-    }
-
     setLoading(true);
     const token = localStorage.getItem('token');
     
@@ -310,7 +304,7 @@ const RequestForm = () => {
                 <option value="">Select Category</option>
                 {categories.map(cat => {
                   const remaining = toNumber(cat.remaining_amount);
-                  const isOutOfBudget = remaining <= 0;
+                  const isOutOfBudget = remaining <= 0 && requestType !== 'reimbursement';
                   return (
                     <option key={cat.id} value={cat.category_name} disabled={isOutOfBudget && userRole === 'employee'}>
                       {cat.category_code ? `${cat.category_code} - ` : ''}{cat.category_name} 
@@ -322,7 +316,7 @@ const RequestForm = () => {
               </select>
               
               {selectedCategoryBudget && (userRole === 'admin' || userRole === 'accounting') && (
-                <div className={`rounded-xl p-4 border ${toNumber(selectedCategoryBudget.remaining_amount) >= totalAmount ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                <div className={`rounded-xl p-4 border ${(toNumber(selectedCategoryBudget.remaining_amount) >= totalAmount || requestType === 'reimbursement') ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-[10px] uppercase tracking-widest text-[var(--role-text)]/50 font-bold">Budget Allocated</p>
@@ -334,18 +328,18 @@ const RequestForm = () => {
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-widest text-[var(--role-text)]/50 font-bold">Available</p>
-                      <p className={`mt-1 font-semibold ${toNumber(selectedCategoryBudget.remaining_amount) >= totalAmount ? 'text-green-600' : 'text-red-600'}`}>
+                      <p className={`mt-1 font-semibold ${(toNumber(selectedCategoryBudget.remaining_amount) >= totalAmount || requestType === 'reimbursement') ? 'text-green-600' : 'text-red-600'}`}>
                         {formatMoney(toNumber(selectedCategoryBudget.remaining_amount))}
                       </p>
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-widest text-[var(--role-text)]/50 font-bold">Your Request</p>
-                      <p className={`mt-1 font-semibold ${toNumber(selectedCategoryBudget.remaining_amount) >= totalAmount ? 'text-green-600' : 'text-red-600'}`}>
+                      <p className={`mt-1 font-semibold ${(toNumber(selectedCategoryBudget.remaining_amount) >= totalAmount || requestType === 'reimbursement') ? 'text-green-600' : 'text-red-600'}`}>
                         {formatMoney(totalAmount)}
                       </p>
                     </div>
                   </div>
-                  {toNumber(selectedCategoryBudget.remaining_amount) < totalAmount && (
+                  {toNumber(selectedCategoryBudget.remaining_amount) < totalAmount && requestType !== 'reimbursement' && (
                     <div className="mt-3 flex items-start gap-2 bg-red-500/20 border border-red-500/30 rounded-lg p-2">
                       <svg className="w-4 h-4 text-red-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4v2m0 0a9 9 0 110-18 9 9 0 010 18z" />

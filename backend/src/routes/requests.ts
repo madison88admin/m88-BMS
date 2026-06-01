@@ -958,9 +958,9 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
         const rejected = rejectValidation(item.item_name, validation);
         if (rejected) return rejected;
 
-        // For subcategory requests, check main category budget
+        // For subcategory requests, check main category budget (skip for reimbursements)
         const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item.item_name);
-        if (itemEntry && itemEntry.category) {
+        if (itemEntry && itemEntry.category && request_type !== 'reimbursement') {
           const { data: mainCategory } = await supabase
             .from('budget_categories')
             .select('*')
@@ -985,9 +985,9 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
       const rejected = rejectValidation(item_name, validation);
       if (rejected) return rejected;
 
-      // For subcategory requests, check main category budget
+      // For subcategory requests, check main category budget (skip for reimbursements)
       const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item_name);
-      if (itemEntry && itemEntry.category) {
+      if (itemEntry && itemEntry.category && request_type !== 'reimbursement') {
         const { data: mainCategory } = await supabase
           .from('budget_categories')
           .select('*')
@@ -1009,10 +1009,10 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     }
   }
 
-  // 2. Validate both department projected remaining AND category remaining (skip for budget proposals)
+  // 2. Validate both department projected remaining AND category remaining (skip for budget proposals and reimbursements)
   const totalAmount = toNumber(amount);
 
-  if (!isBudgetFlow) {
+  if (!isBudgetFlow && request_type !== 'reimbursement') {
     // Check department projected remaining
     const { data: deptSummary, error: summaryError } = await supabase
       .from('departments')
@@ -1046,7 +1046,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     if (categoryBudgetError) {
       return res.status(400).json({ error: categoryBudgetError });
     }
-  } else if (!category_id) {
+  } else if (isBudgetFlow && !category_id) {
     return res.status(400).json({ error: 'Budget proposals require a main category (category_id).' });
   }
 

@@ -857,8 +857,8 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          {/* Budget status hidden from employees — they can only submit within approved budget */}
-          {!isEmployeeView && reimbursementForm.items.some(i => i.item) && (
+          {/* Budget status hidden from reimbursement form - they can submit continuously */}
+          {false && reimbursementForm.items.some(i => i.item) && (
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">Budget Status</label>
               {(() => {
