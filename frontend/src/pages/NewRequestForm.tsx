@@ -72,7 +72,6 @@ const NewRequestForm = () => {
   const [selectedAdvance, setSelectedAdvance] = useState<CashAdvance | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const isEmployeeView = user?.role === 'employee' || user?.role === 'manager';
 
   // Selected main categories for hierarchical dropdowns
   const [cashAdvanceMainCategory, setCashAdvanceMainCategory] = useState('');
@@ -454,10 +453,6 @@ const NewRequestForm = () => {
           amount: parseFloat(item.amount) || 0
         };
       });
-
-      const uniqueMainCategories = [
-        ...new Set(itemsForBackend.map((i) => i.main_category).filter(Boolean)),
-      ];
 
       const mainOfficialItem = officialList.find(i => `${i.code} | ${i.itemName}` === reimbursementForm.item_name);
       const primaryCategoryId = resolveCategoryIdFromOfficialItem(mainOfficialItem, categories);
@@ -1312,12 +1307,12 @@ const NewRequestForm = () => {
               <div className="space-y-2">
                 {(() => {
                   const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === cashAdvanceForm.item_name);
-                  const selectedCat = selectedItem ? categories.find(c => c.category_name === selectedItem.category) : null;
+                  const selectedCat = selectedItem ? categories.find(c => c.category_name === selectedItem?.category) : null;
                   
                   if (!selectedCat) return null;
                   
-                  const remaining = Number(selectedCat.remaining_amount || 0);
-                  const allocated = Number(selectedCat.allocated_amount || 0);
+                  const remaining = Number(selectedCat?.remaining_amount || 0);
+                  const allocated = Number(selectedCat?.allocated_amount || 0);
                   const totalAmount = cashAdvanceForm.breakdown.reduce((sum: number, item: any) => sum + (parseFloat(item.amount) || 0), 0);
                   
                   if (totalAmount === 0) return null;

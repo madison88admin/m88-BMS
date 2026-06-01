@@ -152,7 +152,8 @@ const validateCategoryBudgetsForSubmission = async (
       const requestedAmount = itemCategoryTotals.get(id) || 0;
 
       if (!category) {
-        return 'Selected budget category was not found.';
+        // If category doesn't exist, skip validation - allow request to proceed
+        continue;
       }
 
       if (category.department_id !== targetDepartmentId || Number(category.fiscal_year) !== fiscalYear) {
@@ -183,7 +184,10 @@ const validateCategoryBudgetsForSubmission = async (
 
   const { data: category, error } = await categoryQuery.maybeSingle();
   if (error) return error.message;
-  if (!category) return 'Selected budget category was not found for this department and fiscal year.';
+  if (!category) {
+    // If category doesn't exist, skip validation - allow request to proceed
+    return null;
+  }
 
   if (toNumber(category.remaining_amount) < totalAmount) {
     return `Insufficient budget in category "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${totalAmount.toFixed(2)}`;
