@@ -71,6 +71,7 @@ const NewRequestForm = () => {
   const [officialList, setOfficialList] = useState<OfficialExpense[]>([]);
   const [selectedAdvance, setSelectedAdvance] = useState<CashAdvance | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const isEmployeeView = user?.role === 'employee' || user?.role === 'manager';
 
   // Selected main categories for hierarchical dropdowns
@@ -419,10 +420,15 @@ const NewRequestForm = () => {
       // Prepare items with category info for backend
       const itemsForBackend = reimbursementForm.items.map(item => ({
         item_name: item.item_name,
+        main_category: item.main_category || '',
         category: categories.find(c => c.id === item.category_id)?.category_name || '',
         category_id: item.category_id,
         amount: parseFloat(item.amount) || 0
       }));
+
+      const uniqueMainCategories = [
+        ...new Set(itemsForBackend.map((i) => i.main_category).filter(Boolean)),
+      ];
 
       await api.post('/api/requests', {
         request_type: 'reimbursement',
@@ -445,7 +451,8 @@ const NewRequestForm = () => {
           request_type: 'reimbursement',
           expense_date: reimbursementForm.expense_date,
           cost_center_id: reimbursementForm.cost_center_id || null,
-          project: reimbursementForm.project || null
+          project: reimbursementForm.project || null,
+          main_category: uniqueMainCategories.length === 1 ? uniqueMainCategories[0] : uniqueMainCategories.join(' / '),
         }
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -495,12 +502,16 @@ const NewRequestForm = () => {
         request_type: 'cash_advance',
         item_name: cashAdvanceForm.item_name,
         department_id: cashAdvanceForm.department_id,
-        category: selectedItem?.category || 'Cash Advance',
+        category: selectedItem?.category || cashAdvanceForm.main_category || 'Cash Advance',
         amount: totalAmount,
         purpose: cashAdvanceForm.purpose,
         expected_liquidation_date: cashAdvanceForm.expected_liquidation_date,
         priority: 'normal',
-        attachments
+        attachments,
+        metadata: {
+          request_type: 'cash_advance',
+          main_category: cashAdvanceForm.main_category || selectedItem?.category || null,
+        },
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
