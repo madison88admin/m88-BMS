@@ -958,9 +958,9 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
         const rejected = rejectValidation(item.item_name, validation);
         if (rejected) return rejected;
 
-        // For subcategory requests, check main category budget (skip for reimbursements)
+        // For subcategory requests, check main category budget (skip for reimbursements and cash advances)
         const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item.item_name);
-        if (itemEntry && itemEntry.category && request_type !== 'reimbursement') {
+        if (itemEntry && itemEntry.category && request_type !== 'reimbursement' && request_type !== 'cash_advance') {
           const { data: mainCategory } = await supabase
             .from('budget_categories')
             .select('*')
@@ -985,9 +985,9 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
       const rejected = rejectValidation(item_name, validation);
       if (rejected) return rejected;
 
-      // For subcategory requests, check main category budget (skip for reimbursements)
+      // For subcategory requests, check main category budget (skip for reimbursements and cash advances)
       const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item_name);
-      if (itemEntry && itemEntry.category && request_type !== 'reimbursement') {
+      if (itemEntry && itemEntry.category && request_type !== 'reimbursement' && request_type !== 'cash_advance') {
         const { data: mainCategory } = await supabase
           .from('budget_categories')
           .select('*')
@@ -1009,10 +1009,10 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     }
   }
 
-  // 2. Validate both department projected remaining AND category remaining (skip for budget proposals and reimbursements)
+  // 2. Validate both department projected remaining AND category remaining (skip for budget proposals, reimbursements and cash advances)
   const totalAmount = toNumber(amount);
 
-  if (!isBudgetFlow && request_type !== 'reimbursement') {
+  if (!isBudgetFlow && request_type !== 'reimbursement' && request_type !== 'cash_advance') {
     // Check department projected remaining
     const { data: deptSummary, error: summaryError } = await supabase
       .from('departments')

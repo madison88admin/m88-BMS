@@ -1305,8 +1305,8 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          {/* Budget status hidden from employees */}
-          {!isEmployeeView && cashAdvanceForm.department_id && categories.length > 0 && (
+          {/* Budget status hidden from Cash Advance form - they can submit continuously */}
+          {false && cashAdvanceForm.department_id && categories.length > 0 && (
             <div className="mb-6">
               <label className="block text-sm font-medium mb-3">Budget Status</label>
               <div className="space-y-2">
