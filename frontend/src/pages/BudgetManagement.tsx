@@ -429,7 +429,7 @@ const BudgetManagement = () => {
 
   const submitBudgetProposals = async () => {
     if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
-    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
+    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id && MAIN_CATEGORY_CODES.has(c.category_code));
     const proposals = mainCategories
       .map((cat) => ({
         category: cat,
@@ -468,7 +468,7 @@ const BudgetManagement = () => {
 
   const submitBudgetRevisions = async () => {
     if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
-    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
+    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id && MAIN_CATEGORY_CODES.has(c.category_code));
     const revisions = mainCategories
       .map((cat) => ({
         category: cat,

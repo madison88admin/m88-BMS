@@ -705,16 +705,15 @@ const NewRequestForm = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Cost Center</label>
-              <select
-                value={reimbursementForm.cost_center_id}
-                onChange={(e) => setReimbursementForm(prev => ({ ...prev, cost_center_id: e.target.value }))}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                <option value="">Select cost center...</option>
-                {costCenters.map(cc => (
-                  <option key={cc.id} value={cc.id}>{cc.cost_center_code} - {cc.cost_center_name}</option>
-                ))}
-              </select>
+              <input
+                type="text"
+                readOnly
+                value={(() => {
+                  const selected = costCenters.find(cc => cc.id === reimbursementForm.cost_center_id);
+                  return selected ? `${selected.cost_center_code} - ${selected.cost_center_name}` : 'Loading...';
+                })()}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] cursor-not-allowed opacity-80"
+              />
             </div>
           </div>
 
@@ -1071,16 +1070,15 @@ const NewRequestForm = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Cost Center</label>
-              <select
-                value={cashAdvanceForm.cost_center_id}
-                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, cost_center_id: e.target.value }))}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                <option value="">Select cost center...</option>
-                {costCenters.map(cc => (
-                  <option key={cc.id} value={cc.id}>{cc.cost_center_code} - {cc.cost_center_name}</option>
-                ))}
-              </select>
+              <input
+                type="text"
+                readOnly
+                value={(() => {
+                  const selected = costCenters.find(cc => cc.id === cashAdvanceForm.cost_center_id);
+                  return selected ? `${selected.cost_center_code} - ${selected.cost_center_name}` : 'Loading...';
+                })()}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] cursor-not-allowed opacity-80"
+              />
             </div>
           </div>
 
