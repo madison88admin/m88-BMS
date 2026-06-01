@@ -1420,6 +1420,45 @@ router.get('/:id', authenticate, async (req: any, res) => {
   }
 });
 
+const recomputeCashAdvanceBalance = async (cashAdvanceId: string) => {
+  const { data: cashAdvance, error: cashAdvanceError } = await supabase
+    .from('cash_advances')
+    .select('id, amount_issued')
+    .eq('id', cashAdvanceId)
+    .single();
+
+  if (cashAdvanceError || !cashAdvance) {
+    return { error: cashAdvanceError || new Error('Cash advance not found') };
+  }
+
+  const { data: liquidationRows, error: liquidationSumError } = await supabase
+    .from('request_liquidations')
+    .select('amount_spent')
+    .eq('cash_advance_id', cashAdvanceId)
+    .in('status', ['pending_liquidation_review', 'liquidated']);
+
+  if (liquidationSumError) return { error: liquidationSumError };
+
+  const totalSpent = (liquidationRows || []).reduce((sum: number, row: any) => sum + toNumber(row.amount_spent), 0);
+  const amountIssued = toNumber(cashAdvance.amount_issued);
+  const newBalance = Math.max(amountIssued - totalSpent, 0);
+
+  const newStatus = newBalance <= 0 ? 'fully_liquidated' : totalSpent > 0 ? 'partially_liquidated' : 'outstanding';
+
+  const { error: updateError } = await supabase
+    .from('cash_advances')
+    .update({
+      amount_liquidated: totalSpent,
+      balance: newBalance,
+      status: newStatus,
+      fully_liquidated_at: newBalance <= 0 ? new Date() : null,
+      updated_at: new Date()
+    })
+    .eq('id', cashAdvanceId);
+
+  return { error: updateError || null };
+};
+
 // PATCH /api/requests/:id/liquidation
 router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 'supervisor', 'accounting'), async (req: any, res) => {
   try {
@@ -1459,11 +1498,6 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       return res.status(400).json({ error: 'This cash advance is already fully liquidated.' });
     }
 
-    // Verify amount spent does not exceed cash advance balance
-    if (amountSpent > Number(cashAdvance.balance)) {
-      return res.status(400).json({ error: `Amount spent cannot exceed cash advance balance of ${cashAdvance.balance}.` });
-    }
-
     const { data: existingLiquidation } = await supabase
       .from('request_liquidations')
       .select('*')
@@ -1471,6 +1505,16 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    const previousSpent = existingLiquidation?.status === 'pending_liquidation_review'
+      && existingLiquidation?.cash_advance_id === cashAdvanceId
+      ? toNumber(existingLiquidation.amount_spent)
+      : 0;
+
+    const effectiveBalance = toNumber(cashAdvance.balance) + previousSpent;
+    if (amountSpent > effectiveBalance) {
+      return res.status(400).json({ error: `Amount spent cannot exceed cash advance balance of ${effectiveBalance}.` });
+    }
 
     let result;
     if (existingLiquidation?.id) {
@@ -1535,6 +1579,9 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       );
       if (attachErr) console.error('Attachments save error:', attachErr);
     }
+
+    const { error: recomputeError } = await recomputeCashAdvanceBalance(String(cashAdvanceId));
+    if (recomputeError) console.error('Cash advance balance recompute error:', recomputeError);
 
     try {
       await insertAuditLogs(id, req.user.id, [
@@ -2945,25 +2992,8 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
     .maybeSingle();
 
   if (cashAdvance) {
-    let newCAStatus: string;
-    if (status === 'verified') {
-      // Determine partial vs full liquidation based on remaining balance
-      const { data: caRecord } = await supabase
-        .from('cash_advances')
-        .select('balance')
-        .eq('id', cashAdvance.id)
-        .single();
-      newCAStatus = (caRecord && toNumber(caRecord.balance) <= 0) ? 'fully_liquidated' : 'partially_liquidated';
-    } else {
-      newCAStatus = 'outstanding';
-    }
-    await supabase
-      .from('cash_advances')
-      .update({ 
-        status: newCAStatus,
-        updated_at: new Date()
-      })
-      .eq('id', cashAdvance.id);
+    const { error: recomputeError } = await recomputeCashAdvanceBalance(String(cashAdvance.id));
+    if (recomputeError) console.error('Cash advance balance recompute error:', recomputeError);
   }
 
   res.json(data);

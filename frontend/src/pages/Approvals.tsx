@@ -439,7 +439,7 @@ const Approvals = () => {
             toast.success(
               amount >= vpThreshold
                 ? 'Budget proposal forwarded to President for final approval.'
-                : 'Budget proposal forwarded to VP for final approval.'
+                : 'Budget proposal forwarded to VP for viewing.'
             );
           } else {
             toast.success('Request forwarded to VP review.');
@@ -462,20 +462,14 @@ const Approvals = () => {
         }
       } else if (role === 'vp' && requestStatus === 'pending_vp') {
         const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
-        if (isBudgetFlow && amount >= vpThreshold) {
+        if (isBudgetFlow) {
+          // VP always just marks budget proposals as viewed — President always does final approval
           await api.patch(
             `/api/requests/${requestId}/mark-viewed`,
             { note },
             { headers: { Authorization: `Bearer ${token}` } }
           );
           toast.success('Budget marked as viewed — forwarded to President.');
-        } else if (isBudgetFlow) {
-          await api.patch(
-            `/api/requests/${requestId}/approve-vp`,
-            { note },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          toast.success('Budget approved and matrix locked.');
         } else {
           await api.patch(
             `/api/requests/${requestId}/approve-vp`,
@@ -3004,9 +2998,8 @@ const Approvals = () => {
                         <>
                           {(() => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
-                            const budgetAmount = toNumber(req.amount);
-                            const budgetThreshold = thresholds[currentCurrency]?.vp || 500;
-                            const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow && budgetAmount >= budgetThreshold;
+                            // VP always marks budget proposals as viewed (President does final approval)
+                            const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow;
                             const canActAtStage =
                               (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
                               (user.role === 'accounting' && req.status === 'pending_accounting' && !req.co_approved_by) ||

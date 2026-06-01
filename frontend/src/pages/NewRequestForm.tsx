@@ -24,6 +24,7 @@ interface CostCenter {
 
 interface CashAdvance {
   id: string;
+  request_id?: string | null;
   advance_code: string;
   amount_issued: number;
   balance: number;
@@ -175,6 +176,8 @@ const NewRequestForm = () => {
   // Liquidation Form
   const [liquidationForm, setLiquidationForm] = useState({
     advance_id: initialAdvanceId || '',
+    amount_spent: '',
+    remarks: '',
     attachments: [] as File[]
   });
 
@@ -203,7 +206,13 @@ const NewRequestForm = () => {
     if (lDraft) {
       try {
         const parsed = JSON.parse(lDraft);
-        setLiquidationForm((prev: any) => ({ ...prev, ...parsed, attachments: [] }));
+        setLiquidationForm((prev: any) => ({
+          ...prev,
+          advance_id: parsed.advance_id || '',
+          amount_spent: parsed.amount_spent || '',
+          remarks: parsed.remarks || '',
+          attachments: []
+        }));
       } catch (e) { /* invalid draft, skip */ }
     }
   }, []);
@@ -282,18 +291,6 @@ const NewRequestForm = () => {
           if (advance) {
             setSelectedAdvance(advance);
             setLiquidationForm(prev => ({ ...prev, advance_id: advance.id }));
-            // Add initial empty item
-            setLiquidationForm(prev => ({
-              ...prev,
-              items: [{
-                expense_date: new Date().toISOString().split('T')[0],
-                category_id: '',
-                main_category: '',
-                description: '',
-                amount: 0,
-                receipt_attached: false
-              }]
-            }));
           }
         } else {
           // Check for liquidation draft advance_id if not provided in URL
@@ -557,6 +554,20 @@ const NewRequestForm = () => {
       return;
     }
 
+    const amountSpent = parseFloat(String(liquidationForm.amount_spent || '0'));
+    if (!Number.isFinite(amountSpent) || amountSpent <= 0) {
+      toast.error('Please enter a valid amount spent');
+      return;
+    }
+    if (amountSpent > Number(selectedAdvance.balance || 0)) {
+      toast.error(`Amount spent cannot exceed the cash advance balance of ${formatMoney(Number(selectedAdvance.balance || 0))}`);
+      return;
+    }
+    if (!selectedAdvance.request_id) {
+      toast.error('Selected cash advance is missing request reference. Please contact admin.');
+      return;
+    }
+
     setSubmitting(true);
     const token = localStorage.getItem('token');
 
@@ -574,23 +585,12 @@ const NewRequestForm = () => {
         }
       }
 
-      // Create liquidation request using the advance balance as the amount
-      const liquidatedAmount = selectedAdvance.balance;
-      
-      await api.post('/api/requests', {
-        request_type: 'liquidation',
-        item_name: `Liquidation - ${selectedAdvance.advance_code}`,
-        category: 'Liquidation',
-        amount: liquidatedAmount,
-        purpose: `Liquidation for ${selectedAdvance.advance_code}`,
-        original_advance_id: selectedAdvance.id,
-        priority: 'normal',
+      await api.patch(`/api/requests/${selectedAdvance.request_id}/liquidation`, {
+        cash_advance_id: selectedAdvance.id,
+        amount_spent: amountSpent,
+        remarks: liquidationForm.remarks,
         attachments
       }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      await api.post(`/api/cash-advances/${selectedAdvance.id}/submit-liquidation`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -1387,62 +1387,92 @@ const NewRequestForm = () => {
           {/* Select Cash Advance */}
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">Select Cash Advance *</label>
-            <select
-              required
-              value={liquidationForm.advance_id}
-              onChange={(e) => {
-                const advance = cashAdvances.find(a => a.id === e.target.value);
-                setSelectedAdvance(advance || null);
-                setLiquidationForm(prev => ({ ...prev, advance_id: e.target.value }));
-              }}
-              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-            >
-              <option value="">Select outstanding cash advance...</option>
-              {cashAdvances.map(advance => (
-                <option key={advance.id} value={advance.id}>
-                  {advance.advance_code} - Balance: {formatMoney(advance.balance)} - {advance.purpose}
-                </option>
-              ))}
-            </select>
+            {cashAdvances.length === 0 ? (
+              <div className="rounded-xl border border-amber-300/40 bg-amber-50/50 px-4 py-3 text-sm text-amber-700">
+                No outstanding cash advances to liquidate.
+              </div>
+            ) : (
+              <select
+                required
+                value={liquidationForm.advance_id}
+                onChange={(e) => {
+                  const advance = cashAdvances.find(a => a.id === e.target.value);
+                  setSelectedAdvance(advance || null);
+                  setLiquidationForm(prev => ({ ...prev, advance_id: e.target.value, amount_spent: '' }));
+                }}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                <option value="">Select outstanding cash advance...</option>
+                {cashAdvances.map(advance => (
+                  <option key={advance.id} value={advance.id}>
+                    {advance.advance_code} — Balance: {formatMoney(advance.balance)} — {advance.purpose}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {selectedAdvance && (
-            <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-200">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-sm text-blue-600/70">Original Advance</p>
-                  <p className="text-lg font-semibold text-blue-700">{formatMoney(selectedAdvance.amount_issued)}</p>
+            <>
+              {/* Advance summary */}
+              <div className="mb-6 grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4 text-center">
+                  <p className="text-xs uppercase tracking-wider text-[var(--role-text)]/50 mb-1">Original Advance</p>
+                  <p className="text-lg font-bold text-[var(--role-text)]">{formatMoney(selectedAdvance.amount_issued)}</p>
                 </div>
-                <div className="text-center">
-                  <p className="text-sm text-blue-600/70">Liquidated So Far</p>
-                  <p className="text-lg font-semibold text-blue-700">
-                    {formatMoney(selectedAdvance.amount_issued - selectedAdvance.balance)}
-                  </p>
+                <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4 text-center">
+                  <p className="text-xs uppercase tracking-wider text-[var(--role-text)]/50 mb-1">Already Liquidated</p>
+                  <p className="text-lg font-bold text-[var(--role-text)]">{formatMoney(selectedAdvance.amount_issued - selectedAdvance.balance)}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-blue-600/70">Remaining Balance</p>
-                  <p className="text-lg font-semibold text-emerald-600">{formatMoney(selectedAdvance.balance)}</p>
+                <div className="rounded-xl border border-emerald-400/30 bg-emerald-50/50 p-4 text-center">
+                  <p className="text-xs uppercase tracking-wider text-emerald-600/70 mb-1">Remaining Balance</p>
+                  <p className="text-lg font-bold text-emerald-700">{formatMoney(selectedAdvance.balance)}</p>
                 </div>
               </div>
-            </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-2">Amount Spent *</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max={Number(selectedAdvance.balance || 0)}
+                    value={liquidationForm.amount_spent}
+                    onChange={(e) => setLiquidationForm(prev => ({ ...prev, amount_spent: e.target.value }))}
+                    className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                    required
+                  />
+                </div>
+                {(() => {
+                  const amountSpent = parseFloat(String(liquidationForm.amount_spent || '0')) || 0;
+                  if (!amountSpent) return null;
+                  const remaining = Math.max(0, Number(selectedAdvance.balance || 0) - amountSpent);
+                  return (
+                    <div className="mt-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3 text-sm">
+                      Remaining balance after this submission: <span className="font-semibold">{formatMoney(remaining)}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-2">Remarks (Optional)</label>
+                <textarea
+                  value={liquidationForm.remarks}
+                  onChange={(e) => setLiquidationForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                  placeholder="Add notes for accounting (e.g., where receipts are, explanation, etc.)"
+                />
+              </div>
+            </>
           )}
 
-          {/* Liquidation Summary */}
-          {selectedAdvance && (
-            <div className="mb-6 p-4 rounded-xl bg-gray-50 border border-gray-200">
-              <div className="flex justify-between items-center mb-2">
-                <span>Liquidation amount</span>
-                <span className="font-semibold">{formatMoney(selectedAdvance.balance)}</span>
-              </div>
-              <div className="text-sm text-[var(--role-text)]/70">
-                The liquidation amount is based on the remaining cash advance balance.
-              </div>
-            </div>
-          )}
-
-          {/* Supporting Documents Section for Liquidation */}
+          {/* Supporting Documents */}
           <div className="mb-6">
-            <label className="block text-sm font-medium mb-3">Supporting Documents / Receipts (Optional)</label>
+            <label className="block text-sm font-medium mb-3">Receipts / Supporting Documents</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               {liquidationForm.attachments.map((file, idx) => (
                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--role-accent)] border border-[var(--role-border)]">
@@ -1467,7 +1497,6 @@ const NewRequestForm = () => {
                 </div>
               ))}
             </div>
-            
             <div className="border-2 border-dashed border-[var(--role-border)] rounded-xl p-6 text-center hover:border-[var(--role-primary)]/50 transition-colors">
               <input
                 type="file"
@@ -1486,21 +1515,13 @@ const NewRequestForm = () => {
                 <svg className="w-10 h-10 mx-auto mb-2 text-[var(--role-text)]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <p className="text-sm text-[var(--role-text)]/60">
-                  Click to add multiple receipts or documents
-                </p>
+                <p className="text-sm text-[var(--role-text)]/60">Click to add receipts or documents</p>
               </label>
             </div>
           </div>
 
           <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => navigate('/tracker')}
-              className="btn-secondary px-8"
-            >
-              Cancel
-            </button>
+            <button type="button" onClick={() => navigate('/tracker')} className="btn-secondary px-8">Cancel</button>
             <button
               type="submit"
               disabled={submitting || !selectedAdvance}
