@@ -110,6 +110,10 @@ const RequestTracker = () => {
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
+
+  // Budget request resubmit form state
+  const [budgetResubmit, setBudgetResubmit] = useState<{ amount: string; purpose: string }>({ amount: '', purpose: '' });
+  const [budgetResubmitting, setBudgetResubmitting] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -601,6 +605,13 @@ const RequestTracker = () => {
               className={`panel cursor-pointer transition hover:border-[var(--role-secondary)]/30 ${selectedRequest?.id === req.id ? 'border-[var(--role-primary)]/40 bg-[var(--role-accent)] shadow-md' : ''}`}
               onClick={() => {
                 setSelectedRequest(req);
+                // Pre-populate budget resubmit form when selecting a returned budget request
+                if ((req.request_type === 'budget_request' || req.request_type === 'budget_revision') && req.status === 'returned_for_revision') {
+                  setBudgetResubmit({
+                    amount: String(req.amount || ''),
+                    purpose: req.purpose?.split('\n\nItem Breakdown:')[0] || req.purpose || ''
+                  });
+                }
               }}
             >
               <div className="mb-4 flex items-start justify-between gap-4">
@@ -953,19 +964,159 @@ const RequestTracker = () => {
             )}
 
             {selectedRequest.return_reason && (
-              <div className="panel-muted mt-6 border-orange-500/20 bg-orange-500/5">
-                <p className="text-xs uppercase tracking-[0.16em] text-orange-600 font-bold">Return Reason</p>
-                <p className="mt-2 text-orange-700 font-medium">{selectedRequest.return_reason}</p>
-                <p className="mt-2 text-xs text-orange-600/70">Revision count: {selectedRequest.revision_count || 0}</p>
-                <button 
-                  className="btn-primary mt-4 w-full bg-orange-600 border-orange-600 hover:bg-orange-700 flex items-center justify-center gap-2" 
-                  onClick={() => navigate(`/request/edit/${selectedRequest.id}`)}
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Edit & Resubmit
-                </button>
+              <div className="mt-6">
+                {/* Return reason banner — same for all types */}
+                <div className="rounded-2xl border border-orange-500/20 bg-orange-500/5 px-5 py-4 mb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-500/15">
+                      <svg className="h-4 w-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600">Returned for Revision</p>
+                      <p className="mt-1.5 text-sm font-medium text-orange-700">{selectedRequest.return_reason}</p>
+                      <p className="mt-1 text-xs text-orange-500/70">Revision #{(selectedRequest.revision_count || 0) + 1}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Budget request/revision — dedicated resubmit form */}
+                {(selectedRequest.request_type === 'budget_request' || selectedRequest.request_type === 'budget_revision') ? (
+                  <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)]/40 p-5 space-y-4">
+                    <div className="flex items-center gap-3 mb-1">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-500/10 border border-blue-500/20">
+                        <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-[var(--role-text)]">
+                          Revise {selectedRequest.request_type === 'budget_revision' ? 'Budget Revision' : 'Budget Proposal'}
+                        </h4>
+                        <p className="text-xs text-[var(--role-text)]/55">Update the details below and resubmit for approval.</p>
+                      </div>
+                    </div>
+
+                    {/* Category — read-only */}
+                    <div>
+                      <label className="field-label">Budget Category</label>
+                      <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
+                        <p className="font-semibold text-[var(--role-text)]">{selectedRequest.category || selectedRequest.item_name}</p>
+                        {selectedRequest.metadata?.main_category && selectedRequest.metadata.main_category !== selectedRequest.category && (
+                          <p className="text-xs text-[var(--role-text)]/55 mt-0.5">Main: {selectedRequest.metadata.main_category}</p>
+                        )}
+                        <p className="text-xs text-[var(--role-text)]/40 mt-0.5 uppercase tracking-wider">
+                          {selectedRequest.request_type === 'budget_revision' ? 'Budget Revision' : 'Budget Proposal'} · {selectedRequest.request_code}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Proposed Amount */}
+                    <div>
+                      <label className="field-label">Proposed Amount (₱)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="field-input"
+                        placeholder="Enter proposed budget amount"
+                        value={budgetResubmit.amount}
+                        onChange={e => setBudgetResubmit(prev => ({ ...prev, amount: e.target.value }))}
+                      />
+                      {selectedRequest.amount && (
+                        <p className="mt-1 text-xs text-[var(--role-text)]/50">
+                          Original: <span className="font-semibold">{formatMoney(toNumber(selectedRequest.amount))}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Purpose / Justification */}
+                    <div>
+                      <label className="field-label">Justification / Purpose</label>
+                      <textarea
+                        className="field-input min-h-[90px]"
+                        rows={3}
+                        placeholder="Explain why this budget is needed and address the reviewer's concerns..."
+                        value={budgetResubmit.purpose}
+                        onChange={e => setBudgetResubmit(prev => ({ ...prev, purpose: e.target.value }))}
+                      />
+                    </div>
+
+                    {/* Amount change indicator */}
+                    {budgetResubmit.amount && toNumber(budgetResubmit.amount) !== toNumber(selectedRequest.amount) && (
+                      <div className={`rounded-xl border px-4 py-3 flex items-center justify-between text-sm ${
+                        toNumber(budgetResubmit.amount) > toNumber(selectedRequest.amount)
+                          ? 'border-amber-500/20 bg-amber-500/5 text-amber-700'
+                          : 'border-emerald-500/20 bg-emerald-500/5 text-emerald-700'
+                      }`}>
+                        <span className="font-medium">Amount change:</span>
+                        <span className="font-bold">
+                          {formatMoney(toNumber(selectedRequest.amount))} → {formatMoney(toNumber(budgetResubmit.amount))}
+                          <span className="ml-2 text-xs">
+                            ({toNumber(budgetResubmit.amount) > toNumber(selectedRequest.amount) ? '+' : ''}
+                            {formatMoney(toNumber(budgetResubmit.amount) - toNumber(selectedRequest.amount))})
+                          </span>
+                        </span>
+                      </div>
+                    )}
+
+                    <button
+                      disabled={budgetResubmitting || !budgetResubmit.amount || !budgetResubmit.purpose.trim()}
+                      onClick={async () => {
+                        if (!budgetResubmit.amount || !budgetResubmit.purpose.trim()) {
+                          toast.error('Please fill in the amount and justification');
+                          return;
+                        }
+                        setBudgetResubmitting(true);
+                        const token = localStorage.getItem('token');
+                        try {
+                          await api.patch(`/api/requests/${selectedRequest.id}/resubmit`, {
+                            item_name: `${selectedRequest.request_type === 'budget_revision' ? 'Budget Revision' : 'Budget Proposal'}: ${selectedRequest.category || selectedRequest.item_name}`,
+                            amount: toNumber(budgetResubmit.amount),
+                            category: selectedRequest.category,
+                            category_id: selectedRequest.category_id,
+                            purpose: budgetResubmit.purpose.trim(),
+                            priority: selectedRequest.priority || 'normal'
+                          }, { headers: { Authorization: `Bearer ${token}` } });
+                          toast.success('Budget proposal resubmitted successfully!');
+                          setBudgetResubmit({ amount: '', purpose: '' });
+                          await fetchRequests(true, selectedRequest.id);
+                        } catch (err: any) {
+                          toast.error(getErrorMessage(err, 'Resubmission failed'));
+                        } finally {
+                          setBudgetResubmitting(false);
+                        }
+                      }}
+                      className="w-full btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {budgetResubmitting ? (
+                        <>
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                          Resubmitting...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                          </svg>
+                          Resubmit for Approval
+                        </>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  /* Regular ticket (reimbursement / cash advance) — navigate to edit form */
+                  <button
+                    className="btn-primary w-full bg-orange-600 border-orange-600 hover:bg-orange-700 flex items-center justify-center gap-2"
+                    onClick={() => navigate(`/request/edit/${selectedRequest.id}`)}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Edit & Resubmit
+                  </button>
+                )}
               </div>
             )}
 
