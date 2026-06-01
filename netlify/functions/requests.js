@@ -250,22 +250,20 @@ exports.handler = async (event, context) => {
         
         if (categoryError) throw categoryError;
         if (!budgetData) {
-          return { 
-            statusCode: 400, 
-            body: JSON.stringify(createErrorResponse(`Category "${cleanCategory}" not found for fiscal year ${targetFiscalYear}`, 400)) 
-          };
-        }
-        
-        categoryBudget = budgetData;
-        const remaining = Number(categoryBudget.remaining_amount);
-        if (remaining < normalizedAmount) {
-          return { 
-            statusCode: 400, 
-            body: JSON.stringify(createErrorResponse(
-              `Insufficient budget in "${cleanCategory}". Available: ₱${remaining.toFixed(2)}, Requested: ₱${normalizedAmount.toFixed(2)}`, 
-              400
-            )) 
-          };
+          // If category doesn't exist, skip validation - allow request to proceed
+          console.log(`Category "${cleanCategory}" not found for fiscal year ${targetFiscalYear}, skipping budget validation`);
+        } else {
+          categoryBudget = budgetData;
+          const remaining = Number(categoryBudget.remaining_amount);
+          if (remaining < normalizedAmount) {
+            return { 
+              statusCode: 400, 
+              body: JSON.stringify(createErrorResponse(
+                `Insufficient budget in "${cleanCategory}". Available: ₱${remaining.toFixed(2)}, Requested: ₱${normalizedAmount.toFixed(2)}`, 
+                400
+              )) 
+            };
+          }
         }
       }
 
