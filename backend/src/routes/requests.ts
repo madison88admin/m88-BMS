@@ -11,6 +11,7 @@ import {
   allocationTotalsMatchRequest,
   buildDepartmentBudgetSummaryMap,
   enrichRequests,
+  enrichRequestsWithMainCategory,
   fetchRequestAllocationsByRequestId,
   normalizeAllocations
 } from '../utils/budget';
@@ -825,7 +826,8 @@ router.get('/', authenticate, async (req: any, res) => {
     const rowsWithRelations = await appendRequestRelations(data || []);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
     const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
-    res.json(await appendWorkflowDataToRequests(enrichedRows));
+    const withMainCategory = await enrichRequestsWithMainCategory(enrichedRows);
+    res.json(await appendWorkflowDataToRequests(withMainCategory));
   } catch (summaryError: any) {
     res.status(400).json({ error: summaryError?.message || summaryError });
   }
@@ -845,7 +847,8 @@ router.get('/my', authenticate, async (req: any, res) => {
     const rowsWithRelations = await appendRequestRelations(data || []);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
     const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
-    res.json(await appendWorkflowDataToRequests(enrichedRows));
+    const withMainCategory = await enrichRequestsWithMainCategory(enrichedRows);
+    res.json(await appendWorkflowDataToRequests(withMainCategory));
   } catch (summaryError: any) {
     res.status(400).json({ error: summaryError?.message || summaryError });
   }
@@ -884,18 +887,20 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   // Budget approval workflow based on amount thresholds
   // Calculate total amount for approval routing
   const requestAmount = toNumber(amount);
+  const PRESIDENT_THRESHOLD = 500; // $500 threshold for President approval
 
   let initialStatus;
   
   // Budget requests have a different approval workflow than expense requests
   if (isBudgetFlow) {
-    // Budget approval workflow: Supervisor > Accounting > VP > President
+    // Budget approval workflow: Supervisor > Accounting > (VP or President based on amount)
     if (userRole === 'employee' || userRole === 'manager') {
       initialStatus = 'pending_supervisor';
     } else if (userRole === 'supervisor') {
       initialStatus = 'pending_accounting';
     } else if (userRole === 'accounting') {
-      initialStatus = 'pending_vp';
+      // Accounting routes budget proposals based on amount: $500+ goes to President, <$500 goes to VP
+      initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
     } else if (userRole === 'vp') {
       initialStatus = 'pending_president';
     } else {
@@ -1045,6 +1050,14 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     return res.status(400).json({ error: 'Budget proposals require a main category (category_id).' });
   }
 
+  const uniqueMainCategories = [
+    ...new Set((items || []).map((item: any) => item.main_category).filter(Boolean)),
+  ];
+  const requestMainCategory =
+    metadata.main_category
+    || category
+    || (uniqueMainCategories.length === 1 ? uniqueMainCategories[0] : uniqueMainCategories.join(' / ') || null);
+
   const { data, error } = await supabase
     .from('expense_requests')
     .insert({
@@ -1060,7 +1073,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
       priority,
       status: initialStatus,
       submitted_at: new Date(),
-      metadata: { ...metadata, items },
+      metadata: { ...metadata, items, main_category: requestMainCategory },
       request_type: request_type
     })
     .select()
@@ -1888,9 +1901,18 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     return res.status(400).json({ error: 'Request already cleared for fund release. Use the release action instead.' });
   }
 
+  // Determine next status based on request type and amount
+  const budgetFlow = isBudgetWorkflow(request.request_type);
+  const requestAmount = toNumber(request.amount);
+  const PRESIDENT_THRESHOLD = 500;
+  
+  const nextStatus = budgetFlow 
+    ? (requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp')
+    : 'pending_vp';
+
   const { data, error } = await supabase
     .from('expense_requests')
-    .update({ status: 'pending_vp', updated_at: new Date() })
+    .update({ status: nextStatus, updated_at: new Date() })
     .eq('id', id)
     .select()
     .single();
@@ -1910,14 +1932,15 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
       action: 'status_changed',
       field_name: 'status',
       old_value: request.status,
-      new_value: 'pending_vp',
-      note: request.request_type === 'budget_request' || request.request_type === 'budget_revision'
-        ? 'Accounting approved budget — forwarded to VP review'
+      new_value: nextStatus,
+      note: budgetFlow
+        ? requestAmount >= PRESIDENT_THRESHOLD
+          ? 'Accounting approved budget proposal — forwarded to President for final approval'
+          : 'Accounting approved budget proposal — forwarded to VP for final approval'
         : 'Accounting approved request — forwarded to VP review'
     }
   ]);
 
-  const budgetFlow = isBudgetWorkflow(request.request_type);
   if (budgetFlow) {
     await logAuditEvent({
       user: req.user,
@@ -1926,7 +1949,7 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
       recordId: id,
       recordLabel: request.request_code,
       oldValue: { status: request.status },
-      newValue: { status: 'pending_vp' },
+      newValue: { status: nextStatus },
       remarks: req.body.note || undefined,
     });
   }

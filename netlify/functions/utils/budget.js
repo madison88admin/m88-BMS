@@ -1,6 +1,62 @@
 const { supabase } = require('./supabase');
+const { getBudgetPresidentThreshold } = require('./approval');
 
 const toNumber = (value) => Number.parseFloat(value ?? 0) || 0;
+
+const getBudgetProposalAmount = (request) => toNumber(request?.amount);
+
+/** Budget proposals at or above threshold route to President; below routes to VP for final approval. */
+const requiresPresidentBudgetApproval = (amount, currency = 'PHP') =>
+  toNumber(amount) >= getBudgetPresidentThreshold(currency);
+
+const resolveBudgetApprovalRoute = (amount, currency = 'PHP') =>
+  requiresPresidentBudgetApproval(amount, currency) ? 'pending_president' : 'pending_vp';
+
+const resolveMainCategory = async (categoryId) => {
+  if (!categoryId) return null;
+
+  const { data: category } = await supabase
+    .from('budget_categories')
+    .select('id, category_name, parent_category_id, budget_amount, department_id, fiscal_year, used_amount, committed_amount')
+    .eq('id', categoryId)
+    .maybeSingle();
+
+  if (!category) return null;
+  if (!category.parent_category_id) return category;
+
+  const { data: parent } = await supabase
+    .from('budget_categories')
+    .select('id, category_name, parent_category_id, budget_amount, department_id, fiscal_year, used_amount, committed_amount')
+    .eq('id', category.parent_category_id)
+    .maybeSingle();
+
+  return parent || category;
+};
+
+const assertMainCategoryProposal = async (categoryId) => {
+  if (!categoryId) {
+    return { ok: false, error: 'Budget proposals require a main category (category_id).' };
+  }
+
+  const { data: category, error } = await supabase
+    .from('budget_categories')
+    .select('id, category_name, parent_category_id')
+    .eq('id', categoryId)
+    .maybeSingle();
+
+  if (error || !category) {
+    return { ok: false, error: 'Budget category not found.' };
+  }
+
+  if (category.parent_category_id) {
+    return {
+      ok: false,
+      error: 'Budget proposals must target a main category. Sub-categories inherit their parent main category budget.',
+    };
+  }
+
+  return { ok: true, category };
+};
 
 /**
  * Find the budget category linked to a request
@@ -113,17 +169,10 @@ const lockDepartmentBudgetMatrix = async (departmentId, fiscalYear) => {
 };
 
 const applyApprovedBudgetProposal = async (request) => {
-  if (!request?.category_id) return;
-
-  const proposedAmount = toNumber(request.amount);
-  const { data: category } = await supabase
-    .from('budget_categories')
-    .select('*')
-    .eq('id', request.category_id)
-    .single();
-
+  const category = await resolveMainCategory(request?.category_id);
   if (!category) return;
 
+  const proposedAmount = getBudgetProposalAmount(request);
   const previousAmount = toNumber(category.budget_amount);
   const usedAmount = toNumber(category.used_amount);
   const committedAmount = toNumber(category.committed_amount);
@@ -138,12 +187,12 @@ const applyApprovedBudgetProposal = async (request) => {
       locked_at: new Date(),
       updated_at: new Date(),
     })
-    .eq('id', request.category_id);
+    .eq('id', category.id);
 
   await lockDepartmentBudgetMatrix(request.department_id, request.fiscal_year);
 
   await supabase.from('budget_revision_history').insert({
-    category_id: request.category_id,
+    category_id: category.id,
     department_id: request.department_id,
     request_id: request.id,
     previous_amount: previousAmount,
@@ -152,6 +201,93 @@ const applyApprovedBudgetProposal = async (request) => {
     fiscal_year: request.fiscal_year,
     revision_type: request.request_type === 'budget_revision' ? 'budget_revision' : 'budget_proposal',
     approved_at: new Date(),
+  });
+};
+
+const isBudgetWorkflowType = (requestType) =>
+  requestType === 'budget_request' || requestType === 'budget_revision';
+
+const enrichRequestsWithMainCategory = async (rows) => {
+  if (!rows?.length) return [];
+
+  const categoryIds = new Set();
+  for (const row of rows) {
+    if (row.category_id) categoryIds.add(row.category_id);
+    for (const item of row.metadata?.items || []) {
+      if (item.category_id) categoryIds.add(item.category_id);
+    }
+  }
+
+  const catById = new Map();
+  if (categoryIds.size > 0) {
+    const { data: categories } = await supabase
+      .from('budget_categories')
+      .select('id, category_name, parent_category_id')
+      .in('id', Array.from(categoryIds));
+
+    for (const cat of categories || []) {
+      catById.set(cat.id, cat);
+    }
+
+    const missingParentIds = [...catById.values()]
+      .map((c) => c.parent_category_id)
+      .filter((id) => id && !catById.has(id));
+
+    if (missingParentIds.length > 0) {
+      const { data: parents } = await supabase
+        .from('budget_categories')
+        .select('id, category_name, parent_category_id')
+        .in('id', missingParentIds);
+      for (const parent of parents || []) {
+        catById.set(parent.id, parent);
+      }
+    }
+  }
+
+  const resolveMainNameFromCategoryId = (categoryId) => {
+    if (!categoryId) return null;
+    const cat = catById.get(categoryId);
+    if (!cat) return null;
+    if (!cat.parent_category_id) return cat.category_name;
+    const parent = catById.get(cat.parent_category_id);
+    return parent?.category_name || cat.category_name;
+  };
+
+  return rows.map((row) => {
+    const isBudget = isBudgetWorkflowType(row.request_type);
+    let mainCategoryName = row.metadata?.main_category || null;
+
+    if (!mainCategoryName && row.category_id) {
+      mainCategoryName = resolveMainNameFromCategoryId(row.category_id);
+    }
+    if (!mainCategoryName && isBudget) {
+      mainCategoryName = row.category || null;
+    }
+    if (!mainCategoryName && row.metadata?.items?.length) {
+      const fromItems = row.metadata.items
+        .map((item) => item.main_category || resolveMainNameFromCategoryId(item.category_id))
+        .filter(Boolean);
+      if (fromItems.length === 1) mainCategoryName = fromItems[0];
+    }
+
+    const enrichedItems = (row.metadata?.items || []).map((item) => ({
+      ...item,
+      main_category:
+        item.main_category
+        || resolveMainNameFromCategoryId(item.category_id)
+        || mainCategoryName
+        || null,
+    }));
+
+    return {
+      ...row,
+      main_category_name: mainCategoryName,
+      department_name: row.departments?.name || row.department_name || null,
+      requester_name: row.users?.name || row.requester_name || null,
+      metadata: row.metadata
+        ? { ...row.metadata, items: enrichedItems.length ? enrichedItems : row.metadata.items }
+        : row.metadata,
+    };
   });
 };
 
@@ -187,5 +323,12 @@ module.exports = {
   lockDepartmentBudgetMatrix,
   applyApprovedBudgetProposal,
   lockCashAdvanceCategory,
-  toNumber
+  getBudgetProposalAmount,
+  requiresPresidentBudgetApproval,
+  resolveBudgetApprovalRoute,
+  resolveMainCategory,
+  assertMainCategoryProposal,
+  enrichRequestsWithMainCategory,
+  isBudgetWorkflowType,
+  toNumber,
 };

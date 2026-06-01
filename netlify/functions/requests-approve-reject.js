@@ -18,6 +18,9 @@ const {
   adjustCategoryReleased,
   applyApprovedBudgetProposal,
   lockCashAdvanceCategory,
+  getBudgetProposalAmount,
+  requiresPresidentBudgetApproval,
+  resolveBudgetApprovalRoute,
   toNumber,
 } = require('./utils/budget');
 
@@ -69,6 +72,70 @@ const fetchRequest = async (requestId) => {
   return data;
 };
 
+const budgetWorkflowLabel = (requestType) =>
+  requestType === 'budget_revision' ? 'revision' : 'proposal';
+
+const handleBudgetFinalApproval = async (request, user, body, approverRole) => {
+  const { data, error } = await supabase
+    .from('expense_requests')
+    .update({ status: 'approved', updated_at: new Date() })
+    .eq('id', request.id)
+    .select()
+    .single();
+  if (error) throw error;
+
+  await applyApprovedBudgetProposal(request);
+
+  const approverLabel = approverRole === 'vp' ? 'VP' : 'President';
+  await insertApprovalLog(
+    request.id,
+    user.id,
+    'approved',
+    approverRole,
+    body.note || `${approverLabel} final budget approval`
+  );
+
+  const budgetAuditAction =
+    request.request_type === 'budget_revision'
+      ? AUDIT_ACTIONS.BUDGET_REVISED
+      : AUDIT_ACTIONS.BUDGET_APPROVED;
+
+  await logAuditEvent({
+    user,
+    actionType: budgetAuditAction,
+    recordType: 'budget',
+    recordId: request.category_id || request.id,
+    recordLabel: request.request_code,
+    oldValue: { status: request.status, amount: getBudgetProposalAmount(request) },
+    newValue: { status: 'approved', final_approver: approverRole, amount: getBudgetProposalAmount(request) },
+    remarks: body.note || `${approverLabel} final approval`,
+  });
+
+  await logAuditEvent({
+    user,
+    actionType: AUDIT_ACTIONS.BUDGET_LOCKED,
+    recordType: 'budget',
+    recordId: request.department_id,
+    recordLabel: request.request_code,
+    newValue: { locked: true, final_approver: approverRole },
+    remarks: `Auto-locked after ${approverLabel} approval`,
+  });
+
+  await notifyDepartmentSupervisor(
+    request.department_id,
+    `Budget ${budgetWorkflowLabel(request.request_type)} ${request.request_code} has been approved by ${approverLabel}.`
+  );
+  await notifyAccounting(`Budget ${request.request_code} approved and matrix locked.`);
+  await notifyEmployee(
+    request.employee_id,
+    request.request_code,
+    'Budget Approved',
+    `Your budget ${budgetWorkflowLabel(request.request_type)} ${request.request_code} has been approved by ${approverLabel}.`
+  );
+
+  return data;
+};
+
 const handleSupervisorApprove = async (request, user, body) => {
   authorize(['supervisor', 'admin'])(user);
 
@@ -106,9 +173,16 @@ const handleAccountingReview = async (request, user, body) => {
     throw new Error('Request already cleared for fund release. Use the release action instead.');
   }
 
+  const budgetFlow = isBudgetWorkflow(request.request_type);
+  const currency = request.metadata?.currency || 'PHP';
+  const proposalAmount = getBudgetProposalAmount(request);
+  const nextStatus = budgetFlow
+    ? resolveBudgetApprovalRoute(proposalAmount, currency)
+    : 'pending_vp';
+
   const { data, error } = await supabase
     .from('expense_requests')
-    .update({ status: 'pending_vp', updated_at: new Date() })
+    .update({ status: nextStatus, updated_at: new Date() })
     .eq('id', request.id)
     .select()
     .single();
@@ -116,27 +190,31 @@ const handleAccountingReview = async (request, user, body) => {
 
   await insertApprovalLog(request.id, user.id, 'approved', 'accounting', body.note || '');
 
-  const budgetFlow = isBudgetWorkflow(request.request_type);
   if (budgetFlow) {
+    const finalApprover = nextStatus === 'pending_president' ? 'president' : 'vp';
     await logAuditEvent({
       user,
       actionType: AUDIT_ACTIONS.BUDGET_SUBMITTED,
       recordType: 'budget',
       recordId: request.id,
       recordLabel: request.request_code,
-      oldValue: { status: request.status },
-      newValue: { status: 'pending_vp' },
-      remarks: body.note || undefined,
+      oldValue: { status: request.status, amount: proposalAmount },
+      newValue: { status: nextStatus, final_approver: finalApprover, amount: proposalAmount },
+      remarks: body.note
+        || `Accounting approved — routed to ${finalApprover === 'president' ? 'President' : 'VP'} for final approval (₱${proposalAmount.toFixed(2)} per main category)`,
     });
-  }
 
-  await notifyVp(
-    budgetFlow
-      ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
-      : `Request ${request.request_code} requires VP review.`
-  );
-
-  if (!budgetFlow) {
+    if (nextStatus === 'pending_president') {
+      await notifyPresident(
+        `Budget ${budgetWorkflowLabel(request.request_type)} ${request.request_code} (₱${proposalAmount.toFixed(2)}) requires President final approval.`
+      );
+    } else {
+      await notifyVp(
+        `Budget ${budgetWorkflowLabel(request.request_type)} ${request.request_code} (₱${proposalAmount.toFixed(2)}) requires VP final approval.`
+      );
+    }
+  } else {
+    await notifyVp(`Request ${request.request_code} requires VP review.`);
     await notifyEmployee(
       request.employee_id,
       request.request_code,
@@ -156,15 +234,22 @@ const handleVpApprove = async (request, user, body) => {
   }
 
   if (isBudgetWorkflow(request.request_type)) {
-    await logFailedApprovalAttempt(
-      user,
-      request.id,
-      request.request_code,
-      'Budget proposals require VP Mark as Viewed action'
-    );
-    throw new Error(
-      'Budget proposals must be marked as viewed using the Mark as Viewed action before President review.'
-    );
+    const proposalAmount = getBudgetProposalAmount(request);
+    const currency = request.metadata?.currency || 'PHP';
+
+    if (requiresPresidentBudgetApproval(proposalAmount, currency)) {
+      await logFailedApprovalAttempt(
+        user,
+        request.id,
+        request.request_code,
+        'Budget amount requires President final approval after Accounting review'
+      );
+      throw new Error(
+        'This budget requires President final approval. It should already be pending with the President after Accounting review.'
+      );
+    }
+
+    return handleBudgetFinalApproval(request, user, body, 'vp');
   }
 
   const amount = toNumber(request.amount);
@@ -252,6 +337,13 @@ const handleMarkViewed = async (request, user, body) => {
     throw new Error('Only requests waiting for VP review can be marked as viewed.');
   }
 
+  const proposalAmount = getBudgetProposalAmount(request);
+  const currency = request.metadata?.currency || 'PHP';
+
+  if (!requiresPresidentBudgetApproval(proposalAmount, currency)) {
+    return handleBudgetFinalApproval(request, user, body, 'vp');
+  }
+
   const { data, error } = await supabase
     .from('expense_requests')
     .update({ status: 'pending_president', updated_at: new Date() })
@@ -268,19 +360,19 @@ const handleMarkViewed = async (request, user, body) => {
     recordType: 'budget',
     recordId: request.id,
     recordLabel: request.request_code,
-    oldValue: { status: 'pending_vp' },
-    newValue: { status: 'pending_president' },
-    remarks: body.note || 'VP marked as viewed',
+    oldValue: { status: 'pending_vp', amount: proposalAmount },
+    newValue: { status: 'pending_president', final_approver: 'president', amount: proposalAmount },
+    remarks: body.note || 'VP marked as viewed — forwarded to President for final approval',
   });
 
   await notifyPresident(
-    `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} is ready for final approval.`
+    `Budget ${budgetWorkflowLabel(request.request_type)} ${request.request_code} (₱${proposalAmount.toFixed(2)}) is ready for President final approval.`
   );
   await notifyEmployee(
     request.employee_id,
     request.request_code,
     'Budget Update',
-    `Your ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been reviewed by VP and sent to President.`
+    `Your ${budgetWorkflowLabel(request.request_type)} ${request.request_code} has been reviewed by VP and sent to President.`
   );
 
   return data;
@@ -294,14 +386,24 @@ const handlePresidentApprove = async (request, user, body) => {
   }
 
   const isBudgetProposalFlow = isBudgetWorkflow(request.request_type);
-  const nextStatus = isBudgetProposalFlow ? 'approved' : 'pending_accounting';
-  const updatePayload = { status: nextStatus, updated_at: new Date() };
 
-  if (!isBudgetProposalFlow) {
-    updatePayload.co_approved_by = user.id;
-    updatePayload.co_approved_at = new Date();
-    updatePayload.co_approver_role = 'president';
+  if (isBudgetProposalFlow) {
+    const proposalAmount = getBudgetProposalAmount(request);
+    const currency = request.metadata?.currency || 'PHP';
+    if (!requiresPresidentBudgetApproval(proposalAmount, currency)) {
+      throw new Error('This budget requires VP final approval (below threshold).');
+    }
+    return handleBudgetFinalApproval(request, user, body, 'president');
   }
+
+  const nextStatus = 'pending_accounting';
+  const updatePayload = {
+    status: nextStatus,
+    updated_at: new Date(),
+    co_approved_by: user.id,
+    co_approved_at: new Date(),
+    co_approver_role: 'president',
+  };
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -311,75 +413,33 @@ const handlePresidentApprove = async (request, user, body) => {
     .single();
   if (error) throw error;
 
-  if (isBudgetProposalFlow) {
-    await applyApprovedBudgetProposal(request);
-  }
-
   await insertApprovalLog(request.id, user.id, 'approved', 'president', body.note || '');
 
-  if (isBudgetProposalFlow) {
-    const budgetAuditAction =
-      request.request_type === 'budget_revision'
-        ? AUDIT_ACTIONS.BUDGET_REVISED
-        : AUDIT_ACTIONS.BUDGET_APPROVED;
+  await logAuditEvent({
+    user,
+    actionType: request.request_type === 'cash_advance'
+      ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
+      : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+    recordType: 'request',
+    recordId: request.id,
+    recordLabel: request.request_code,
+    oldValue: { status: request.status },
+    newValue: { status: nextStatus },
+  });
 
-    await logAuditEvent({
-      user,
-      actionType: budgetAuditAction,
-      recordType: 'budget',
-      recordId: request.category_id || request.id,
-      recordLabel: request.request_code,
-      oldValue: { status: request.status },
-      newValue: { status: nextStatus, amount: request.amount },
-      remarks: body.note || undefined,
-    });
-    await logAuditEvent({
-      user,
-      actionType: AUDIT_ACTIONS.BUDGET_LOCKED,
-      recordType: 'budget',
-      recordId: request.department_id,
-      recordLabel: request.request_code,
-      newValue: { locked: true },
-      remarks: 'Auto-locked after President approval',
-    });
+  const notifyMessage = `Your request ${request.request_code} has President approval and is awaiting fund release.`;
+  if (request.request_type === 'cash_advance') {
+    await notifyEmployee(request.employee_id, request.request_code, 'Cash Advance Approved', notifyMessage);
     await notifyDepartmentSupervisor(
       request.department_id,
-      `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved by the President.`
+      `Cash advance ${request.request_code} approved by President.`
     );
-    await notifyAccounting(`Budget ${request.request_code} approved and matrix locked.`);
-    await notifyEmployee(
-      request.employee_id,
-      request.request_code,
-      'Budget Approved',
-      `Your budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved.`
-    );
+  } else if (request.request_type === 'reimbursement') {
+    await notifyEmployee(request.employee_id, request.request_code, 'Reimbursement Approved', notifyMessage);
   } else {
-    await logAuditEvent({
-      user,
-      actionType: request.request_type === 'cash_advance'
-        ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
-        : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
-      recordType: 'request',
-      recordId: request.id,
-      recordLabel: request.request_code,
-      oldValue: { status: request.status },
-      newValue: { status: nextStatus },
-    });
-
-    const notifyMessage = `Your request ${request.request_code} has President approval and is awaiting fund release.`;
-    if (request.request_type === 'cash_advance') {
-      await notifyEmployee(request.employee_id, request.request_code, 'Cash Advance Approved', notifyMessage);
-      await notifyDepartmentSupervisor(
-        request.department_id,
-        `Cash advance ${request.request_code} approved by President.`
-      );
-    } else if (request.request_type === 'reimbursement') {
-      await notifyEmployee(request.employee_id, request.request_code, 'Reimbursement Approved', notifyMessage);
-    } else {
-      await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', notifyMessage);
-    }
-    await notifyAccounting(`Request ${request.request_code} approved by President — ready for fund release.`);
+    await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', notifyMessage);
   }
+  await notifyAccounting(`Request ${request.request_code} approved by President — ready for fund release.`);
 
   return data;
 };

@@ -266,6 +266,88 @@ export const enrichRequests = (
     };
   });
 
+export const enrichRequestsWithMainCategory = async (rows: any[]) => {
+  if (!rows?.length) return [];
+
+  const categoryIds = new Set<string>();
+  for (const row of rows) {
+    if (row.category_id) categoryIds.add(row.category_id);
+    for (const item of row.metadata?.items || []) {
+      if (item.category_id) categoryIds.add(item.category_id);
+    }
+  }
+
+  const catById = new Map<string, any>();
+  if (categoryIds.size > 0) {
+    const { data: categories } = await supabase
+      .from('budget_categories')
+      .select('id, category_name, parent_category_id')
+      .in('id', Array.from(categoryIds));
+
+    for (const cat of categories || []) {
+      catById.set(cat.id, cat);
+    }
+
+    const missingParentIds = [...catById.values()]
+      .map((c) => c.parent_category_id)
+      .filter((id: string | null) => id && !catById.has(id));
+
+    if (missingParentIds.length > 0) {
+      const { data: parents } = await supabase
+        .from('budget_categories')
+        .select('id, category_name, parent_category_id')
+        .in('id', missingParentIds);
+      for (const parent of parents || []) {
+        catById.set(parent.id, parent);
+      }
+    }
+  }
+
+  const resolveMainNameFromCategoryId = (categoryId?: string | null) => {
+    if (!categoryId) return null;
+    const cat = catById.get(categoryId);
+    if (!cat) return null;
+    if (!cat.parent_category_id) return cat.category_name;
+    const parent = catById.get(cat.parent_category_id);
+    return parent?.category_name || cat.category_name;
+  };
+
+  return rows.map((row) => {
+    const isBudget = row.request_type === 'budget_request' || row.request_type === 'budget_revision';
+    let mainCategoryName: string | null = row.metadata?.main_category || null;
+
+    if (!mainCategoryName && row.category_id) {
+      mainCategoryName = resolveMainNameFromCategoryId(row.category_id);
+    }
+    if (!mainCategoryName && isBudget) {
+      mainCategoryName = row.category || null;
+    }
+    if (!mainCategoryName && row.metadata?.items?.length) {
+      const fromItems = row.metadata.items
+        .map((item: any) => item.main_category || resolveMainNameFromCategoryId(item.category_id))
+        .filter(Boolean);
+      if (fromItems.length === 1) mainCategoryName = fromItems[0];
+    }
+
+    const enrichedItems = (row.metadata?.items || []).map((item: any) => ({
+      ...item,
+      main_category:
+        item.main_category
+        || resolveMainNameFromCategoryId(item.category_id)
+        || mainCategoryName
+        || null,
+    }));
+
+    return {
+      ...row,
+      main_category_name: mainCategoryName,
+      metadata: row.metadata
+        ? { ...row.metadata, items: enrichedItems.length ? enrichedItems : row.metadata.items }
+        : row.metadata,
+    };
+  });
+};
+
 export const normalizeAllocations = (request: { department_id: string; amount: number | string }, allocations: any[]) => {
   const source = allocations.length
     ? allocations

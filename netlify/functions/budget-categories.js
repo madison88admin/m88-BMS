@@ -1,6 +1,6 @@
 const { supabase } = require('./utils/supabase');
 const { authenticate, authorize } = require('./utils/auth');
-const { toNumber } = require('./utils/budget');
+const { toNumber, resolveMainCategory, requiresPresidentBudgetApproval } = require('./utils/budget');
 const { AUDIT_ACTIONS, logAuditEvent } = require('./utils/auditLog');
 const { notifyDepartmentSupervisor, checkBudgetUtilizationWarning } = require('./utils/workflowNotify');
 const {
@@ -109,10 +109,17 @@ exports.handler = async (event, context) => {
       const { data, error } = await query.order('category_name');
       if (error) throw error;
 
+      const enriched = (data || []).map((row) => ({
+        ...row,
+        is_main_category: !row.parent_category_id,
+        requires_president_approval: !row.parent_category_id
+          && requiresPresidentBudgetApproval(toNumber(row.budget_amount)),
+      }));
+
       return {
         statusCode: 200,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(data || []),
+        body: JSON.stringify(enriched),
       };
     }
 
@@ -124,7 +131,8 @@ exports.handler = async (event, context) => {
         category_code, 
         category_name, 
         budget_amount, 
-        fiscal_year 
+        fiscal_year,
+        parent_category_id,
       } = JSON.parse(event.body);
       
       // Validate inputs
@@ -169,12 +177,28 @@ exports.handler = async (event, context) => {
           category_name: cleanCategoryName,
           budget_amount: requestedBudget,
           remaining_amount: requestedBudget,
+          parent_category_id: parent_category_id || null,
           updated_at: new Date()
         })
         .select()
         .single();
 
       if (error) throw error;
+
+      await logAuditEvent({
+        user,
+        actionType: AUDIT_ACTIONS.BUDGET_UPDATED,
+        recordType: 'budget',
+        recordId: data.id,
+        recordLabel: data.category_name,
+        newValue: {
+          budget_amount: requestedBudget,
+          is_main_category: !parent_category_id,
+        },
+        remarks: parent_category_id
+          ? 'Sub-category created under main category; supervisor proposals apply to main category budgets only.'
+          : 'Main category created; supervisor budget proposals apply at this level.',
+      });
 
       // Sync department budget after adding category
       await syncDepartmentBudget(department_id, targetFiscalYear);
@@ -232,14 +256,22 @@ exports.handler = async (event, context) => {
 
       if (error) throw error;
 
+      const mainCategory = await resolveMainCategory(id);
       await logAuditEvent({
         user,
         actionType: AUDIT_ACTIONS.BUDGET_UPDATED,
         recordType: 'budget',
-        recordId: id,
-        recordLabel: current.category_name,
+        recordId: mainCategory?.id || id,
+        recordLabel: mainCategory?.category_name || current.category_name,
         oldValue: { budget_amount: current.budget_amount, category_name: current.category_name },
-        newValue: { budget_amount: requestedBudget, category_name: cleanCategoryName || current.category_name },
+        newValue: {
+          budget_amount: requestedBudget,
+          category_name: cleanCategoryName || current.category_name,
+          is_main_category: !current.parent_category_id,
+        },
+        remarks: current.parent_category_id
+          ? `Sub-category updated; main category "${mainCategory?.category_name || 'unknown'}" owns the proposal budget.`
+          : undefined,
       });
       await checkBudgetUtilizationWarning(id);
 

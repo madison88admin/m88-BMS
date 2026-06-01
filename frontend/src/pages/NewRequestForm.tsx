@@ -76,6 +76,7 @@ const NewRequestForm = () => {
 
   // Selected main categories for hierarchical dropdowns
   const [cashAdvanceMainCategory, setCashAdvanceMainCategory] = useState('');
+  const [reimbursementMainCategory, setReimbursementMainCategory] = useState('');
 
   // Helper: Get unique main categories from official list
   const getUniqueMainCategories = () => {
@@ -142,15 +143,15 @@ const NewRequestForm = () => {
     cost_center_id: '',
     project: '',
     business_purpose: '',
-    receipt_files: [] as File[],
+    main_category: '',
+    item_name: '',
     items: [
-      { main_category: '', item_name: '', category_id: '', amount: '' }
+      { item: '', amount: '' }
     ] as Array<{
-      main_category: string;
-      item_name: string;
-      category_id: string;
+      item: string;
       amount: string;
-    }>
+    }>,
+    receipt_files: [] as File[]
   });
 
   // Cash Advance Form
@@ -185,7 +186,9 @@ const NewRequestForm = () => {
       try {
         const parsed = JSON.parse(rDraft);
         setReimbursementForm((prev: any) => ({ ...prev, ...parsed, receipt_files: [] }));
-        // Don't toast here, wait until loadData confirms it's still valid
+        if (parsed.main_category) {
+          setReimbursementMainCategory(parsed.main_category);
+        }
       } catch (e) { /* invalid draft, skip */ }
     }
 
@@ -209,7 +212,7 @@ const NewRequestForm = () => {
   // Save drafts when forms change
   useEffect(() => {
     // Save whenever there is substantial content
-    const hasContent = reimbursementForm.items.some(i => i.item_name && i.amount) || reimbursementForm.business_purpose;
+    const hasContent = reimbursementForm.items.some(i => i.item && i.amount) || reimbursementForm.business_purpose;
     if (hasContent) {
       const { receipt_files, ...rest } = reimbursementForm;
       localStorage.setItem('reimbursement_draft', JSON.stringify(rest));
@@ -418,27 +421,30 @@ const NewRequestForm = () => {
       const totalAmount = reimbursementForm.items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
       
       // Prepare items with category info for backend
-      const itemsForBackend = reimbursementForm.items.map(item => ({
-        item_name: item.item_name,
-        main_category: item.main_category || '',
-        category: categories.find(c => c.id === item.category_id)?.category_name || '',
-        category_id: item.category_id,
-        amount: parseFloat(item.amount) || 0
-      }));
+      const itemsForBackend = reimbursementForm.items.map(item => {
+        const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === item.item);
+        return {
+          item_name: item.item,
+          main_category: selectedItem?.category || reimbursementForm.main_category || '',
+          category: selectedItem?.category || reimbursementForm.main_category || '',
+          category_id: resolveCategoryIdFromOfficialItem(selectedItem, categories),
+          amount: parseFloat(item.amount) || 0
+        };
+      });
 
       const uniqueMainCategories = [
         ...new Set(itemsForBackend.map((i) => i.main_category).filter(Boolean)),
       ];
 
+      const mainOfficialItem = officialList.find(i => `${i.code} | ${i.itemName}` === reimbursementForm.item_name);
+      const primaryCategoryId = resolveCategoryIdFromOfficialItem(mainOfficialItem, categories);
+
       await api.post('/api/requests', {
         request_type: 'reimbursement',
-        item_name: reimbursementForm.items.map(i => i.item_name).join(', '),
+        item_name: reimbursementForm.item_name,
         department_id: reimbursementForm.department_id,
-        category: (() => {
-          const uniqueCats = [...new Set(reimbursementForm.items.map(i => categories.find(c => c.id === i.category_id)?.category_name || '').filter(Boolean))];
-          return uniqueCats.length > 1 ? uniqueCats.join(' / ') : (uniqueCats[0] || 'Uncategorized');
-        })(),
-        category_id: reimbursementForm.items[0]?.category_id || '',
+        category: mainOfficialItem?.category || reimbursementForm.main_category || 'Reimbursement',
+        category_id: primaryCategoryId || '',
         amount: totalAmount,
         purpose: reimbursementForm.business_purpose,
         expense_date: reimbursementForm.expense_date,
@@ -452,7 +458,7 @@ const NewRequestForm = () => {
           expense_date: reimbursementForm.expense_date,
           cost_center_id: reimbursementForm.cost_center_id || null,
           project: reimbursementForm.project || null,
-          main_category: uniqueMainCategories.length === 1 ? uniqueMainCategories[0] : uniqueMainCategories.join(' / '),
+          main_category: reimbursementForm.main_category || mainOfficialItem?.category || null,
         }
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -689,88 +695,104 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          {/* Multiple Items Section */}
           <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium">Expense Items *</label>
-            </div>
-            
-            {reimbursementForm.items.map((item, index) => (
-              <div key={index} className="bg-[var(--role-surface)] rounded-xl border border-[var(--role-border)] p-4 mb-3">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-[var(--role-text)]/70">Item {index + 1}</span>
-                  {index > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newItems = reimbursementForm.items.filter((_, i) => i !== index);
-                        setReimbursementForm(prev => ({ ...prev, items: newItems }));
-                      }}
-                      className="text-red-500 hover:text-red-600 text-sm"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                
-                <div className="mb-3">
-                  <label className="block text-xs text-[var(--role-text)]/60 mb-1">Main Category *</label>
-                  <select
-                    required
-                    value={item.main_category}
-                    onChange={(e) => {
-                      const newItems = [...reimbursementForm.items];
-                      newItems[index].main_category = e.target.value;
-                      newItems[index].item_name = '';
-                      newItems[index].category_id = '';
-                      setReimbursementForm(prev => ({ ...prev, items: newItems }));
-                    }}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm mb-3"
-                  >
-                    <option value="">Select main category...</option>
-                    {getUniqueMainCategories()
-                      .filter(cat => getItemsByMainCategory(cat, 'canRE').length > 0)
-                      .map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                  </select>
-                </div>
+            <label className="block text-sm font-medium mb-2">Main Category *</label>
+            <select
+              required
+              value={reimbursementMainCategory}
+              onChange={(e) => {
+                const selectedMainCat = e.target.value;
+                setReimbursementMainCategory(selectedMainCat);
+                setReimbursementForm(prev => ({ 
+                  ...prev, 
+                  main_category: selectedMainCat,
+                  item_name: ''
+                }));
+              }}
+              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+            >
+              <option value="">Select main category...</option>
+              {getUniqueMainCategories()
+                .filter(cat => getItemsByMainCategory(cat, 'canRE').length > 0)
+                .map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+            </select>
+          </div>
 
-                {item.main_category && (
-                <div className="mb-3">
-                  <label className="block text-xs text-[var(--role-text)]/60 mb-1">Sub-category / Item *</label>
+          {reimbursementMainCategory && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Sub-category / Item *</label>
+              <select
+                required
+                value={reimbursementForm.item_name}
+                onChange={(e) => {
+                  const selectedItemValue = e.target.value;
+                  setReimbursementForm(prev => ({ 
+                    ...prev, 
+                    item_name: selectedItemValue
+                  }));
+                }}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                <option value="">Select sub-category...</option>
+                {getItemsByMainCategory(reimbursementMainCategory, 'canRE')
+                  .map(item => (
+                    <option key={item.code} value={`${item.code} | ${item.itemName}`}>
+                      {item.category} - {item.itemName}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
+          {/* Multiple Items Section */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-sm font-medium">Estimated Breakdown</label>
+              <button
+                type="button"
+                onClick={() => {
+                  setReimbursementForm(prev => ({
+                    ...prev,
+                    items: [...prev.items, { item: '', amount: '' }]
+                  }));
+                }}
+                className="text-sm text-[var(--role-primary)] hover:underline flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Item
+              </button>
+            </div>
+            <div className="space-y-3">
+              {reimbursementForm.items.map((item, index) => (
+                <div key={index} className="flex items-center gap-3">
+                  <span className="text-sm text-[var(--role-text)]/60">→</span>
                   <select
-                    required
-                    value={item.item_name}
+                    value={item.item}
                     onChange={(e) => {
-                      const selectedItemValue = e.target.value;
-                      const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === selectedItemValue);
                       const newItems = [...reimbursementForm.items];
-                      newItems[index].item_name = selectedItemValue;
-                      newItems[index].main_category = selectedItem?.category || item.main_category;
-                      newItems[index].category_id = resolveCategoryIdFromOfficialItem(selectedItem, categories);
+                      newItems[index].item = e.target.value;
                       setReimbursementForm(prev => ({ ...prev, items: newItems }));
                     }}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+                    className="flex-1 px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
                   >
-                    <option value="">Select sub-category...</option>
-                    {getItemsByMainCategory(item.main_category, 'canRE')
-                      .map(i => (
-                        <option key={i.code} value={`${i.code} | ${i.itemName}`}>
-                          {i.category} - {i.itemName}
+                    <option value="">Select approved item...</option>
+                    {officialList
+                      .filter(off => isVisibleForRequestForm(off, 'canRE'))
+                      .map(off => (
+                        <option key={off.code} value={`${off.code} | ${off.itemName}`}>
+                          {off.category} - {off.itemName}
                         </option>
                       ))}
                   </select>
-                </div>
-                )}
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-[var(--role-text)]/60 mb-1">Amount</label>
+                  <div className="relative w-40">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60">₱</span>
                     <input
                       type="number"
-                      required
-                      min="0.01"
+                      min="0"
                       step="0.01"
                       value={item.amount}
                       onChange={(e) => {
@@ -778,27 +800,29 @@ const NewRequestForm = () => {
                         newItems[index].amount = e.target.value;
                         setReimbursementForm(prev => ({ ...prev, items: newItems }));
                       }}
+                      className="w-full pl-7 pr-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
                       placeholder="0.00"
-                      className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
                     />
                   </div>
+                  {reimbursementForm.items.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newItems = reimbursementForm.items.filter((_, i) => i !== index);
+                        setReimbursementForm(prev => ({ ...prev, items: newItems }));
+                      }}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Remove item"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
-              </div>
-            ))}
-            
-            <button
-              type="button"
-              onClick={() => {
-                setReimbursementForm(prev => ({
-                  ...prev,
-                  items: [...prev.items, { main_category: '', item_name: '', category_id: '', amount: '' }]
-                }));
-              }}
-              className="w-full py-2 border-2 border-dashed border-[var(--role-border)] rounded-xl text-[var(--role-text)]/70 hover:bg-[var(--role-accent)]/50 transition-colors text-sm font-medium"
-            >
-              + Add Item
-            </button>
-            
+              ))}
+            </div>
+
             {/* Total Amount */}
             <div className="mt-4 pt-4 border-t border-[var(--role-border)]">
               <div className="flex justify-between items-center">
@@ -811,12 +835,17 @@ const NewRequestForm = () => {
           </div>
 
           {/* Budget status hidden from employees — they can only submit within approved budget */}
-          {!isEmployeeView && reimbursementForm.items.some(i => i.category_id) && (
+          {!isEmployeeView && reimbursementForm.items.some(i => i.item) && (
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">Budget Status</label>
               {(() => {
-                // Get all unique categories from items
-                const uniqueCategoryIds = [...new Set(reimbursementForm.items.filter(i => i.category_id).map(i => i.category_id))];
+                const itemCategoryIds = reimbursementForm.items
+                  .map(i => {
+                    const selectedItem = officialList.find(off => `${off.code} | ${off.itemName}` === i.item);
+                    return resolveCategoryIdFromOfficialItem(selectedItem, categories);
+                  })
+                  .filter(Boolean);
+                const uniqueCategoryIds = [...new Set(itemCategoryIds)];
                 
                 return uniqueCategoryIds.map(catId => {
                   const selectedCat = categories.find(c => c.id === catId);
@@ -824,46 +853,48 @@ const NewRequestForm = () => {
                   
                   const remaining = Number(selectedCat.remaining_amount || 0);
                   const allocated = Number(selectedCat.allocated_amount || 0);
+                  
                   // Calculate total amount for this category
                   const categoryTotalAmount = reimbursementForm.items
-                    .filter(i => i.category_id === catId)
-                    .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+                    .filter(i => {
+                      const selectedItem = officialList.find(off => `${off.code} | ${off.itemName}` === i.item);
+                      return resolveCategoryIdFromOfficialItem(selectedItem, categories) === catId;
+                    })
+                    .reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
                   
-                  // Only show budget status if there's an actual request amount
                   if (categoryTotalAmount === 0) return null;
                   
                   const isOutOfBudget = remaining < categoryTotalAmount;
                   const isLowBudget = remaining >= categoryTotalAmount && remaining > 0 && remaining < (allocated * 0.2);
-                
+                  
                   if (isOutOfBudget) {
                     return (
-                      <div key={catId} className="px-4 py-3 rounded-xl border border-red-300 bg-red-50 flex items-center gap-2">
+                      <div key={catId} className="px-4 py-3 rounded-xl border border-red-300 bg-red-50 flex items-center gap-2 mb-2">
                         <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        <span className="text-red-700 font-medium">Out of Budget</span>
+                        <span className="text-red-700 font-medium">Out of Budget ({selectedCat.category_name})</span>
                       </div>
                     );
                   }
-                
+                  
                   if (isLowBudget) {
                     return (
-                      <div key={catId} className="px-4 py-3 rounded-xl border border-amber-300 bg-amber-50 flex items-center gap-2">
+                      <div key={catId} className="px-4 py-3 rounded-xl border border-amber-300 bg-amber-50 flex items-center gap-2 mb-2">
                         <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
-                        <span className="text-amber-700 font-medium">Budget Running Low</span>
+                        <span className="text-amber-700 font-medium">Budget Running Low ({selectedCat.category_name})</span>
                       </div>
                     );
                   }
-                
-                  // Default case: Within Budget (when not out of budget and not low budget)
+                  
                   return (
-                    <div key={catId} className="px-4 py-3 rounded-xl border border-emerald-300 bg-emerald-50 flex items-center gap-2">
+                    <div key={catId} className="px-4 py-3 rounded-xl border border-emerald-300 bg-emerald-50 flex items-center gap-2 mb-2">
                       <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      <span className="text-emerald-700 font-medium">Within Budget</span>
+                      <span className="text-emerald-700 font-medium">Within Budget ({selectedCat.category_name})</span>
                     </div>
                   );
                 });

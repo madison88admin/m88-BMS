@@ -36,6 +36,38 @@ const formatCategoryWithCodes = (category: string): string => {
 
 };
 
+const getMainCategoryDisplay = (request: any): string => {
+  if (request?.main_category_name) return request.main_category_name;
+  if (request?.metadata?.main_category) return request.metadata.main_category;
+  if (request?.request_type === 'budget_request' || request?.request_type === 'budget_revision') {
+    return request.category || '';
+  }
+  const fromItems = [
+    ...new Set(
+      (request?.metadata?.items || [])
+        .map((item: any) => item.main_category)
+        .filter(Boolean)
+    ),
+  ];
+  if (fromItems.length === 1) return fromItems[0];
+  if (fromItems.length > 1) return fromItems.join(' / ');
+  return '';
+};
+
+const getSubCategoryDisplay = (request: any): string => {
+  const mainCategory = getMainCategoryDisplay(request);
+  const subItems = (request?.metadata?.items || [])
+    .map((item: any) => item.category || item.item_name)
+    .filter(Boolean);
+  if (subItems.length > 0) {
+    return [...new Set(subItems)].join(', ');
+  }
+  if (request?.category && request.category !== mainCategory) {
+    return request.category;
+  }
+  return request?.item_name || '';
+};
+
 
 
 const Approvals = () => {
@@ -391,12 +423,21 @@ const Approvals = () => {
 
       if (role === 'accounting' || role === 'admin' || role === 'super_admin') {
         if (requestStatus === 'pending_accounting' && !request.co_approved_by) {
+          const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
           await api.patch(
             `/api/requests/${requestId}/approve-accounting`,
             { note },
             { headers: { Authorization: `Bearer ${token}` } }
           );
-          toast.success(requestType === 'budget_request' ? 'Budget proposal forwarded to VP review.' : 'Request forwarded to VP review.');
+          if (isBudgetFlow) {
+            toast.success(
+              amount >= vpThreshold
+                ? 'Budget proposal forwarded to President for final approval.'
+                : 'Budget proposal forwarded to VP for final approval.'
+            );
+          } else {
+            toast.success('Request forwarded to VP review.');
+          }
         } else if (requestStatus === 'pending_accounting' && request.co_approved_by) {
           const draft = disbursementDrafts[requestId] || {};
           await api.patch(
@@ -415,13 +456,20 @@ const Approvals = () => {
         }
       } else if (role === 'vp' && requestStatus === 'pending_vp') {
         const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
-        if (isBudgetFlow) {
+        if (isBudgetFlow && amount >= vpThreshold) {
           await api.patch(
             `/api/requests/${requestId}/mark-viewed`,
             { note },
             { headers: { Authorization: `Bearer ${token}` } }
           );
           toast.success('Budget marked as viewed — forwarded to President.');
+        } else if (isBudgetFlow) {
+          await api.patch(
+            `/api/requests/${requestId}/approve-vp`,
+            { note },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          toast.success('Budget approved and matrix locked.');
         } else {
           await api.patch(
             `/api/requests/${requestId}/approve-vp`,
@@ -1994,7 +2042,33 @@ const Approvals = () => {
 
                       </div>
 
-                      <p className="mt-2 text-lg text-[var(--role-text)]/90">{formatMoney(requestAmount)} • <span title={req.category}>{formatCategoryWithCodes(req.category)}</span></p>
+                      {(() => {
+                        const mainCategory = getMainCategoryDisplay(req);
+                        const subCategory = getSubCategoryDisplay(req);
+                        if (!mainCategory && !subCategory) return null;
+                        return (
+                          <div className="mt-3 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
+                            <p className="text-xs font-bold uppercase tracking-widest text-[var(--role-text)]/45">Budget Category</p>
+                            {mainCategory && (
+                              <p className="mt-1 text-base font-semibold text-[var(--role-text)]">
+                                Main Category: {formatCategoryWithCodes(mainCategory)}
+                              </p>
+                            )}
+                            {subCategory && subCategory !== mainCategory && (
+                              <p className="mt-1 text-sm text-[var(--role-text)]/75">
+                                Sub-category / Item: {subCategory}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      <p className="mt-2 text-lg text-[var(--role-text)]/90">
+                        {formatMoney(requestAmount)}
+                        {!getMainCategoryDisplay(req) && req.category && (
+                          <> • <span title={req.category}>{formatCategoryWithCodes(req.category)}</span></>
+                        )}
+                      </p>
 
                       <p className={`mt-3 max-w-2xl text-[var(--role-text)]/70 ${isExpanded ? '' : 'approval-card-description'}`}>{req.purpose}</p>
 
@@ -2015,7 +2089,7 @@ const Approvals = () => {
                                   {req.metadata.items[0]?.expense_date !== undefined ? (
                                     <><th className="px-4 py-2 font-semibold">Date</th><th className="px-4 py-2 font-semibold">Payee</th><th className="px-4 py-2 font-semibold">Type</th></>
                                   ) : (
-                                    <><th className="px-4 py-2 font-semibold">Item</th><th className="px-4 py-2 font-semibold">Category</th><th className="px-4 py-2 font-semibold"></th></>
+                                    <><th className="px-4 py-2 font-semibold">Item</th><th className="px-4 py-2 font-semibold">Main Category</th><th className="px-4 py-2 font-semibold">Sub-category</th></>
                                   )}
 
                                   <th className="px-4 py-2 text-right font-semibold">Amount</th>
@@ -2033,7 +2107,11 @@ const Approvals = () => {
                                     {item.expense_date !== undefined ? (
                                       <><td className="px-4 py-2">{item.expense_date}</td><td className="px-4 py-2">{item.payee_name}</td><td className="px-4 py-2">{item.expense_type}</td></>
                                     ) : (
-                                      <><td className="px-4 py-2">{item.item_name}</td><td className="px-4 py-2">{item.category}</td><td className="px-4 py-2"></td></>
+                                      <>
+                                        <td className="px-4 py-2">{item.item_name}</td>
+                                        <td className="px-4 py-2">{item.main_category || getMainCategoryDisplay(req) || '—'}</td>
+                                        <td className="px-4 py-2">{item.category || '—'}</td>
+                                      </>
                                     )}
 
                                     <td className="px-4 py-2 text-right font-medium">{formatMoney(item.amount)}</td>
@@ -2044,7 +2122,7 @@ const Approvals = () => {
 
                                 <tr className="bg-[var(--role-border)]/5 font-bold">
 
-                                  <td colSpan={3} className="px-4 py-2 text-right">Total</td>
+                                  <td colSpan={item.expense_date !== undefined ? 3 : 3} className="px-4 py-2 text-right">Total</td>
 
                                   <td className="px-4 py-2 text-right">{formatMoney(req.amount)}</td>
 
@@ -2800,7 +2878,9 @@ const Approvals = () => {
                         <>
                           {(() => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
-                            const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow;
+                            const budgetAmount = toNumber(req.amount);
+                            const budgetThreshold = thresholds[currentCurrency]?.vp || 500;
+                            const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow && budgetAmount >= budgetThreshold;
                             const canActAtStage =
                               (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
                               (user.role === 'vp' && req.status === 'pending_vp') ||

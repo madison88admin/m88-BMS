@@ -13,7 +13,7 @@ const {
   createErrorResponse 
 } = require('./utils/enhancedAuth');
 const { getPresidentThreshold } = require('./utils/approval');
-const { toNumber } = require('./utils/budget');
+const { toNumber, assertMainCategoryProposal, enrichRequestsWithMainCategory } = require('./utils/budget');
 const { AUDIT_ACTIONS, logAuditEvent } = require('./utils/auditLog');
 const { notifyAccounting } = require('./utils/workflowNotify');
 const {
@@ -149,10 +149,12 @@ exports.handler = async (event, context) => {
       const { data, error } = await query.order('submitted_at', { ascending: false });
       if (error) throw error;
 
+      const enriched = await enrichRequestsWithMainCategory(data || []);
+
       return {
         statusCode: 200,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(data || []),
+        body: JSON.stringify(enriched),
       };
     }
 
@@ -170,6 +172,7 @@ exports.handler = async (event, context) => {
         request_type,
         department_id,
         metadata = {},
+        items = [],
       } = JSON.parse(event.body);
 
       const isBudgetRequest = request_type === 'budget_request';
@@ -217,6 +220,16 @@ exports.handler = async (event, context) => {
       if (category_id) {
         validateUUID(category_id);
         cleanCategoryId = category_id;
+      }
+
+      if (isBudgetFlow && cleanCategoryId) {
+        const mainCategoryCheck = await assertMainCategoryProposal(cleanCategoryId);
+        if (!mainCategoryCheck.ok) {
+          return {
+            statusCode: 400,
+            body: JSON.stringify(createErrorResponse(mainCategoryCheck.error, 400)),
+          };
+        }
       }
 
       // Validate category budget (skip for budget proposals and cash advances)
@@ -325,7 +338,12 @@ exports.handler = async (event, context) => {
           priority: cleanPriority,
           status: initialStatus,
           request_type: requestType,
-          metadata: { ...metadata, request_type: requestType },
+          metadata: {
+            ...metadata,
+            request_type: requestType,
+            items: Array.isArray(items) ? items : metadata.items || [],
+            main_category: metadata.main_category || cleanCategory || null,
+          },
           submitted_at: new Date()
         })
         .select()
