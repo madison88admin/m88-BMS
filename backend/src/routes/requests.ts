@@ -530,40 +530,8 @@ const releaseRequest = async (
     }
   }
 
-  const insufficientDepartment = normalizedAllocations.find((allocation) => {
-    const summary = summaryByDepartmentId.get(allocation.department_id);
-    // Only block if projected_remaining is significantly negative (more than the request amount)
-    // This avoids blocking old tickets where department.annual_budget wasn't synced after budget proposal approval
-    if (!summary) return false;
-    const allocationAmount = toNumber(allocation.amount);
-    return summary.projected_remaining_budget < -(allocationAmount * 0.01); // allow up to 1% rounding tolerance
-  });
-
-  if (insufficientDepartment) {
-    // Double-check against category remaining_amount before blocking —
-    // if the category has enough remaining (set by approved budget proposal), allow release
-    const allocation = insufficientDepartment;
-    const categoryName = request.category ? String(request.category).trim() : null;
-    let categoryHasBudget = false;
-    if (categoryName || request.category_id) {
-      let catQ = supabase
-        .from('budget_categories')
-        .select('remaining_amount')
-        .eq('department_id', allocation.department_id)
-        .eq('fiscal_year', request.fiscal_year);
-      catQ = request.category_id
-        ? catQ.eq('id', request.category_id)
-        : catQ.eq('category_name', categoryName!);
-      const { data: catCheck } = await catQ.maybeSingle();
-      if (catCheck && toNumber(catCheck.remaining_amount) >= toNumber(allocation.amount)) {
-        categoryHasBudget = true;
-      }
-    }
-    if (!categoryHasBudget) {
-      const summary = summaryByDepartmentId.get(allocation.department_id);
-      throw new Error(`Insufficient projected budget for ${summary?.department_name || 'the selected department'}.`);
-    }
-  }
+  // Only check category budget (main or sub), not department annual budget
+  // Department budget check removed to ensure budget is deducted from category level
 
   for (const allocation of normalizedAllocations) {
     const { data: department, error: departmentError } = await supabase
@@ -1182,27 +1150,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   const totalAmount = toNumber(amount);
 
   if (!isBudgetFlow && request_type !== 'reimbursement' && request_type !== 'cash_advance') {
-    // Check department projected remaining
-    const { data: deptSummary, error: summaryError } = await supabase
-      .from('departments')
-      .select('annual_budget, used_budget')
-      .eq('id', targetDepartmentId)
-      .single();
-
-    if (summaryError || !deptSummary) {
-      return res.status(400).json({ error: 'Department budget not found' });
-    }
-
-    const annualBudget = toNumber(deptSummary.annual_budget);
-    const usedBudget = toNumber(deptSummary.used_budget);
-    const projectedRemaining = annualBudget - usedBudget;
-
-    if (projectedRemaining < totalAmount) {
-      return res.status(400).json({
-        error: `Insufficient department budget. Remaining: ${projectedRemaining.toFixed(2)}, Requested: ${totalAmount.toFixed(2)}`
-      });
-    }
-
+    // Only check category budget (main or sub), not department annual budget
     const categoryBudgetError = await validateCategoryBudgetsForSubmission(
       targetDepartmentId,
       activeFiscalYear,
