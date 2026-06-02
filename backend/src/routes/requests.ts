@@ -1719,17 +1719,19 @@ router.patch('/:id/allocations', authenticate, authorize('accounting', 'admin'),
         .eq('fiscal_year', request.fiscal_year)
         .single();
       
-      if (!catError && categoryBudget) {
-        const remaining = toNumber(categoryBudget.remaining_amount);
-        const allocationAmount = toNumber(allocation.amount);
-        
-        if (remaining < allocationAmount) {
-          return res.status(400).json({
-            error: `Insufficient budget in category "${categoryName}" for department. Available: ${remaining.toFixed(2)}, Required: ${allocationAmount.toFixed(2)}`
-          });
-        }
+      if (catError) return res.status(400).json({ error: catError.message || 'Failed to verify category budget.' });
+      if (!categoryBudget) {
+        return res.status(400).json({ error: `Category "${categoryName}" not found for department ${allocation.department_id}` });
       }
-      // If category doesn't exist in this department, that's ok - will deduct from department budget only
+
+      const remaining = toNumber(categoryBudget.remaining_amount);
+      const allocationAmount = toNumber(allocation.amount);
+      
+      if (remaining < allocationAmount) {
+        return res.status(400).json({
+          error: `Insufficient budget in category "${categoryName}" for department. Available: ${remaining.toFixed(2)}, Required: ${allocationAmount.toFixed(2)}`
+        });
+      }
     }
   }
 
@@ -2692,22 +2694,25 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
   const shouldBypassBudget = requestType === 'reimbursement' || requestType === 'cash_advance' || requestType === 'budget_request' || requestType === 'budget_revision';
 
   if (targetDeptId && !shouldBypassBudget) {
-    const { data: deptSummary, error: summaryError } = await supabase
-      .from('departments')
-      .select('annual_budget, used_budget')
-      .eq('id', targetDeptId)
-      .single();
-    
-    if (!summaryError && deptSummary) {
-      const annualBudget = toNumber(deptSummary.annual_budget);
-      const usedBudget = toNumber(deptSummary.used_budget);
-      const projectedRemaining = annualBudget - usedBudget;
+    // Validate against category/sub-category remaining amounts instead of department annual budget
+    const { data: requestItems, error: itemsError } = await supabase
+      .from('request_items')
+      .select('category_id, amount')
+      .eq('request_id', id);
 
-      if (projectedRemaining < newAmount) {
-        return res.status(400).json({ 
-          error: `Insufficient budget. Annual Budget: ${annualBudget.toFixed(2)}, Remaining: ${projectedRemaining.toFixed(2)}, Requested: ${newAmount.toFixed(2)}` 
-        });
-      }
+    const itemsForValidation = (requestItems || []).map((ri: any) => ({ category_id: ri.category_id, amount: ri.amount }));
+
+    const categoryValidationError = await validateCategoryBudgetsForSubmission(
+      targetDeptId,
+      request.fiscal_year,
+      newAmount,
+      request.category_id,
+      request.category,
+      itemsForValidation
+    );
+
+    if (categoryValidationError) {
+      return res.status(400).json({ error: categoryValidationError });
     }
   }
 
