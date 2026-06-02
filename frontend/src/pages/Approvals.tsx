@@ -214,7 +214,7 @@ const Approvals = () => {
 
         fetchRequests(res.data.role, initialView);
 
-        if (res.data.role === 'accounting' || res.data.role === 'admin') {
+        if (res.data.role === 'accounting' || res.data.role === 'admin' || res.data.role === 'vp' || res.data.role === 'president') {
 
           fetchDepartments();
 
@@ -917,6 +917,23 @@ const Approvals = () => {
 
 
 
+  const handleBulkApproveExecutiveDepartment = async (departmentId: string) => {
+    const token = localStorage.getItem('token');
+    const stage = user?.role === 'president' ? 'president' : 'vp';
+    try {
+      const res = await api.post('/api/requests/bulk-approve-executive',
+        { department_id: departmentId, note: `Bulk ${stage === 'president' ? 'approved' : 'processed'} by ${user?.role}`, stage: user?.role === 'admin' ? stage : undefined },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success(res.data.message || `Processed ${res.data.approved} budget proposals`);
+      setSelectedRequests(new Set());
+      await fetchRequests();
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || 'Bulk approve failed';
+      toast.error(errorMsg);
+    }
+  };
+
   const handleBulkApproveDepartment = async (departmentId: string) => {
     const token = localStorage.getItem('token');
     try {
@@ -1466,8 +1483,8 @@ const Approvals = () => {
                 </select>
               )}
 
-              {/* Department Filter — accounting/admin only */}
-              {(user?.role === 'accounting' || user?.role === 'admin') && departments.length > 0 && (
+              {/* Department Filter — accounting/admin/vp/president */}
+              {(user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'vp' || user?.role === 'president') && departments.length > 0 && (
                 <select
                   className="field-input !py-1.5 !text-xs"
                   value={departmentFilter}
@@ -1639,13 +1656,21 @@ const Approvals = () => {
         </div>
       )}
 
-      {/* Budget Proposals Grouped Table — accounting/admin (pending view) and supervisor */}
-      {((user?.role === 'accounting' || user?.role === 'admin') && view === 'pending') || user?.role === 'supervisor' ? (() => {
+      {/* Budget Proposals Grouped Table — accounting/admin (pending), supervisor, VP/President (vp_approval) */}
+      {((user?.role === 'accounting' || user?.role === 'admin') && view === 'pending') || user?.role === 'supervisor' || ((user?.role === 'vp' || user?.role === 'president' || user?.role === 'admin') && view === 'vp_approval') ? (() => {
         const isSupervisor = user?.role === 'supervisor';
-        const budgetProposals = filteredRequests.filter(r =>
-          (r.request_type === 'budget_request' || r.request_type === 'budget_revision') &&
-          (isSupervisor ? r.status === 'pending_supervisor' : r.status === 'pending_accounting')
-        );
+        const isExecutive = user?.role === 'vp' || user?.role === 'president';
+        const isExecutiveView = isExecutive || (user?.role === 'admin' && view === 'vp_approval');
+        const budgetProposals = filteredRequests.filter(r => {
+          if (r.request_type !== 'budget_request' && r.request_type !== 'budget_revision') return false;
+          if (isSupervisor) return r.status === 'pending_supervisor';
+          if (isExecutiveView) {
+            if (user?.role === 'president') return r.status === 'pending_president';
+            if (user?.role === 'vp') return r.status === 'pending_vp';
+            return r.status === 'pending_vp' || r.status === 'pending_president';
+          }
+          return r.status === 'pending_accounting';
+        });
 
         if (budgetProposals.length === 0 && isSupervisor) return null;
         if (budgetProposals.length === 0 && !isSupervisor) return null;
@@ -1705,17 +1730,41 @@ const Approvals = () => {
                       const token = localStorage.getItem('token');
                       let ok = 0; let fail = 0;
                       const ids = Array.from(selectedRequests).filter(id => budgetProposals.some(r => r.id === id));
-                      await Promise.all(ids.map(async id => {
-                        try {
-                          if (isSupervisor) {
-                            await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved' }, { headers: { Authorization: `Bearer ${token}` } });
-                          } else {
-                            await api.patch(`/api/requests/${id}/approve-accounting`, { note: 'Bulk approved by accounting' }, { headers: { Authorization: `Bearer ${token}` } });
+                      if (isExecutiveView) {
+                        const byDept = ids.reduce<Record<string, string[]>>((acc, id) => {
+                          const req = budgetProposals.find(r => r.id === id);
+                          const deptId = req?.department_id || 'unknown';
+                          acc[deptId] = acc[deptId] || [];
+                          acc[deptId].push(id);
+                          return acc;
+                        }, {});
+                        const stage = user?.role === 'president' ? 'president' : 'vp';
+                        for (const deptId of Object.keys(byDept)) {
+                          if (deptId === 'unknown') continue;
+                          try {
+                            const res = await api.post('/api/requests/bulk-approve-executive',
+                              { department_id: deptId, note: `Bulk ${stage === 'president' ? 'approved' : 'processed'} by ${user?.role}`, stage: user?.role === 'admin' ? stage : undefined },
+                              { headers: { Authorization: `Bearer ${token}` } }
+                            );
+                            ok += res.data.approved || 0;
+                            fail += res.data.failed || 0;
+                          } catch {
+                            fail += byDept[deptId].length;
                           }
-                          ok++;
-                        } catch { fail++; }
-                      }));
-                      if (ok > 0) toast.success(`Approved ${ok} budget proposal${ok !== 1 ? 's' : ''}`);
+                        }
+                      } else {
+                        await Promise.all(ids.map(async id => {
+                          try {
+                            if (isSupervisor) {
+                              await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved' }, { headers: { Authorization: `Bearer ${token}` } });
+                            } else {
+                              await api.patch(`/api/requests/${id}/approve-accounting`, { note: 'Bulk approved by accounting' }, { headers: { Authorization: `Bearer ${token}` } });
+                            }
+                            ok++;
+                          } catch { fail++; }
+                        }));
+                      }
+                      if (ok > 0) toast.success(`${isExecutiveView ? 'Processed' : 'Approved'} ${ok} budget proposal${ok !== 1 ? 's' : ''}`);
                       if (fail > 0) toast.error(`Failed: ${fail}`);
                       setSelectedRequests(new Set());
                       await fetchRequests();
@@ -1725,7 +1774,9 @@ const Approvals = () => {
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
-                    Approve Selected ({selectedRequests.size})
+                    {isExecutiveView
+                      ? `${user?.role === 'president' ? 'Approve' : 'Process'} Selected (${selectedRequests.size})`
+                      : `Approve Selected (${selectedRequests.size})`}
                   </button>
                 )}
               </div>
@@ -1771,7 +1822,7 @@ const Approvals = () => {
                         <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Total Amount</p>
                         <p className="font-bold text-[var(--role-text)]">{formatMoney(groupTotal)}</p>
                       </div>
-                      {!isSupervisor && (
+                      {!isSupervisor && !isExecutiveView && (
                         <button
                           onClick={() => handleBulkApproveDepartment(group.deptId)}
                           className="btn-success !py-2 !px-4 !text-sm flex items-center gap-2 whitespace-nowrap"
@@ -1780,6 +1831,17 @@ const Approvals = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
                           Approve All ({group.requests.length})
+                        </button>
+                      )}
+                      {isExecutiveView && (
+                        <button
+                          onClick={() => handleBulkApproveExecutiveDepartment(group.deptId)}
+                          className="btn-success !py-2 !px-4 !text-sm flex items-center gap-2 whitespace-nowrap"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          {user?.role === 'president' ? 'Approve All' : 'Process All'} ({group.requests.length})
                         </button>
                       )}
                       {isSupervisor && (
@@ -1973,7 +2035,8 @@ const Approvals = () => {
           // Budget proposals are shown in the grouped table above — exclude them from the card list
           const isBudgetTableView =
             ((user?.role === 'accounting' || user?.role === 'admin') && view === 'pending') ||
-            user?.role === 'supervisor';
+            user?.role === 'supervisor' ||
+            ((user?.role === 'vp' || user?.role === 'president' || user?.role === 'admin') && view === 'vp_approval');
           const cardRequests = isBudgetTableView
             ? filteredRequests.filter(r => r.request_type !== 'budget_request' && r.request_type !== 'budget_revision')
             : filteredRequests;

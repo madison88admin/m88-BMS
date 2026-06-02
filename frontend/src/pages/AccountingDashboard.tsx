@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
@@ -39,7 +40,7 @@ interface AuditLog {
 
 const AccountingDashboard = () => {
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'petty_cash' | 'releases' | 'reconciliation' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'petty_cash' | 'releases' | 'reconciliation' | 'audit' | 'document_uploads'>('overview');
   
   // Overview data
   const [departments, setDepartments] = useState<any[]>([]);
@@ -50,8 +51,11 @@ const AccountingDashboard = () => {
     total_released_today: 0,
     total_released_this_month: 0,
     petty_cash_alerts: 0,
-    on_hold_count: 0
+    on_hold_count: 0,
+    pending_document_uploads: 0
   });
+
+  const [documentUploads, setDocumentUploads] = useState<any[]>([]);
 
   // Petty Cash data
   const [pettyCashAlerts, setPettyCashAlerts] = useState<PettyCashAlert[]>([]);
@@ -115,6 +119,9 @@ const AccountingDashboard = () => {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requests' }, () => {
           void loadAllData();
         })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'document_uploads' }, () => {
+          void loadAllData();
+        })
         .subscribe();
     }
 
@@ -126,14 +133,15 @@ const AccountingDashboard = () => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [depts, pending] = await Promise.all([
+      const [depts, pending, , , , uploads] = await Promise.all([
         fetchDepartments(),
         fetchPendingReleases(),
         fetchAllRequests(),
         fetchReconciliationItems(),
-        fetchAuditLogs()
+        fetchAuditLogs(),
+        fetchDocumentUploads(),
       ]);
-      computeStats(pending, depts);
+      computeStats(pending, depts, uploads);
     } catch (err) {
       toast.error('Failed to load accounting data');
     } finally {
@@ -167,7 +175,15 @@ const AccountingDashboard = () => {
     return data.filter((r: any) => r.status === 'pending_accounting' || r.status === 'on_hold');
   };
 
-  const computeStats = (pending: any[], depts: any[]) => {
+  const fetchDocumentUploads = async () => {
+    const token = localStorage.getItem('token');
+    const res = await api.get('/api/document-uploads', { headers: { Authorization: `Bearer ${token}` } });
+    const data = res.data || [];
+    setDocumentUploads(data);
+    return data;
+  };
+
+  const computeStats = (pending: any[], depts: any[], uploads: any[] = []) => {
     const today = new Date().toISOString().slice(0, 10);
     const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
     const alerts = depts.filter(d => toNumber(d.petty_cash_balance) < pettyCashThreshold * 0.5).length;
@@ -176,7 +192,8 @@ const AccountingDashboard = () => {
       total_released_today: allRequests.filter(r => r.status === 'released' && r.released_at?.startsWith(today)).length,
       total_released_this_month: allRequests.filter(r => r.status === 'released' && r.released_at >= firstDayOfMonth).length,
       petty_cash_alerts: alerts,
-      on_hold_count: pending.filter(r => r.status === 'on_hold').length
+      on_hold_count: pending.filter(r => r.status === 'on_hold').length,
+      pending_document_uploads: uploads.filter((row) => row.status === 'submitted' || row.status === 'pending_review').length,
     });
   };
 
@@ -447,6 +464,9 @@ const AccountingDashboard = () => {
           )},
           { key: 'audit', label: 'Audit Trail', icon: (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+          )},
+          { key: 'document_uploads', label: `Document Uploads${stats.pending_document_uploads > 0 ? ` (${stats.pending_document_uploads})` : ''}`, icon: (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
           )}
         ].map(tab => (
           <button
@@ -467,7 +487,7 @@ const AccountingDashboard = () => {
         return (
         <div className="space-y-6 animate-fade-in-up">
           {/* Summary Stats */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div className="panel !p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Active Tickets</p>
               <p className="mt-2 text-3xl font-bold text-[var(--role-text)]">{allRequests.filter(r => !['released', 'rejected'].includes(r.status)).length}</p>
@@ -482,6 +502,15 @@ const AccountingDashboard = () => {
               <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Released This Month</p>
               <p className="mt-2 text-3xl font-bold text-[var(--role-primary)]">{stats.total_released_this_month}</p>
               <p className="mt-1 text-xs text-[var(--role-text)]/50">Processed disbursements</p>
+            </div>
+            <div className="panel !p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Document Uploads</p>
+              <p className={`mt-2 text-3xl font-bold ${stats.pending_document_uploads > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{stats.pending_document_uploads}</p>
+              <p className="mt-1 text-xs text-[var(--role-text)]/50">
+                <button type="button" onClick={() => setActiveTab('document_uploads')} className="text-[var(--role-primary)] hover:underline">
+                  Pending review
+                </button>
+              </p>
             </div>
             <div className="panel !p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">On Hold</p>
@@ -915,6 +944,70 @@ const AccountingDashboard = () => {
                           )}
                         </div>
                       </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* DOCUMENT UPLOADS TAB */}
+      {activeTab === 'document_uploads' && (
+        <div className="space-y-6 animate-fade-in-up">
+          <div className="panel flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-[var(--role-text)]">Employee Document Uploads</h3>
+              <p className="text-sm text-[var(--role-text)]/60">
+                Upload-only expense items submitted by employees appear here for accounting review.
+              </p>
+            </div>
+            <Link to="/document-uploads" className="btn-primary whitespace-nowrap">
+              Open Full Review Page
+            </Link>
+          </div>
+
+          <div className="panel overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b border-[var(--role-border)]">
+                <tr className="text-left text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/60">
+                  <th className="pb-3 pr-4">Submitted</th>
+                  <th className="pb-3 pr-4">Main Category</th>
+                  <th className="pb-3 pr-4">Sub-category</th>
+                  <th className="pb-3 pr-4">Description</th>
+                  <th className="pb-3 pr-4">Amount</th>
+                  <th className="pb-3 pr-4">Status</th>
+                  <th className="pb-3">Files</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--role-border)]">
+                {documentUploads.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-[var(--role-text)]/60">
+                      No document uploads yet.
+                    </td>
+                  </tr>
+                ) : (
+                  documentUploads.map((upload) => (
+                    <tr key={upload.id} className="text-sm">
+                      <td className="py-3 pr-4 whitespace-nowrap">{formatDateTime(upload.created_at)}</td>
+                      <td className="py-3 pr-4">{upload.main_category_name || '—'}</td>
+                      <td className="py-3 pr-4">{upload.category_name || upload.category_code || '—'}</td>
+                      <td className="py-3 pr-4 max-w-xs truncate" title={upload.description}>{upload.description}</td>
+                      <td className="py-3 pr-4 whitespace-nowrap">{upload.amount != null ? formatMoney(toNumber(upload.amount)) : '—'}</td>
+                      <td className="py-3 pr-4">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          upload.status === 'submitted' || upload.status === 'pending_review'
+                            ? 'bg-amber-100 text-amber-700'
+                            : upload.status === 'acknowledged'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {String(upload.status || 'submitted').replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td className="py-3">{upload.attachments?.length || 0}</td>
                     </tr>
                   ))
                 )}

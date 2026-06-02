@@ -36,6 +36,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/requests/bulk-approve-executive"
+  to = "/.netlify/functions/requests/api/requests/bulk-approve-executive"
+  status = 200
+
+[[redirects]]
+  from = "/api/requests/bulk-approve-accounting"
+  to = "/.netlify/functions/requests/api/requests/bulk-approve-accounting"
+  status = 200
+
+[[redirects]]
   from = "/api/requests/:id/liquidation/review"
   to = "/.netlify/functions/requests-liquidation/api/requests/:id/liquidation/review"
   status = 200

@@ -13,9 +13,9 @@ const {
   createErrorResponse 
 } = require('./utils/enhancedAuth');
 const { getPresidentThreshold } = require('./utils/approval');
-const { toNumber, assertMainCategoryProposal, enrichRequestsWithMainCategory } = require('./utils/budget');
+const { toNumber, assertMainCategoryProposal, enrichRequestsWithMainCategory, applyApprovedBudgetProposal, requiresPresidentBudgetApproval, getBudgetProposalAmount } = require('./utils/budget');
 const { AUDIT_ACTIONS, logAuditEvent } = require('./utils/auditLog');
-const { notifyAccounting } = require('./utils/workflowNotify');
+const { notifyAccounting, notifyPresident, notifyDepartmentSupervisor, notifyEmployee } = require('./utils/workflowNotify');
 const {
   resolveOfficialExpenseList,
   filterOfficialExpenseList,
@@ -527,6 +527,173 @@ exports.handler = async (event, context) => {
         headers: { 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({
           message: `Bulk approved ${approvedRequests.length} budget proposals`,
+          approved: approvedRequests.length,
+          failed: failedRequests.length,
+          failed_requests: failedRequests
+        }),
+      };
+    }
+
+    if (pathEndsWith(event, 'bulk-approve-executive')) {
+      authorize(['vp', 'president', 'admin'])(user);
+
+      const { department_id, note, stage } = JSON.parse(event.body || '{}');
+
+      if (!department_id) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify(createErrorResponse('Department ID is required', 400)),
+        };
+      }
+
+      const targetStage = user.role === 'admin' && (stage === 'vp' || stage === 'president')
+        ? stage
+        : user.role === 'president'
+          ? 'president'
+          : 'vp';
+      const targetStatus = targetStage === 'president' ? 'pending_president' : 'pending_vp';
+      const activeFiscalYear = await getLatestConfiguredFiscalYear();
+      const presidentThreshold = getPresidentThreshold('PHP');
+
+      const { data: requests, error: fetchError } = await supabase
+        .from('expense_requests')
+        .select('*')
+        .eq('department_id', department_id)
+        .eq('status', targetStatus)
+        .in('request_type', ['budget_request', 'budget_revision'])
+        .eq('fiscal_year', activeFiscalYear);
+
+      if (fetchError) throw fetchError;
+      if (!requests || requests.length === 0) {
+        return {
+          statusCode: 404,
+          body: JSON.stringify(createErrorResponse(`No ${targetStatus.replace(/_/g, ' ')} budget proposals found for this department`, 404)),
+        };
+      }
+
+      const approvedRequests = [];
+      const failedRequests = [];
+
+      const finalizeBudgetBulkApproval = async (request, approverRole) => {
+        const { data: updatedRequest, error: updateError } = await supabase
+          .from('expense_requests')
+          .update({ status: 'approved', updated_at: new Date() })
+          .eq('id', request.id)
+          .select()
+          .single();
+        if (updateError) throw updateError;
+
+        await applyApprovedBudgetProposal(request);
+
+        const approverLabel = approverRole === 'vp' ? 'VP' : 'President';
+        await supabase.from('approval_logs').insert({
+          request_id: request.id,
+          actor_id: user.id,
+          action: 'approved',
+          stage: approverRole,
+          note: note || `Bulk approved by ${approverLabel}`,
+        });
+
+        await logAuditEvent({
+          user,
+          actionType: request.request_type === 'budget_revision'
+            ? AUDIT_ACTIONS.BUDGET_REVISED
+            : AUDIT_ACTIONS.BUDGET_APPROVED,
+          recordType: 'budget',
+          recordId: request.category_id || request.id,
+          recordLabel: request.request_code,
+          oldValue: { status: request.status, amount: getBudgetProposalAmount(request) },
+          newValue: { status: 'approved', final_approver: approverRole, amount: getBudgetProposalAmount(request) },
+          remarks: note || `Bulk approved by ${approverLabel}`,
+        });
+
+        await logAuditEvent({
+          user,
+          actionType: AUDIT_ACTIONS.BUDGET_LOCKED,
+          recordType: 'budget',
+          recordId: request.department_id,
+          recordLabel: request.request_code,
+          newValue: { locked: true, final_approver: approverRole },
+          remarks: `Auto-locked after ${approverLabel} bulk approval`,
+        });
+
+        await notifyDepartmentSupervisor(
+          request.department_id,
+          `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved by ${approverLabel}.`
+        );
+        await notifyAccounting(`Budget ${request.request_code} approved and matrix locked.`);
+        await notifyEmployee(
+          request.employee_id,
+          request.request_code,
+          'Budget Approved',
+          `Your budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved by ${approverLabel}.`
+        );
+
+        return updatedRequest;
+      };
+
+      for (const request of requests) {
+        try {
+          const proposalAmount = getBudgetProposalAmount(request);
+
+          if (targetStage === 'vp') {
+            if (requiresPresidentBudgetApproval(proposalAmount, 'PHP')) {
+              const { data: updatedRequest, error: updateError } = await supabase
+                .from('expense_requests')
+                .update({ status: 'pending_president', updated_at: new Date() })
+                .eq('id', request.id)
+                .select()
+                .single();
+
+              if (updateError) {
+                failedRequests.push({ request_code: request.request_code, error: updateError.message });
+                continue;
+              }
+
+              await supabase.from('approval_logs').insert({
+                request_id: request.id,
+                actor_id: user.id,
+                action: 'viewed',
+                stage: 'vp',
+                note: note || 'Bulk forwarded to President by VP',
+              });
+
+              await logAuditEvent({
+                user,
+                actionType: AUDIT_ACTIONS.BUDGET_SUBMITTED,
+                recordType: 'budget',
+                recordId: request.id,
+                recordLabel: request.request_code,
+                oldValue: { status: request.status, amount: proposalAmount },
+                newValue: { status: 'pending_president', final_approver: 'president', amount: proposalAmount },
+                remarks: note || 'Bulk forwarded to President (amount at or above threshold)',
+              });
+
+              await notifyPresident(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} (₱${proposalAmount.toFixed(2)}) is ready for President final approval.`);
+              approvedRequests.push(updatedRequest);
+            } else {
+              const updatedRequest = await finalizeBudgetBulkApproval(request, 'vp');
+              approvedRequests.push(updatedRequest);
+            }
+          } else if (proposalAmount < presidentThreshold) {
+            failedRequests.push({
+              request_code: request.request_code,
+              error: 'Budget amount is below threshold and requires VP final approval.',
+            });
+          } else {
+            const updatedRequest = await finalizeBudgetBulkApproval(request, 'president');
+            approvedRequests.push(updatedRequest);
+          }
+        } catch (error) {
+          failedRequests.push({ request_code: request.request_code, error: error.message });
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({
+          message: `${targetStage === 'vp' ? 'Processed' : 'Approved'} ${approvedRequests.length} budget proposal${approvedRequests.length === 1 ? '' : 's'}`,
           approved: approvedRequests.length,
           failed: failedRequests.length,
           failed_requests: failedRequests
