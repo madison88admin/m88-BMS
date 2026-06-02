@@ -518,17 +518,30 @@ const NewRequestForm = () => {
       }
 
       const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === cashAdvanceForm.item_name);
-      
+      const itemsForBackend = cashAdvanceForm.breakdown.map(item => {
+        const breakdownItem = officialList.find(i => `${i.code} | ${i.itemName}` === item.item);
+        return {
+          item_name: item.item,
+          main_category: breakdownItem?.category || cashAdvanceForm.main_category || selectedItem?.category || '',
+          category: breakdownItem?.category || cashAdvanceForm.main_category || selectedItem?.category || '',
+          category_id: resolveCategoryIdFromOfficialItem(breakdownItem, categories) || '',
+          amount: parseFloat(item.amount) || 0
+        };
+      });
+      const primaryBreakdownCategoryId = itemsForBackend.find(i => i.category_id)?.category_id || resolveCategoryIdFromOfficialItem(selectedItem, categories) || '';
+
       await api.post('/api/requests', {
         request_type: 'cash_advance',
         item_name: cashAdvanceForm.item_name,
         department_id: cashAdvanceForm.department_id,
         category: selectedItem?.category || cashAdvanceForm.main_category || 'Cash Advance',
+        category_id: primaryBreakdownCategoryId || '',
         amount: totalAmount,
         purpose: cashAdvanceForm.purpose,
         expected_liquidation_date: cashAdvanceForm.expected_liquidation_date,
         priority: 'normal',
         attachments,
+        items: itemsForBackend,
         metadata: {
           request_type: 'cash_advance',
           main_category: cashAdvanceForm.main_category || selectedItem?.category || null,
