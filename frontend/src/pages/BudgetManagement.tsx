@@ -157,7 +157,10 @@ const BudgetManagement = () => {
       .forEach(d => {
         const key = `${String(d.name || '').trim().toLowerCase()}::${d.fiscal_year ?? ''}`;
         const ex = map.get(key);
-        if (!ex || toNumber(d.used_budget) > toNumber(ex.used_budget)) map.set(key, d);
+        // Prefer the most recently updated department row when duplicates exist
+        const dUpdated = new Date(d.updated_at || d.created_at || 0).getTime();
+        const exUpdated = ex ? new Date(ex.updated_at || ex.created_at || 0).getTime() : 0;
+        if (!ex || dUpdated > exUpdated) map.set(key, d);
       });
     return Array.from(map.values()).sort((a, b) => toNumber(b.used_budget) - toNumber(a.used_budget));
   }, [departments, user]);
