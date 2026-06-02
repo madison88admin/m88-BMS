@@ -1720,11 +1720,31 @@ router.patch('/:id/allocations', authenticate, authorize('accounting', 'admin'),
         .single();
       
       if (catError) return res.status(400).json({ error: catError.message || 'Failed to verify category budget.' });
-      if (!categoryBudget) {
-        return res.status(400).json({ error: `Category "${categoryName}" not found for department ${allocation.department_id}` });
+      // If category doesn't exist for this department, create a placeholder so existing tickets are covered
+      let effectiveCat = categoryBudget;
+      if (!effectiveCat) {
+        const now = new Date();
+        const { data: createdCat, error: createErr } = await supabase
+          .from('budget_categories')
+          .insert({
+            category_name: categoryName,
+            department_id: allocation.department_id,
+            fiscal_year: request.fiscal_year,
+            budget_amount: 0,
+            used_amount: 0,
+            committed_amount: 0,
+            remaining_amount: 0,
+            created_at: now,
+            updated_at: now
+          })
+          .select()
+          .maybeSingle();
+
+        if (createErr) return res.status(400).json({ error: createErr.message || 'Failed to create missing category.' });
+        effectiveCat = createdCat;
       }
 
-      const remaining = toNumber(categoryBudget.remaining_amount);
+      const remaining = toNumber(effectiveCat.remaining_amount);
       const allocationAmount = toNumber(allocation.amount);
       
       if (remaining < allocationAmount) {
