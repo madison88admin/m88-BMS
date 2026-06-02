@@ -7,6 +7,7 @@ import {
   getLatestConfiguredFiscalYear,
   syncUserDepartmentToActiveYear
 } from '../utils/fiscal';
+import { migrateRequestItemsToSubCategories } from '../utils/migrateToSubCategories';
 import {
   allocationTotalsMatchRequest,
   buildDepartmentBudgetSummaryMap,
@@ -3566,6 +3567,16 @@ router.post('/bulk-approve-executive', authenticate, authorize('vp', 'president'
     failed: failedRequests.length,
     failed_requests: failedRequests
   });
+});
+
+// Migration endpoint to update existing request items to use sub-categories
+router.post('/migrate-to-subcategories', authenticate, authorize(['admin', 'accounting']), async (req, res) => {
+  try {
+    const result = await migrateRequestItemsToSubCategories();
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 export default router;
