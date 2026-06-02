@@ -5,6 +5,11 @@ import toast, { Toaster } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { normalizeDisplayName, formatDateTime } from '../utils/format';
 
+// Pre-fetch context for budget and expense categories
+const PREFETCH_KEY_BUDGET_CATEGORIES = 'prefetch_budget_categories';
+const PREFETCH_KEY_EXPENSE_CATEGORIES = 'prefetch_expense_categories';
+const PREFETCH_EXPIRY = 30 * 60 * 1000; // 30 minutes
+
 interface LayoutProps {
   children: ReactNode;
 }
@@ -39,6 +44,44 @@ const Layout = ({ children }: LayoutProps) => {
       const res = await api.get('/api/notifications', { headers: { Authorization: `Bearer ${token}` } });
       setNotifications(Array.isArray(res.data) ? res.data : []);
     } catch { /* silent */ }
+  }, []);
+
+  const prefetchCategories = useCallback(async (token: string) => {
+    try {
+      // Check if cached data is still valid
+      const budgetCache = localStorage.getItem(PREFETCH_KEY_BUDGET_CATEGORIES);
+      const expenseCache = localStorage.getItem(PREFETCH_KEY_EXPENSE_CATEGORIES);
+      const now = Date.now();
+
+      let needFetchBudget = !budgetCache;
+      let needFetchExpense = !expenseCache;
+
+      if (budgetCache) {
+        const { timestamp } = JSON.parse(budgetCache);
+        needFetchBudget = now - timestamp > PREFETCH_EXPIRY;
+      }
+
+      if (expenseCache) {
+        const { timestamp } = JSON.parse(expenseCache);
+        needFetchExpense = now - timestamp > PREFETCH_EXPIRY;
+      }
+
+      if (needFetchBudget) {
+        const budgetRes = await api.get('/api/budget/categories', { headers: { Authorization: `Bearer ${token}` } });
+        localStorage.setItem(PREFETCH_KEY_BUDGET_CATEGORIES, JSON.stringify({
+          data: budgetRes.data,
+          timestamp: now
+        }));
+      }
+
+      if (needFetchExpense && supabase) {
+        const expenseRes = await supabase.from('expense_categories').select('*');
+        localStorage.setItem(PREFETCH_KEY_EXPENSE_CATEGORIES, JSON.stringify({
+          data: expenseRes.data,
+          timestamp: now
+        }));
+      }
+    } catch { /* silent - pre-fetching should not block app */ }
   }, []);
 
   const markAllRead = async () => {
@@ -94,6 +137,7 @@ const Layout = ({ children }: LayoutProps) => {
 
     void bootstrap();
     void fetchNotifications(token);
+    void prefetchCategories(token);
 
     let channel: any;
     if (supabase) {
@@ -108,7 +152,7 @@ const Layout = ({ children }: LayoutProps) => {
       cancelled = true;
       if (channel) void supabase?.removeChannel(channel);
     };
-  }, [navigate, fetchNotifications]);
+  }, [navigate, fetchNotifications, prefetchCategories]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -418,3 +462,32 @@ const Layout = ({ children }: LayoutProps) => {
 };
 
 export default Layout;
+
+// Helper functions for accessing prefetched data
+export const getPrefetchedBudgetCategories = () => {
+  try {
+    const cache = localStorage.getItem(PREFETCH_KEY_BUDGET_CATEGORIES);
+    if (!cache) return null;
+    const { data, timestamp } = JSON.parse(cache);
+    const now = Date.now();
+    if (now - timestamp > PREFETCH_EXPIRY) {
+      localStorage.removeItem(PREFETCH_KEY_BUDGET_CATEGORIES);
+      return null;
+    }
+    return data;
+  } catch { return null; }
+};
+
+export const getPrefetchedExpenseCategories = () => {
+  try {
+    const cache = localStorage.getItem(PREFETCH_KEY_EXPENSE_CATEGORIES);
+    if (!cache) return null;
+    const { data, timestamp } = JSON.parse(cache);
+    const now = Date.now();
+    if (now - timestamp > PREFETCH_EXPIRY) {
+      localStorage.removeItem(PREFETCH_KEY_EXPENSE_CATEGORIES);
+      return null;
+    }
+    return data;
+  } catch { return null; }
+};
