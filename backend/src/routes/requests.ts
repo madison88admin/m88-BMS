@@ -256,10 +256,80 @@ const validateCategoryBudgetsForSubmission = async (
   return null;
 };
 
+const enrichItemsWithCategoryInfo = async (rows: any[]) => {
+  if (!rows.length) return rows;
+
+  // Collect all unique category IDs from items in all requests
+  const categoryIds = new Set<string>();
+  rows.forEach((row) => {
+    if (row.metadata?.items && Array.isArray(row.metadata.items)) {
+      row.metadata.items.forEach((item: any) => {
+        if (item.category_id) categoryIds.add(item.category_id);
+      });
+    }
+  });
+
+  if (categoryIds.size === 0) return rows;
+
+  // Fetch all categories at once
+  const { data: categories } = await supabase
+    .from('budget_categories')
+    .select('id, category_name, parent_category_id')
+    .in('id', Array.from(categoryIds));
+
+  const categoryById = new Map((categories || []).map((cat: any) => [cat.id, cat]));
+  
+  // Fetch parent categories
+  const parentCategoryIds = new Set<string>();
+  categories?.forEach((cat: any) => {
+    if (cat.parent_category_id) parentCategoryIds.add(cat.parent_category_id);
+  });
+
+  let parentCategoryById = new Map<string, any>();
+  if (parentCategoryIds.size > 0) {
+    const { data: parentCategories } = await supabase
+      .from('budget_categories')
+      .select('id, category_name')
+      .in('id', Array.from(parentCategoryIds));
+    parentCategoryById = new Map((parentCategories || []).map((cat: any) => [cat.id, cat]));
+  }
+
+  // Enrich items with category info
+  return rows.map((row) => {
+    if (row.metadata?.items && Array.isArray(row.metadata.items)) {
+      return {
+        ...row,
+        metadata: {
+          ...row.metadata,
+          items: row.metadata.items.map((item: any) => {
+            if (!item.category_id) return item;
+
+            const category = categoryById.get(item.category_id);
+            if (!category) return item;
+
+            const parentCategory = category.parent_category_id ? parentCategoryById.get(category.parent_category_id) : null;
+            
+            return {
+              ...item,
+              category: category.category_name,
+              main_category: parentCategory?.category_name || category.category_name,
+              category_type: category.parent_category_id ? 'sub-category' : 'main-category'
+            };
+          })
+        }
+      };
+    }
+    return row;
+  });
+};
+
 const appendWorkflowData = async (rows: any[]) => {
   if (!rows.length) return rows;
 
-  const requestIds = rows.map((row) => row.id);
+  // First enrich items with category information
+  const enrichedRows = await enrichItemsWithCategoryInfo(rows);
+
+  const requestIds = enrichedRows.map((row) => row.id);
   const [attachmentsResult, liquidationResult] = await Promise.all([
     supabase
       .from('request_attachments')
@@ -290,7 +360,7 @@ const appendWorkflowData = async (rows: any[]) => {
     }
   });
 
-  return rows.map((row) => ({
+  return enrichedRows.map((row) => ({
     ...row,
     attachments: attachmentsByRequestId.get(row.id) || [],
     attachment_count: (attachmentsByRequestId.get(row.id) || []).length,
