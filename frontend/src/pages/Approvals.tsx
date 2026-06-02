@@ -975,6 +975,7 @@ const Approvals = () => {
       toast.success(res.data.message || `Processed ${res.data.approved} budget proposals`);
       setSelectedRequests(new Set());
       await fetchRequests();
+      await fetchDepartments();
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.message || 'Bulk approve failed';
       toast.error(errorMsg);
@@ -990,6 +991,7 @@ const Approvals = () => {
       );
       toast.success(res.data.message || `Bulk approved ${res.data.approved} budget proposals`);
       await fetchRequests();
+      await fetchDepartments();
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.message || 'Bulk approve failed';
       toast.error(errorMsg);
@@ -1006,7 +1008,8 @@ const Approvals = () => {
 
       toast.success('Co-approved! Request can now be released.');
 
-      fetchRequests();
+      await fetchRequests();
+      await fetchDepartments();
 
     } catch (err: any) {
 
