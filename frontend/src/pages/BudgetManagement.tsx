@@ -337,6 +337,35 @@ const BudgetManagement = () => {
 
   const updateCategoryBudget = async (catId: string, budget: number) => {
     const token = localStorage.getItem('token');
+    
+    // Validation for sub-categories: ensure budget doesn't exceed parent category
+    const category = enrichedCategories.find(c => c.id === catId);
+    if (category?.parent_category_id) {
+      const parentCategory = enrichedCategories.find(c => c.id === category.parent_category_id);
+      if (parentCategory) {
+        const siblings = enrichedCategories.filter(c => c.parent_category_id === category.parent_category_id && c.id !== catId);
+        const siblingsTotal = siblings.reduce((sum, sib) => sum + toNumber(sib.budget_amount), 0);
+        const newTotal = siblingsTotal + budget;
+        
+        if (newTotal > toNumber(parentCategory.budget_amount)) {
+          toast.error(`Sub-category budget (₱${budget.toFixed(2)}) + siblings (₱${siblingsTotal.toFixed(2)}) exceeds parent budget (₱${toNumber(parentCategory.budget_amount).toFixed(2)})`);
+          return;
+        }
+      }
+    }
+    
+    // Validation for parent categories: ensure sum of sub-categories doesn't exceed parent budget
+    if (!category?.parent_category_id) {
+      const children = enrichedCategories.filter(c => c.parent_category_id === catId);
+      if (children.length > 0) {
+        const childrenTotal = children.reduce((sum, child) => sum + toNumber(child.budget_amount), 0);
+        if (childrenTotal > budget) {
+          toast.error(`Parent budget (₱${budget.toFixed(2)}) is less than sum of sub-categories (₱${childrenTotal.toFixed(2)})`);
+          return;
+        }
+      }
+    }
+    
     try {
       await api.put(`/api/budget/categories/${catId}`, { budget_amount: budget }, { headers: { Authorization: `Bearer ${token}` } });
       toast.success('Category budget updated!');
@@ -939,8 +968,15 @@ const BudgetManagement = () => {
                               const rem = Math.max(0, budget - totalConsumed);
                               const pct = budget > 0 ? (totalConsumed / budget) * 100 : 0;
                               const utilizationWarning = user?.role === 'supervisor' && pct >= 80;
+                              
+                              // Calculate sub-category total for parent categories
+                              const children = enrichedCategories.filter(c => c.parent_category_id === cat.id);
+                              const childrenTotal = children.reduce((sum, child) => sum + toNumber(child.budget_amount), 0);
+                              const hasChildren = children.length > 0;
+                              const childrenWarning = hasChildren && childrenTotal > budget;
+                              
                               return (
-                                <div key={cat.id} className={`rounded-xl border p-3 ${utilizationWarning ? 'border-amber-400 bg-amber-50/40' : 'border-[var(--role-border)] bg-[var(--role-surface)]'}`} style={{ marginLeft: `${depth * 16}px` }}>
+                                <div key={cat.id} className={`rounded-xl border p-3 ${utilizationWarning ? 'border-amber-400 bg-amber-50/40' : ''} ${childrenWarning ? 'border-red-400 bg-red-50/40' : 'border-[var(--role-border)] bg-[var(--role-surface)]'}`} style={{ marginLeft: `${depth * 16}px` }}>
                                   <div className="flex items-center gap-2 mb-1">
                                     <span className="font-mono text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">{cat.category_code}</span>
                                     <span className="flex-1 text-sm font-medium truncate text-[var(--role-text)]">
@@ -949,6 +985,16 @@ const BudgetManagement = () => {
                                     {utilizationWarning && (
                                       <span className="text-[10px] font-semibold text-amber-800 bg-amber-200 px-1.5 py-0.5 rounded" title="80%+ of approved budget used">
                                         ⚠ {pct.toFixed(0)}% used
+                                      </span>
+                                    )}
+                                    {childrenWarning && (
+                                      <span className="text-[10px] font-semibold text-red-800 bg-red-200 px-1.5 py-0.5 rounded" title="Sub-categories exceed parent budget">
+                                        ⚠ Sub-cats: {displayMoney(childrenTotal)} &gt; {displayMoney(budget)}
+                                      </span>
+                                    )}
+                                    {hasChildren && !childrenWarning && (
+                                      <span className="text-[10px] text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded" title="Sub-categories total">
+                                        Sub-cats: {displayMoney(childrenTotal)}
                                       </span>
                                     )}
                                     {cat.is_locked && (
