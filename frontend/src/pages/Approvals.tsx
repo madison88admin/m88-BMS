@@ -2693,10 +2693,89 @@ const Approvals = () => {
                         {req.within_budget !== undefined && (
                           <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-semibold ${req.within_budget ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-red-300 bg-red-50 text-red-700'}`}>
                             {req.within_budget ? 'Within approved budget' : 'Outside approved budget'}
-                            {budgetSummary && (
-                              <p className="mt-1 text-xs font-normal opacity-80">
-                                Dept remaining: {displayMoney(requestingDepartmentRemaining, 'PHP')} · After approval: {displayMoney(projectedRemainingAfterApproval, 'PHP')}
-                              </p>
+                            {/* For supervisors, show category-level remaining instead of department annual budget */}
+                            {user.role === 'supervisor' ? (
+                              (() => {
+                                const categoryIds = new Set<string>();
+                                if (req.category_id) categoryIds.add(req.category_id);
+                                for (const item of req.metadata?.items || []) {
+                                  if (item.category_id) categoryIds.add(item.category_id);
+                                }
+
+                                const matchedCategories = budgetCategories.filter((cat: any) => categoryIds.has(cat.id));
+
+                                // Fallback: match by category name when ids are not present
+                                if (matchedCategories.length === 0) {
+                                  const names = new Set<string>();
+                                  if (req.category) names.add(req.category);
+                                  if (req.main_category_name) names.add(req.main_category_name);
+                                  for (const item of req.metadata?.items || []) {
+                                    if (item.category) names.add(item.category);
+                                    if (item.main_category) names.add(item.main_category);
+                                  }
+                                  matchedCategories.push(...budgetCategories.filter((cat: any) => names.has(cat.category_name)));
+                                }
+
+                                if (matchedCategories.length === 0) {
+                                  return (
+                                    <p className="mt-1 text-xs font-normal opacity-80">Category budget: not available</p>
+                                  );
+                                }
+
+                                if (matchedCategories.length === 1) {
+                                  const cat = matchedCategories[0];
+                                  // compute requested amount against this category
+                                  let amtForCat = 0;
+                                  if (req.metadata?.items?.length) {
+                                    amtForCat = req.metadata.items.reduce((sum: number, it: any) => {
+                                      const matchById = it.category_id && String(it.category_id) === String(cat.id);
+                                      const matchByName = it.category && it.category === cat.category_name;
+                                      return sum + (matchById || matchByName ? toNumber(it.amount) : 0);
+                                    }, 0);
+                                    if (amtForCat === 0) amtForCat = requestAmount; // fallback
+                                  } else {
+                                    amtForCat = requestAmount;
+                                  }
+
+                                  const remaining = toNumber(cat.remaining_amount ?? cat.remaining_amount ?? 0);
+                                  const projected = remaining - amtForCat;
+
+                                  return (
+                                    <p className="mt-1 text-xs font-normal opacity-80">
+                                      Category remaining: {displayMoney(remaining, 'PHP')} · After approval: {displayMoney(projected, 'PHP')}
+                                    </p>
+                                  );
+                                }
+
+                                // Multiple categories: list each
+                                return (
+                                  <div className="mt-1 text-xs font-normal opacity-80">
+                                    {matchedCategories.map((cat: any) => {
+                                      const amtForCat = req.metadata?.items?.length
+                                        ? req.metadata.items.reduce((sum: number, it: any) => {
+                                            const matchById = it.category_id && String(it.category_id) === String(cat.id);
+                                            const matchByName = it.category && it.category === cat.category_name;
+                                            return sum + (matchById || matchByName ? toNumber(it.amount) : 0);
+                                          }, 0)
+                                        : 0;
+                                      const remaining = toNumber(cat.remaining_amount ?? 0);
+                                      const projected = remaining - (amtForCat || 0);
+                                      return (
+                                        <div key={cat.id} className="mt-1">
+                                          <div className="font-semibold">{cat.category_name}:</div>
+                                          <div>Remaining: {displayMoney(remaining, 'PHP')} · After: {displayMoney(projected, 'PHP')}</div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })()
+                            ) : (
+                              budgetSummary && (
+                                <p className="mt-1 text-xs font-normal opacity-80">
+                                  Dept remaining: {displayMoney(requestingDepartmentRemaining, 'PHP')} · After approval: {displayMoney(projectedRemainingAfterApproval, 'PHP')}
+                                </p>
+                              )
                             )}
                           </div>
                         )}
