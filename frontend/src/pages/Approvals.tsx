@@ -2242,6 +2242,20 @@ const Approvals = () => {
                                 Sub-category / Item: {subCategory}
                               </p>
                             )}
+                            <p className="mt-2 text-sm text-[var(--role-text)]/75">
+                              {subCategory && subCategory !== mainCategory ? 'Deduct from sub-category budget:' : 'Deduct from category budget:'}
+                              <span className="ml-1 font-semibold text-[var(--role-text)]">{formatMoney(requestAmount)}</span>
+                            </p>
+                            {budgetSummary && (
+                              <div className="mt-3 space-y-1 text-xs text-[var(--role-text)]/70">
+                                <p>
+                                  Remaining before approval: <span className="font-semibold text-[var(--role-text)]">{formatMoney(requestingDepartmentRemaining)}</span>
+                                </p>
+                                <p>
+                                  Projected after approval: <span className="font-semibold text-[var(--role-text)]">{formatMoney(projectedRemainingAfterApproval)}</span>
+                                </p>
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
