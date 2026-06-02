@@ -10,6 +10,8 @@ const getDepartmentGroupKey = (department: { name?: string; fiscal_year?: number
   `${normalizeDepartmentName(department.name || '').toLowerCase()}::${department.fiscal_year ?? ''}`;
 
 export const isBudgetCommittedStatus = (status?: string) => status === 'released' || status === 'approved';
+export const isBudgetWorkflow = (requestType?: string) => requestType === 'budget_request' || requestType === 'budget_revision';
+export const isActualExpenseCommittedStatus = (status?: string, requestType?: string) => isBudgetCommittedStatus(status) && !isBudgetWorkflow(requestType);
 export const isPendingBudgetStatus = (status?: string) => status === 'pending_supervisor' || status === 'pending_accounting' || status === 'pending_vp' || status === 'pending_president' || status === 'on_hold';
 export const isOnHoldStatus = (status?: string) => status === 'on_hold';
 
@@ -29,6 +31,7 @@ interface ExpenseRequestRow {
   department_id: string;
   amount: number | string;
   status?: string;
+  request_type?: string;
 }
 
 interface DepartmentBudgetSummary {
@@ -96,7 +99,7 @@ export const buildDepartmentBudgetSummaryMap = async () => {
     supabase
       .from('departments')
       .select('id, name, fiscal_year, annual_budget, used_budget, petty_cash_balance, updated_at, created_at'),
-    supabase.from('expense_requests').select('id, department_id, amount, status'),
+    supabase.from('expense_requests').select('id, department_id, amount, status, request_type'),
     supabase.from('direct_expenses').select('department_id, amount')
   ]);
 
@@ -151,7 +154,7 @@ export const buildDepartmentBudgetSummaryMap = async () => {
         current.pendingPresident += impact.amount;
       } else if (request.status === 'on_hold') {
         current.onHold += impact.amount;
-      } else if (isBudgetCommittedStatus(request.status)) {
+      } else if (isActualExpenseCommittedStatus(request.status, request.request_type)) {
         current.released += impact.amount;
       }
 

@@ -98,6 +98,14 @@ const statusTone = (status: string) => {
   }
 };
 
+const getRequestTypeLabel = (requestType?: string) => {
+  switch (requestType) {
+    case 'budget_request': return 'Budget Proposal';
+    case 'budget_revision': return 'Budget Revision';
+    default: return 'Expense Request';
+  }
+};
+
 const BudgetManagement = () => {
   const [user, setUser] = useState<any>(null);
   const [departments, setDepartments] = useState<any[]>([]);
@@ -1119,8 +1127,11 @@ const BudgetManagement = () => {
                   </div>
 
                   <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold">Recent Requests</h3>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold">Recent Requests</h3>
+                        <p className="text-xs text-[var(--role-text)]/50">Budget proposals and revisions are only category updates until released; actual spend is tracked separately.</p>
+                      </div>
                       <span className="text-xs text-[var(--role-text)]/50 uppercase tracking-[0.14em]">Latest {RECENT_PAGE_SIZE}/page</span>
                     </div>
                     <div className="space-y-3">
@@ -1130,7 +1141,12 @@ const BudgetManagement = () => {
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-semibold text-sm text-[var(--role-text)]">{req.item_name}</p>
-                              <p className="text-xs text-[var(--role-text)]/60">{req.request_code} · {req.category}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--role-text)]/60">
+                                <span>{req.request_code}</span>
+                                <span>·</span>
+                                <span>{req.category}</span>
+                                <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-2 py-0.5 uppercase tracking-[0.12em]">{getRequestTypeLabel(req.request_type)}</span>
+                              </div>
                             </div>
                             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize whitespace-nowrap ${statusTone(req.status)}`}>{req.status?.replace('_', ' ')}</span>
                           </div>

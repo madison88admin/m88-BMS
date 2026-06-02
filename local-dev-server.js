@@ -644,6 +644,8 @@ const getRequestForUser = async (requestId, user) => {
 const getDepartmentGroupKey = (department) =>
   `${normalizeDepartmentName(department?.name || '').toLowerCase()}::${department?.fiscal_year ?? ''}`;
 const isPendingBudgetStatus = (status) => status === 'pending_supervisor' || status === 'pending_accounting';
+const isBudgetWorkflow = (requestType) => requestType === 'budget_request' || requestType === 'budget_revision';
+const isActualExpenseCommittedStatus = (request) => isBudgetCommittedStatus(request.status) && !isBudgetWorkflow(request.request_type);
 const buildDepartmentBudgetSummaryMap = async () => {
   const [departmentsResult, requestsResult, directExpensesResult] = await Promise.all([
     supabase
@@ -675,7 +677,7 @@ const buildDepartmentBudgetSummaryMap = async () => {
     const annualBudget = Math.max(...groupedDepartments.map((entry) => toNumber(entry.annual_budget)), 0);
     const pettyCashBalance = Math.max(...groupedDepartments.map((entry) => toNumber(entry.petty_cash_balance)), 0);
     const releasedRequestsTotal = requests
-      .filter((request) => ids.includes(request.department_id) && isBudgetCommittedStatus(request.status))
+      .filter((request) => ids.includes(request.department_id) && isActualExpenseCommittedStatus(request))
       .reduce((sum, request) => sum + toNumber(request.amount), 0);
     const pendingSupervisorTotal = requests
       .filter((request) => ids.includes(request.department_id) && request.status === 'pending_supervisor')
@@ -755,7 +757,7 @@ const buildDepartmentBudgetSummaryMapV2 = async () => {
     supabase
       .from('departments')
       .select('id, name, fiscal_year, annual_budget, used_budget, petty_cash_balance, updated_at, created_at'),
-    supabase.from('expense_requests').select('id, department_id, amount, status'),
+    supabase.from('expense_requests').select('id, department_id, amount, status, request_type'),
     supabase.from('direct_expenses').select('department_id, amount')
   ]);
 
@@ -786,7 +788,7 @@ const buildDepartmentBudgetSummaryMapV2 = async () => {
       const current = totalsByDepartmentId.get(impact.department_id) || { released: 0, pendingSupervisor: 0, pendingAccounting: 0 };
       if (request.status === 'pending_supervisor') current.pendingSupervisor += impact.amount;
       else if (request.status === 'pending_accounting') current.pendingAccounting += impact.amount;
-      else if (isBudgetCommittedStatus(request.status)) current.released += impact.amount;
+      else if (isActualExpenseCommittedStatus(request)) current.released += impact.amount;
       totalsByDepartmentId.set(impact.department_id, current);
     });
   });
@@ -2037,7 +2039,7 @@ app.get('/api/departments/:id/budget-breakdown', authenticate, async (req, res) 
     const totals = {
       annual_budget: Math.max(...relatedDepartments.map((entry) => toNumber(entry.annual_budget)), 0),
       used_budget: requests
-        .filter((request) => isBudgetCommittedStatus(request.status))
+        .filter((request) => isActualExpenseCommittedStatus(request))
         .reduce((sum, request) => {
           const allocations = normalizeAllocationsV2(request, allocationsByRequestId.get(request.id) || []);
           return sum + allocations
@@ -2047,7 +2049,7 @@ app.get('/api/departments/:id/budget-breakdown', authenticate, async (req, res) 
         directExpenses.reduce((sum, expense) => sum + toNumber(expense.amount), 0),
       petty_cash_balance: Math.max(...relatedDepartments.map((entry) => toNumber(entry.petty_cash_balance)), 0),
       released_requests_total: requests
-        .filter((request) => isBudgetCommittedStatus(request.status))
+        .filter((request) => isActualExpenseCommittedStatus(request))
         .reduce((sum, request) => {
           const allocations = normalizeAllocationsV2(request, allocationsByRequestId.get(request.id) || []);
           return sum + allocations
@@ -2102,7 +2104,7 @@ app.get('/api/departments/:id/budget-breakdown', authenticate, async (req, res) 
       totals,
       counts: {
         total_requests: requestsWithDepartmentShare.length,
-        released_requests: requestsWithDepartmentShare.filter((request) => isBudgetCommittedStatus(request.status)).length,
+        released_requests: requestsWithDepartmentShare.filter((request) => isActualExpenseCommittedStatus(request)).length,
         pending_supervisor: requestsWithDepartmentShare.filter((request) => request.status === 'pending_supervisor').length,
         pending_accounting: requestsWithDepartmentShare.filter((request) => request.status === 'pending_accounting').length,
         rejected_requests: requestsWithDepartmentShare.filter((request) => request.status === 'rejected').length,

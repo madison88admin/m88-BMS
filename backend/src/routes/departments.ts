@@ -11,6 +11,8 @@ const router = express.Router();
 
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 const normalizeDepartmentName = (value: string) => String(value || '').trim();
+const isBudgetWorkflow = (requestType?: string) => requestType === 'budget_request' || requestType === 'budget_revision';
+const isActualExpenseCommittedStatus = (request: any) => isBudgetCommittedStatus(request.status) && !isBudgetWorkflow(request.request_type);
 
 // GET /api/departments
 router.get('/', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (req: any, res) => {
@@ -142,7 +144,7 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
   const [requestsResult, directExpensesResult, pettyCashResult] = await Promise.all([
     supabase
       .from('expense_requests')
-      .select('id, request_code, department_id, item_name, category, amount, priority, status, submitted_at, updated_at')
+      .select('id, request_code, department_id, item_name, category, amount, priority, request_type, status, submitted_at, updated_at')
       .eq('fiscal_year', selectedDepartment.fiscal_year)
       .order('submitted_at', { ascending: false }),
     supabase
@@ -186,7 +188,7 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
   const totals = {
     annual_budget: Math.max(...relatedDepartments.map(entry => toNumber(entry.annual_budget)), 0),
     used_budget: requests
-      .filter(request => isBudgetCommittedStatus(request.status))
+      .filter(request => isActualExpenseCommittedStatus(request))
       .reduce((sum, request) => {
         const allocations = normalizeAllocations(request, allocationsByRequestId.get(request.id) || []);
         return sum + allocations
@@ -196,7 +198,7 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
       directExpenses.reduce((sum, expense) => sum + toNumber(expense.amount), 0),
     petty_cash_balance: Math.max(...relatedDepartments.map(entry => toNumber(entry.petty_cash_balance)), 0),
     released_requests_total: requests
-      .filter(request => isBudgetCommittedStatus(request.status))
+      .filter(request => isActualExpenseCommittedStatus(request))
       .reduce((sum, request) => {
         const allocations = normalizeAllocations(request, allocationsByRequestId.get(request.id) || []);
         return sum + allocations
@@ -273,7 +275,7 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
     totals,
     counts: {
       total_requests: requestsWithDepartmentShare.length,
-      released_requests: requestsWithDepartmentShare.filter(request => isBudgetCommittedStatus(request.status)).length,
+      released_requests: requestsWithDepartmentShare.filter(request => isActualExpenseCommittedStatus(request)).length,
       pending_supervisor: requestsWithDepartmentShare.filter(request => request.status === 'pending_supervisor').length,
       pending_accounting: requestsWithDepartmentShare.filter(request => request.status === 'pending_accounting').length,
       rejected_requests: requestsWithDepartmentShare.filter(request => request.status === 'rejected').length,

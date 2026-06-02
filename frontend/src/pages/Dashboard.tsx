@@ -261,18 +261,21 @@ const Dashboard = () => {
     };
   }, [navigate]);
 
+  const isBudgetFlow = (requestType?: string) => requestType === 'budget_request' || requestType === 'budget_revision';
+  const isActualExpenseCommitted = (request: any) => (request.status === 'released' || request.status === 'approved') && !isBudgetFlow(request.request_type);
+
   const stats = useMemo(() => {
     const total = requests.length;
     const pendingSupervisor = requests.filter((r: any) => r.status === 'pending_supervisor').length;
     const pendingAccounting = requests.filter((r: any) => r.status === 'pending_accounting').length;
-    const released = requests.filter((r: any) => r.status === 'released' || r.status === 'approved').length;
+    const released = requests.filter((r: any) => isActualExpenseCommitted(r)).length;
     const rejected = requests.filter((r: any) => r.status === 'rejected').length;
     const totalAmount = requests.reduce((sum: number, request: any) => sum + toNumber(request.amount), 0);
     const pendingAmount = requests
       .filter((r: any) => ['pending_supervisor', 'pending_accounting', 'returned_for_revision'].includes(r.status))
       .reduce((sum: number, request: any) => sum + toNumber(request.amount), 0);
     const releasedAmount = requests
-      .filter((r: any) => r.status === 'released' || r.status === 'approved')
+      .filter((r: any) => isActualExpenseCommitted(r))
       .reduce((sum: number, request: any) => sum + toNumber(request.amount), 0);
     const rejectedAmount = requests
       .filter((r: any) => r.status === 'rejected')
@@ -326,9 +329,10 @@ const Dashboard = () => {
       { name: 'Remaining', value: Math.max(0, toNumber(budgetSummary.remaining_budget)) }
     ] : [];
 
-    // Spending by Category
+    // Spending by Category (actual committed expenses only)
     const categoryMap = new Map();
     requests.forEach((req: any) => {
+      if (!isActualExpenseCommitted(req)) return;
       const category = req.category || 'Uncategorized';
       const amount = toNumber(req.amount);
       categoryMap.set(category, (categoryMap.get(category) || 0) + amount);
@@ -350,9 +354,9 @@ const Dashboard = () => {
       monthlyMap.set(key, 0);
     }
     
-    // Aggregate released/approved requests by month
+    // Aggregate actual released expenses by month
     requests.forEach((req: any) => {
-      if (req.status === 'released' || req.status === 'approved') {
+      if (isActualExpenseCommitted(req)) {
         const date = new Date(req.released_at || req.updated_at || req.created_at);
         const monthKey = date.toLocaleString('default', { month: 'short', year: '2-digit' });
         if (monthlyMap.has(monthKey)) {
@@ -421,7 +425,7 @@ const Dashboard = () => {
       if (!currencyTotals[cur]) currencyTotals[cur] = { total: 0, used: 0, pending: 0, count: 0 };
       currencyTotals[cur].total += toNumber(r.amount);
       currencyTotals[cur].count += 1;
-      if (r.status === 'released' || r.status === 'approved') currencyTotals[cur].used += toNumber(r.amount);
+      if (isActualExpenseCommitted(r)) currencyTotals[cur].used += toNumber(r.amount);
       if (['pending_supervisor', 'pending_accounting'].includes(r.status)) currencyTotals[cur].pending += toNumber(r.amount);
     });
 
