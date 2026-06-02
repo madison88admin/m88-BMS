@@ -29,35 +29,38 @@ router.get('/', authenticate, async (req: any, res) => {
 
 // POST /api/expenses - supervisor logs direct expense
 router.post('/', authenticate, authorize('supervisor'), async (req: any, res) => {
-  const { item_name, category, amount, description, expense_date } = req.body;
-  const { data: dept } = await supabase.from('departments').select('*').eq('id', req.user.department_id).single();
-  
-  // Check category budget instead of department annual budget
-  const { data: categoryBudget, error: categoryError } = await supabase
-    .from('budget_categories')
-    .select('remaining_amount, used_amount')
-    .eq('category_name', category)
-    .eq('department_id', req.user.department_id)
-    .eq('fiscal_year', new Date().getFullYear())
-    .maybeSingle();
-  
+  const { item_name, category_id, category, amount, description, expense_date } = req.body;
+  const { data: dept, error: deptError } = await supabase.from('departments').select('*').eq('id', req.user.department_id).single();
+  if (deptError || !dept) return res.status(400).json({ error: deptError?.message || 'Department not found.' });
+
+  const targetFiscalYear = Number(dept.fiscal_year) || new Date().getFullYear();
+  let categoryFilter = supabase.from('budget_categories').select('id, category_name, parent_category_id, remaining_amount, used_amount').eq('department_id', req.user.department_id).eq('fiscal_year', targetFiscalYear);
+
+  if (category_id) {
+    categoryFilter = categoryFilter.eq('id', category_id);
+  } else if (category) {
+    categoryFilter = categoryFilter.eq('category_name', String(category).trim());
+  } else {
+    return res.status(400).json({ error: 'Category ID or category name is required.' });
+  }
+
+  const { data: categoryBudget, error: categoryError } = await categoryFilter.maybeSingle();
   if (categoryError) return res.status(400).json({ error: categoryError.message });
-  
   if (!categoryBudget) {
-    return res.status(400).json({ error: 'Category not found in budget' });
+    return res.status(400).json({ error: `Category not found for department in fiscal year ${targetFiscalYear}.` });
   }
-  
-  if (categoryBudget.remaining_amount < amount) {
-    return res.status(400).json({ error: `Insufficient budget in category "${category}". Remaining: ${categoryBudget.remaining_amount.toFixed(2)}` });
+
+  if (toNumber(categoryBudget.remaining_amount) < toNumber(amount)) {
+    return res.status(400).json({ error: `Insufficient budget in category "${categoryBudget.category_name}". Remaining: ${toNumber(categoryBudget.remaining_amount).toFixed(2)}` });
   }
-  
+
   const { data, error } = await supabase
     .from('direct_expenses')
     .insert({
       department_id: req.user.department_id,
       logged_by: req.user.id,
       item_name,
-      category,
+      category: categoryBudget.category_name,
       amount,
       description,
       expense_date
@@ -65,18 +68,15 @@ router.post('/', authenticate, authorize('supervisor'), async (req: any, res) =>
     .select()
     .single();
   if (error) return res.status(400).json({ error });
-  
-  // Deduct from category budget instead of department budget
+
   await supabase
     .from('budget_categories')
     .update({ 
-      used_amount: categoryBudget.used_amount + amount,
-      remaining_amount: categoryBudget.remaining_amount - amount
+      used_amount: toNumber(categoryBudget.used_amount) + toNumber(amount),
+      remaining_amount: toNumber(categoryBudget.remaining_amount) - toNumber(amount)
     })
-    .eq('category_name', category)
-    .eq('department_id', req.user.department_id)
-    .eq('fiscal_year', new Date().getFullYear());
-  
+    .eq('id', categoryBudget.id);
+
   res.json(data);
 });
 

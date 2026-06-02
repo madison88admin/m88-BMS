@@ -531,35 +531,33 @@ const releaseRequest = async (
   }
 
   // Only check category budget (main or sub), not department annual budget
-  // Department budget check removed to ensure budget is deducted from category level
+  // Department used_budget is intentionally not updated here.
 
   for (const allocation of normalizedAllocations) {
-    const { data: department, error: departmentError } = await supabase
-      .from('departments')
-      .select('id, used_budget, petty_cash_balance')
-      .eq('id', allocation.department_id)
-      .single();
-
-    if (departmentError || !department) {
-      throw new Error(departmentError?.message || 'Department not found.');
-    }
-
-    const updatePayload: any = {
-      used_budget: toNumber(department.used_budget) + toNumber(allocation.amount),
-      updated_at: new Date()
-    };
-
     if (releaseMethod === 'petty_cash') {
-      updatePayload.petty_cash_balance = toNumber(department.petty_cash_balance) - toNumber(allocation.amount);
-    }
+      const { data: department, error: departmentError } = await supabase
+        .from('departments')
+        .select('id, petty_cash_balance')
+        .eq('id', allocation.department_id)
+        .single();
 
-    const { error: updateDepartmentError } = await supabase
-      .from('departments')
-      .update(updatePayload)
-      .eq('id', allocation.department_id);
+      if (departmentError || !department) {
+        throw new Error(departmentError?.message || 'Department not found.');
+      }
 
-    if (updateDepartmentError) {
-      throw updateDepartmentError;
+      const updatePayload: any = {
+        petty_cash_balance: toNumber(department.petty_cash_balance) - toNumber(allocation.amount),
+        updated_at: new Date()
+      };
+
+      const { error: updateDepartmentError } = await supabase
+        .from('departments')
+        .update(updatePayload)
+        .eq('id', allocation.department_id);
+
+      if (updateDepartmentError) {
+        throw updateDepartmentError;
+      }
     }
 
     // Deduct from category budgets for this allocation's department
@@ -1720,31 +1718,11 @@ router.patch('/:id/allocations', authenticate, authorize('accounting', 'admin'),
         .single();
       
       if (catError) return res.status(400).json({ error: catError.message || 'Failed to verify category budget.' });
-      // If category doesn't exist for this department, create a placeholder so existing tickets are covered
-      let effectiveCat = categoryBudget;
-      if (!effectiveCat) {
-        const now = new Date();
-        const { data: createdCat, error: createErr } = await supabase
-          .from('budget_categories')
-          .insert({
-            category_name: categoryName,
-            department_id: allocation.department_id,
-            fiscal_year: request.fiscal_year,
-            budget_amount: 0,
-            used_amount: 0,
-            committed_amount: 0,
-            remaining_amount: 0,
-            created_at: now,
-            updated_at: now
-          })
-          .select()
-          .maybeSingle();
-
-        if (createErr) return res.status(400).json({ error: createErr.message || 'Failed to create missing category.' });
-        effectiveCat = createdCat;
+      if (!categoryBudget) {
+        return res.status(400).json({ error: `Category "${categoryName}" not found for department ${allocation.department_id} in fiscal year ${request.fiscal_year}.` });
       }
 
-      const remaining = toNumber(effectiveCat.remaining_amount);
+      const remaining = toNumber(categoryBudget.remaining_amount);
       const allocationAmount = toNumber(allocation.amount);
       
       if (remaining < allocationAmount) {
