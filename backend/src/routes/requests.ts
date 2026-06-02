@@ -3518,7 +3518,7 @@ router.post('/bulk-approve-executive', authenticate, authorize('vp', 'president'
 });
 
 // Migration endpoint to update existing request items to use sub-categories
-router.post('/migrate-to-subcategories', authenticate, authorize(['admin', 'accounting']), async (req, res) => {
+router.post('/migrate-to-subcategories', authenticate, authorize('admin', 'accounting'), async (req, res) => {
   try {
     const result = await migrateRequestItemsToSubCategories();
     res.json(result);

@@ -13,6 +13,7 @@ import FilePreviewer from '../components/FilePreviewer';
 import { buildCategorySearchString, getCategoryCode } from '../utils/categories';
 
 import { formatMoney, toNumber, getStatusLabel, getRequesterName, formatDateTime } from '../utils/format';
+import { useExchangeRates } from '../hooks/useExchangeRates';
 
 
 
@@ -118,6 +119,31 @@ const Approvals = () => {
     IDR: { vp: 500, president: 500 }
   });
   const [currentCurrency, setCurrentCurrency] = useState<'PHP' | 'USD' | 'IDR'>('PHP');
+  const { rates: fxRates } = useExchangeRates();
+
+  const getSupportedCurrency = (currency?: string): 'PHP' | 'USD' | 'IDR' => {
+    if (currency === 'USD' || currency === 'IDR') return currency;
+    return 'PHP';
+  };
+
+  const convertCurrency = (
+    amount: number,
+    fromCurrency: 'PHP' | 'USD' | 'IDR',
+    toCurrency: 'PHP' | 'USD' | 'IDR'
+  ) => {
+    if (fromCurrency === toCurrency) return amount;
+    const fromRate = fxRates[fromCurrency] ?? 1;
+    const toRate = fxRates[toCurrency] ?? 1;
+    const phpValue = fromCurrency === 'PHP' ? amount : amount / fromRate;
+    return toCurrency === 'PHP' ? phpValue : phpValue * toRate;
+  };
+
+  const displayMoney = (amount: number, fromCurrency?: string) => {
+    return formatMoney(
+      convertCurrency(amount, getSupportedCurrency(fromCurrency), currentCurrency),
+      currentCurrency
+    );
+  };
 
 
 
@@ -286,9 +312,30 @@ const Approvals = () => {
 
             // Refresh departments when budget changes
 
-            if (user.role === 'accounting' || user.role === 'admin') {
+            if (['accounting', 'admin', 'vp', 'president'].includes(user.role)) {
 
               void fetchDepartments();
+              void fetchRequests(user.role);
+
+            }
+
+          }
+
+        )
+        .on(
+
+          'postgres_changes',
+
+          { event: '*', schema: 'public', table: 'budget_categories' },
+
+          () => {
+
+            // Budget category changes also impact VP/President ticket projections
+
+            if (['accounting', 'admin', 'vp', 'president'].includes(user.role)) {
+
+              void fetchDepartments();
+              void fetchRequests(user.role);
 
             }
 
@@ -1331,7 +1378,7 @@ const Approvals = () => {
       })
       .map((dept) => ({
         id: dept.id,
-        label: `${dept.name} • Remaining ${formatMoney(toNumber(dept.remaining_budget))} • Projected ${formatMoney(toNumber(dept.projected_remaining_budget))}`
+        label: `${dept.name} • Remaining ${displayMoney(toNumber(dept.remaining_budget), 'PHP')} • Projected ${displayMoney(toNumber(dept.projected_remaining_budget), 'PHP')}`
       }));
   };
 
@@ -1360,17 +1407,20 @@ const Approvals = () => {
           
           {/* Currency Selector for VP/President */}
           {(user?.role === 'vp' || user?.role === 'president' || user?.role === 'admin') && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[var(--role-text)]/60 uppercase tracking-wider">Currency:</span>
-              <select
-                value={currentCurrency}
-                onChange={(e) => setCurrentCurrency(e.target.value as 'PHP' | 'USD' | 'IDR')}
-                className="field-input !w-32 !py-2"
-              >
-                <option value="PHP">PHP (₱)</option>
-                <option value="USD">USD ($)</option>
-                <option value="IDR">IDR (Rp)</option>
-              </select>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--role-text)]/60 uppercase tracking-wider">Currency:</span>
+                <select
+                  value={currentCurrency}
+                  onChange={(e) => setCurrentCurrency(e.target.value as 'PHP' | 'USD' | 'IDR')}
+                  className="field-input !w-32 !py-2"
+                >
+                  <option value="PHP">PHP (₱)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="IDR">IDR (Rp)</option>
+                </select>
+              </div>
+              <p className="text-[11px] text-[var(--role-text)]/50">Converting values in real time using live FX rates.</p>
             </div>
           )}
         </div>
@@ -1786,7 +1836,10 @@ const Approvals = () => {
               const groupIds = group.requests.map(r => r.id);
               const allGroupSelected = groupIds.every(id => selectedRequests.has(id));
               const someGroupSelected = groupIds.some(id => selectedRequests.has(id));
-              const groupTotal = group.requests.reduce((sum, r) => sum + toNumber(r.amount), 0);
+              const groupTotal = group.requests.reduce(
+                (sum, r) => sum + convertCurrency(toNumber(r.amount), getSupportedCurrency(r.metadata?.currency || r.currency), currentCurrency),
+                0
+              );
 
               return (
                 <div key={group.deptId} className="panel overflow-hidden !p-0">
@@ -1820,7 +1873,7 @@ const Approvals = () => {
                     <div className="flex items-center gap-3">
                       <div className="text-right">
                         <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Total Amount</p>
-                        <p className="font-bold text-[var(--role-text)]">{formatMoney(groupTotal)}</p>
+                        <p className="font-bold text-[var(--role-text)]">{formatMoney(groupTotal, currentCurrency)}</p>
                       </div>
                       {!isSupervisor && !isExecutiveView && (
                         <button
@@ -1890,6 +1943,7 @@ const Approvals = () => {
                       <tbody className="divide-y divide-[var(--role-border)]/20">
                         {group.requests.map((req, idx) => {
                           const sla = calculateSLA(req);
+                          const requestCurrency = getSupportedCurrency(req.metadata?.currency || req.currency);
                           const isSelected = selectedRequests.has(req.id);
                           return (
                             <tr
@@ -1950,7 +2004,7 @@ const Approvals = () => {
                               </td>
                               {/* Amount */}
                               <td className="px-4 py-3 text-right font-bold text-[var(--role-text)] whitespace-nowrap">
-                                {formatMoney(toNumber(req.amount))}
+                                {displayMoney(toNumber(req.amount), requestCurrency)}
                               </td>
                               {/* Actions */}
                               <td className="px-4 py-3">
@@ -2003,7 +2057,7 @@ const Approvals = () => {
                             Department Total
                           </td>
                           <td className="px-4 py-2.5 text-right font-bold text-[var(--role-text)]">
-                            {formatMoney(groupTotal)}
+                            {formatMoney(groupTotal, currentCurrency)}
                           </td>
                           <td></td>
                         </tr>
@@ -2063,6 +2117,8 @@ const Approvals = () => {
             const draftTotal = getDraftTotal(req.id);
 
             const requestAmount = toNumber(req.amount);
+
+            const requestCurrency = getSupportedCurrency(req.metadata?.currency || req.currency);
 
             const remainingToAllocate = requestAmount - draftTotal;
 
@@ -2244,15 +2300,15 @@ const Approvals = () => {
                             )}
                             <p className="mt-2 text-sm text-[var(--role-text)]/75">
                               {subCategory && subCategory !== mainCategory ? 'Deduct from sub-category budget:' : 'Deduct from category budget:'}
-                              <span className="ml-1 font-semibold text-[var(--role-text)]">{formatMoney(requestAmount)}</span>
+                              <span className="ml-1 font-semibold text-[var(--role-text)]">{displayMoney(requestAmount, requestCurrency)}</span>
                             </p>
                             {budgetSummary && (
                               <div className="mt-3 space-y-1 text-xs text-[var(--role-text)]/70">
                                 <p>
-                                  Remaining before approval: <span className="font-semibold text-[var(--role-text)]">{formatMoney(requestingDepartmentRemaining)}</span>
+                                  Remaining before approval: <span className="font-semibold text-[var(--role-text)]">{displayMoney(requestingDepartmentRemaining, 'PHP')}</span>
                                 </p>
                                 <p>
-                                  Projected after approval: <span className="font-semibold text-[var(--role-text)]">{formatMoney(projectedRemainingAfterApproval)}</span>
+                                  Projected after approval: <span className="font-semibold text-[var(--role-text)]">{displayMoney(projectedRemainingAfterApproval, 'PHP')}</span>
                                 </p>
                               </div>
                             )}
@@ -2261,7 +2317,7 @@ const Approvals = () => {
                       })()}
 
                       <p className="mt-2 text-lg text-[var(--role-text)]/90">
-                        {formatMoney(requestAmount)}
+                        {displayMoney(requestAmount, requestCurrency)}
                         {!getMainCategoryDisplay(req) && req.category && (
                           <> • <span title={req.category}>{formatCategoryWithCodes(req.category)}</span></>
                         )}
@@ -2311,7 +2367,7 @@ const Approvals = () => {
                                       </>
                                     )}
 
-                                    <td className="px-4 py-2 text-right font-medium">{formatMoney(item.amount)}</td>
+                                    <td className="px-4 py-2 text-right font-medium">{displayMoney(toNumber(item.amount), requestCurrency)}</td>
 
                                   </tr>
 
@@ -2321,7 +2377,7 @@ const Approvals = () => {
 
                                   <td colSpan={3} className="px-4 py-2 text-right">Total</td>
 
-                                  <td className="px-4 py-2 text-right">{formatMoney(req.amount)}</td>
+                                  <td className="px-4 py-2 text-right">{displayMoney(requestAmount, requestCurrency)}</td>
 
                                 </tr>
 
@@ -2377,7 +2433,7 @@ const Approvals = () => {
 
                                 <span className="text-[var(--role-text)]/60">Actual Amount:</span>
 
-                                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(req.latest_liquidation.actual_amount))}</span>
+                                <span className="font-bold text-[var(--role-text)]">{displayMoney(toNumber(req.latest_liquidation.actual_amount), requestCurrency)}</span>
 
                               </div>
 
@@ -2387,7 +2443,7 @@ const Approvals = () => {
 
                                 <span className={`font-bold ${toNumber(req.latest_liquidation.actual_amount) > toNumber(req.amount) ? 'text-orange-600' : 'text-emerald-600'}`}>
 
-                                  {formatMoney(toNumber(req.latest_liquidation.actual_amount) - toNumber(req.amount))}
+                                  {displayMoney(toNumber(req.latest_liquidation.actual_amount) - requestAmount, requestCurrency)}
 
                                 </span>
 
@@ -2468,7 +2524,7 @@ const Approvals = () => {
                                 <div className="grid grid-cols-2 gap-2">
                                   <div>
                                     <span className="text-[var(--role-text)]/60">Amount Spent:</span>
-                                    <span className="ml-2 font-semibold">{formatMoney(toNumber(req.latest_liquidation.amount_spent))}</span>
+                                    <span className="ml-2 font-semibold">{displayMoney(toNumber(req.latest_liquidation.amount_spent), requestCurrency)}</span>
                                   </div>
                                   <div>
                                     <span className="text-[var(--role-text)]/60">Receipts:</span>
@@ -2636,7 +2692,7 @@ const Approvals = () => {
                             {req.within_budget ? 'Within approved budget' : 'Outside approved budget'}
                             {budgetSummary && (
                               <p className="mt-1 text-xs font-normal opacity-80">
-                                Dept remaining: {formatMoney(requestingDepartmentRemaining)} · After approval: {formatMoney(projectedRemainingAfterApproval)}
+                                Dept remaining: {displayMoney(requestingDepartmentRemaining, 'PHP')} · After approval: {displayMoney(projectedRemainingAfterApproval, 'PHP')}
                               </p>
                             )}
                           </div>
@@ -2678,7 +2734,7 @@ const Approvals = () => {
 
                             <div className="text-sm text-[var(--role-text)]/70">
 
-                              Total allocated: <span className="font-semibold text-[var(--role-text)]">{formatMoney(draftTotal)}</span> / {formatMoney(requestAmount)}
+                              Total allocated: <span className="font-semibold text-[var(--role-text)]">{displayMoney(draftTotal, requestCurrency)}</span> / {displayMoney(requestAmount, requestCurrency)}
 
                             </div>
 
@@ -2700,7 +2756,7 @@ const Approvals = () => {
 
                             <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Requesting Dept Total Budget</p>
 
-                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{formatMoney(requestingDepartmentBudget)}</p>
+                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(requestingDepartmentBudget, 'PHP')}</p>
 
                             <p className="mt-1 text-xs text-[var(--role-text)]/60">{req.department_name || 'Unknown department'} total annual budget</p>
 
@@ -2710,7 +2766,7 @@ const Approvals = () => {
 
                             <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Preview Total Budget</p>
 
-                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{formatMoney(requestAmount)}</p>
+                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(requestAmount, requestCurrency)}</p>
 
                             <p className="mt-1 text-xs text-[var(--role-text)]/60">Full request amount before approval</p>
 
@@ -2720,7 +2776,7 @@ const Approvals = () => {
 
                             <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Allocated Draft</p>
 
-                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{formatMoney(draftTotal)}</p>
+                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(draftTotal, requestCurrency)}</p>
 
                             <p className="mt-1 text-xs text-[var(--role-text)]/60">Current split total from accounting</p>
 
@@ -2736,11 +2792,11 @@ const Approvals = () => {
 
                             <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Dept Remaining After Approval</p>
 
-                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{formatMoney(projectedRemainingAfterApproval)}</p>
+                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(projectedRemainingAfterApproval, 'PHP')}</p>
 
                             <p className="mt-1 text-xs text-[var(--role-text)]/60">
 
-                              Current remaining {formatMoney(requestingDepartmentRemaining)} before approval
+                              Current remaining {displayMoney(requestingDepartmentRemaining, 'PHP')} before approval
 
                             </p>
 
@@ -2750,7 +2806,7 @@ const Approvals = () => {
 
                             <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Balance to Allocate</p>
 
-                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{formatMoney(remainingToAllocate)}</p>
+                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(remainingToAllocate, requestCurrency)}</p>
 
                             <p className="mt-1 text-xs text-[var(--role-text)]/60">Should be zero before final approval</p>
 
@@ -2894,7 +2950,7 @@ const Approvals = () => {
 
                               <span className="text-xs font-bold uppercase tracking-widest">
 
-                                Petty Cash: {formatMoney(toNumber(budgetSummary?.petty_cash_balance))}
+                                Petty Cash: {displayMoney(toNumber(budgetSummary?.petty_cash_balance), 'PHP')}
 
                               </span>
 
@@ -2982,8 +3038,8 @@ const Approvals = () => {
                                 </p>
                                 <p className="mt-1 text-sm text-[var(--role-text)]/70">
                                   {requestAmount <= vpThreshold 
-                                    ? `Requests up to ${formatMoney(vpThreshold)} ${currentCurrency} require VP approval before release.`
-                                    : `Requests above ${formatMoney(vpThreshold)} ${currentCurrency} require President approval before release.`}
+                                    ? `Requests up to ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} require VP approval before release.`
+                                    : `Requests above ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} require President approval before release.`}
                                 </p>
                               </div>
 
@@ -3047,17 +3103,17 @@ const Approvals = () => {
 
                           <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">{allocation.department_name}</p>
 
-                          <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{formatMoney(toNumber(allocation.amount))}</p>
+                          <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(toNumber(allocation.amount), requestCurrency)}</p>
 
                           <p className="mt-1 text-xs text-[var(--role-text)]/60">
 
-                            Remaining {formatMoney(toNumber(allocation.remaining_budget))}
+                            Remaining {displayMoney(toNumber(allocation.remaining_budget), 'PHP')}
 
                           </p>
 
                           <p className="mt-1 text-xs text-[var(--role-text)]/60">
 
-                            Projected {formatMoney(toNumber(allocation.projected_remaining_budget))}
+                            Projected {displayMoney(toNumber(allocation.projected_remaining_budget), 'PHP')}
 
                           </p>
 
