@@ -143,7 +143,7 @@ const validateCategoryBudgetsForSubmission = async (
     const categoryIds = Array.from(itemCategoryTotals.keys());
     const { data: categories, error } = await supabase
       .from('budget_categories')
-      .select('id, category_name, department_id, fiscal_year, remaining_amount')
+      .select('id, category_name, department_id, fiscal_year, remaining_amount, parent_category_id')
       .in('id', categoryIds);
 
     if (error) return error.message;
@@ -162,8 +162,11 @@ const validateCategoryBudgetsForSubmission = async (
         return `Category "${category.category_name || id}" does not belong to the selected department and fiscal year.`;
       }
 
+      // If it's a sub-category, validate against sub-category budget
+      // If it's a main category, validate against main category budget
       if (toNumber(category.remaining_amount) < requestedAmount) {
-        return `Insufficient budget in category "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${requestedAmount.toFixed(2)}`;
+        const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
+        return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${requestedAmount.toFixed(2)}`;
       }
     }
 
@@ -176,7 +179,7 @@ const validateCategoryBudgetsForSubmission = async (
 
   let categoryQuery = supabase
     .from('budget_categories')
-    .select('id, category_name, department_id, fiscal_year, remaining_amount')
+    .select('id, category_name, department_id, fiscal_year, remaining_amount, parent_category_id')
     .eq('department_id', targetDepartmentId)
     .eq('fiscal_year', fiscalYear);
 
@@ -191,8 +194,11 @@ const validateCategoryBudgetsForSubmission = async (
     return null;
   }
 
+  // If it's a sub-category, validate against sub-category budget
+  // If it's a main category, validate against main category budget
   if (toNumber(category.remaining_amount) < totalAmount) {
-    return `Insufficient budget in category "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${totalAmount.toFixed(2)}`;
+    const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
+    return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${totalAmount.toFixed(2)}`;
   }
 
   return null;
