@@ -214,7 +214,7 @@ const BudgetManagement = () => {
   const isNewMainCategory = MAIN_CATEGORY_CODES.has(newCategory.category_code.trim().toUpperCase());
 
   const parentCategoryOptions = useMemo(
-    () => enrichedCategories,
+    () => enrichedCategories.filter((category) => !category.parent_category_id),
     [enrichedCategories]
   );
 
@@ -847,9 +847,9 @@ const BudgetManagement = () => {
                           </button>
                         </div>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {orderedCategories.filter(({ cat }) => cat.is_locked).map(({ cat, depth }) => (
-                            <div key={`rev-${cat.id}`} className="flex items-center gap-2 text-sm" style={{ marginLeft: `${depth * 12}px` }}>
-                              <span className="flex-1 truncate font-medium">{depth > 0 ? '↳ ' : ''}{cat.category_name}</span>
+                          {parentCategoryOptions.filter((c) => c.is_locked).map((cat) => (
+                            <div key={`rev-${cat.id}`} className="flex items-center gap-2 text-sm">
+                              <span className="flex-1 truncate font-medium">{cat.category_name}</span>
                               <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Approved: {displayMoney(toNumber(cat.budget_amount))}</span>
                               <input
                                 type="number"
@@ -880,9 +880,9 @@ const BudgetManagement = () => {
                           </button>
                         </div>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {orderedCategories.map(({ cat, depth }) => (
-                            <div key={cat.id} className="flex items-center gap-2 text-sm" style={{ marginLeft: `${depth * 12}px` }}>
-                              <span className="flex-1 truncate font-medium">{depth > 0 ? '↳ ' : ''}{cat.category_name}</span>
+                          {parentCategoryOptions.map((cat) => (
+                            <div key={cat.id} className="flex items-center gap-2 text-sm">
+                              <span className="flex-1 truncate font-medium">{cat.category_name}</span>
                               <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Current: {displayMoney(toNumber(cat.budget_amount))}</span>
                               <input
                                 type="number"
