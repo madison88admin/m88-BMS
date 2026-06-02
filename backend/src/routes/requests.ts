@@ -1000,6 +1000,78 @@ router.get('/official-list', authenticate, async (req: any, res) => {
   }
 });
 
+// GET /api/requests/debug/category/:categoryId - Debug budget usage for a category (accounting only)
+router.get('/debug/category/:categoryId', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  try {
+    const { categoryId } = req.params;
+    
+    const { data: category } = await supabase
+      .from('budget_categories')
+      .select('*')
+      .eq('id', categoryId)
+      .single();
+      
+    if (!category) return res.status(404).json({ error: 'Category not found' });
+    
+    // Get all requests using this category (both directly and via items)
+    const { data: requestsUsingDirect } = await supabase
+      .from('expense_requests')
+      .select('id, request_code, item_name, amount, status, submitted_at, category_id')
+      .eq('category_id', categoryId)
+      .eq('department_id', category.department_id)
+      .eq('fiscal_year', category.fiscal_year);
+      
+    const { data: itemsUsingCategory } = await supabase
+      .from('request_items')
+      .select('request_id, amount, category_id')
+      .eq('category_id', categoryId);
+      
+    const requestIdsFromItems = new Set((itemsUsingCategory || []).map(i => i.request_id));
+    
+    let itemRequestTotal = 0;
+    if (requestIdsFromItems.size > 0) {
+      const { data: requestsFromItems } = await supabase
+        .from('expense_requests')
+        .select('id, request_code, status, submitted_at')
+        .in('id', Array.from(requestIdsFromItems));
+        
+      for (const item of itemsUsingCategory || []) {
+        itemRequestTotal += toNumber(item.amount);
+      }
+    }
+    
+    const directTotal = (requestsUsingDirect || []).reduce((sum, r) => sum + toNumber(r.amount), 0);
+    
+    res.json({
+      category: {
+        id: category.id,
+        name: category.category_name,
+        budget_amount: category.budget_amount,
+        used_amount: category.used_amount,
+        committed_amount: category.committed_amount,
+        remaining_amount: category.remaining_amount
+      },
+      requests_using_directly: {
+        count: requestsUsingDirect?.length || 0,
+        total_amount: directTotal,
+        requests: requestsUsingDirect || []
+      },
+      requests_using_via_items: {
+        count: requestIdsFromItems.size,
+        total_amount: itemRequestTotal,
+        item_count: (itemsUsingCategory || []).length
+      },
+      summary: {
+        total_requests: (requestsUsingDirect?.length || 0) + requestIdsFromItems.size,
+        total_allocated: directTotal + itemRequestTotal,
+        available: toNumber(category.remaining_amount)
+      }
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // GET /api/requests - list filtered by role/dept
 router.get('/', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
