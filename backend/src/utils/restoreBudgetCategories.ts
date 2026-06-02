@@ -1,4 +1,4 @@
-import { fetchRequestAllocationsByRequestId, isBudgetCommittedStatus, isPendingBudgetStatus } from './budget';
+import { fetchRequestAllocationsByRequestId, isActualExpenseCommittedStatus, isPendingBudgetStatus } from './budget';
 import { toCanonicalDepartmentName } from './fiscal';
 
 const toNumber = (value: unknown) => Number.parseFloat(String(value ?? 0)) || 0;
@@ -233,7 +233,7 @@ export const recoverCategoriesFromExpenseHistory = async (
 
   const { data: requests, error: requestsError } = await supabase
     .from('expense_requests')
-    .select('id, category, amount, status, department_id, fiscal_year')
+    .select('id, category, amount, status, request_type, department_id, fiscal_year')
     .eq('fiscal_year', targetFiscalYear);
 
   if (requestsError) throw requestsError;
@@ -246,14 +246,14 @@ export const recoverCategoriesFromExpenseHistory = async (
     { displayName: string; used: number; committed: number; observed: number }
   >();
 
-  const addCategoryAmount = (rawName: string, amount: number, status?: string) => {
+  const addCategoryAmount = (rawName: string, amount: number, status?: string, requestType?: string) => {
     const name = String(rawName || '').trim();
     if (!name) return;
     const key = name.toLowerCase();
     const stats = categoryTotals.get(key) || { displayName: name, used: 0, committed: 0, observed: 0 };
     const value = toNumber(amount);
     stats.observed += value;
-    if (isBudgetCommittedStatus(status)) stats.used += value;
+    if (isActualExpenseCommittedStatus(status, requestType)) stats.used += value;
     else if (isPendingBudgetStatus(status)) stats.committed += value;
     categoryTotals.set(key, stats);
   };
@@ -264,12 +264,12 @@ export const recoverCategoriesFromExpenseHistory = async (
       allocations.length > 0
         ? allocations
             .filter((allocation) => currentYearIds.includes(allocation.department_id))
-            .map((allocation) => ({ amount: toNumber(allocation.amount), status: request.status }))
+            .map((allocation) => ({ amount: toNumber(allocation.amount), status: request.status, request_type: request.request_type }))
         : currentYearIds.includes(request.department_id)
-          ? [{ amount: toNumber(request.amount), status: request.status }]
+          ? [{ amount: toNumber(request.amount), status: request.status, request_type: request.request_type }]
           : [];
 
-    impacts.forEach((impact) => addCategoryAmount(request.category, impact.amount, impact.status));
+    impacts.forEach((impact) => addCategoryAmount(request.category, impact.amount, impact.status, impact.request_type));
   });
 
   const { data: directExpenses, error: directExpensesError } = await supabase
@@ -486,6 +486,58 @@ export const loadBudgetCategoriesForBreakdown = async (
     if (restored) {
       categories = restoredCategories;
     }
+  }
+
+  // Sync expense categories as sub-categories in budget_categories
+  const { data: expenseCategories, error: expenseError } = await supabase
+    .from('expense_categories')
+    .select('code, description, main_category_code')
+    .neq('main_category_code', null);
+
+  if (!expenseError && expenseCategories?.length) {
+    // Create a map of main categories by code
+    const mainCategoryByCode = new Map(
+      categories
+        .filter(cat => !cat.parent_category_id)
+        .map(cat => [String(cat.category_code || '').trim().toUpperCase(), cat])
+    );
+
+    // Sync expense categories as budget sub-categories
+    for (const ec of expenseCategories) {
+      const mainCode = String(ec.main_category_code || '').trim().toUpperCase();
+      const parentCategory = mainCategoryByCode.get(mainCode);
+      
+      if (!parentCategory) continue;
+
+      // Check if sub-category already exists in budget_categories
+      const { data: existingSub } = await supabase
+        .from('budget_categories')
+        .select('id')
+        .eq('category_code', ec.code)
+        .eq('department_id', parentCategory.department_id)
+        .eq('fiscal_year', fiscalYear)
+        .maybeSingle();
+
+      if (!existingSub) {
+        // Create sub-category in budget_categories
+        await supabase
+          .from('budget_categories')
+          .insert({
+            department_id: parentCategory.department_id,
+            fiscal_year: fiscalYear,
+            category_code: ec.code,
+            category_name: ec.description,
+            budget_amount: 0,
+            used_amount: 0,
+            committed_amount: 0,
+            remaining_amount: 0,
+            parent_category_id: parentCategory.id
+          });
+      }
+    }
+
+    // Re-fetch categories to include newly created sub-categories
+    categories = await fetchCategoriesForDepartments(supabase, departmentIds, fiscalYear);
   }
 
   return categories;
