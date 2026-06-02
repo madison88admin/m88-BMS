@@ -2,6 +2,8 @@ import express from 'express';
 import { authenticate, authorize } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
 
+const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
+
 const router = express.Router();
 
 // GET /api/expenses - direct expenses
