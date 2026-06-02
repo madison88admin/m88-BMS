@@ -436,30 +436,57 @@ const resolveMainCategory = async (categoryId: string) => {
 const applyApprovedBudgetProposal = async (request: any) => {
   if (!request.category_id) return;
   const proposedAmount = toNumber(request.amount);
-  const category = await resolveMainCategory(request.category_id);
-
-  if (!category) return;
-
-  const previousAmount = toNumber(category.budget_amount);
-  const { data: children } = await supabase
+  
+  // Fetch the requested category (could be main or sub)
+  const { data: requestedCategory } = await supabase
     .from('budget_categories')
-    .select('budget_amount')
-    .eq('parent_category_id', category.id);
-  const childTotal = (children || []).reduce((sum: number, child: any) => sum + toNumber(child.budget_amount), 0);
-  const newRemaining = Math.max(0, proposedAmount - childTotal);
+    .select('*')
+    .eq('id', request.category_id)
+    .maybeSingle();
 
-  await supabase
-    .from('budget_categories')
-    .update({
-      budget_amount: proposedAmount,
-      remaining_amount: newRemaining,
-      is_locked: true,
-      locked_at: new Date(),
-      updated_at: new Date()
-    })
-    .eq('id', category.id);
+  if (!requestedCategory) return;
 
-  await reconcileCategoryTicketUsage(category.id, proposedAmount, childTotal);
+  // If this is a sub-category (has parent), update the sub-category directly
+  if (requestedCategory.parent_category_id) {
+    const previousAmount = toNumber(requestedCategory.budget_amount);
+    
+    // Update sub-category budget
+    await supabase
+      .from('budget_categories')
+      .update({
+        budget_amount: proposedAmount,
+        remaining_amount: proposedAmount,
+        is_locked: true,
+        locked_at: new Date(),
+        updated_at: new Date()
+      })
+      .eq('id', requestedCategory.id);
+
+    // Reconcile sub-category usage
+    await reconcileCategoryTicketUsage(requestedCategory.id, proposedAmount, 0);
+  } else {
+    // This is a main category (no parent) — update normally
+    const previousAmount = toNumber(requestedCategory.budget_amount);
+    const { data: children } = await supabase
+      .from('budget_categories')
+      .select('budget_amount')
+      .eq('parent_category_id', requestedCategory.id);
+    const childTotal = (children || []).reduce((sum: number, child: any) => sum + toNumber(child.budget_amount), 0);
+    const newRemaining = Math.max(0, proposedAmount - childTotal);
+
+    await supabase
+      .from('budget_categories')
+      .update({
+        budget_amount: proposedAmount,
+        remaining_amount: newRemaining,
+        is_locked: true,
+        locked_at: new Date(),
+        updated_at: new Date()
+      })
+      .eq('id', requestedCategory.id);
+
+    await reconcileCategoryTicketUsage(requestedCategory.id, proposedAmount, childTotal);
+  }
 
   await lockDepartmentBudgetMatrix(request.department_id, request.fiscal_year);
 
@@ -484,11 +511,12 @@ const applyApprovedBudgetProposal = async (request: any) => {
       .eq('id', request.department_id);
   }
 
+  const category = requestedCategory.parent_category_id ? requestedCategory : (await resolveMainCategory(request.category_id));
   await supabase.from('budget_revision_history').insert({
-    category_id: category.id,
+    category_id: requestedCategory.id,
     department_id: request.department_id,
     request_id: request.id,
-    previous_amount: previousAmount,
+    previous_amount: toNumber(requestedCategory.budget_amount),
     proposed_amount: proposedAmount,
     approved_amount: proposedAmount,
     fiscal_year: request.fiscal_year,
@@ -1130,55 +1158,11 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
         const validation = validateExpense(item.item_name, departmentName, request_type, budgetOnlyItems, req.user.role);
         const rejected = rejectValidation(item.item_name, validation);
         if (rejected) return rejected;
-
-        // For subcategory requests, check main category budget (skip for reimbursements and cash advances)
-        const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item.item_name);
-        if (itemEntry && itemEntry.category && request_type !== 'reimbursement' && request_type !== 'cash_advance') {
-          const { data: mainCategory } = await supabase
-            .from('budget_categories')
-            .select('*')
-            .eq('category_name', itemEntry.category)
-            .eq('department_id', targetDepartmentId)
-            .eq('fiscal_year', activeFiscalYear)
-            .single();
-
-          if (mainCategory) {
-            const mainCategoryRemaining = toNumber(mainCategory.remaining_amount);
-            const itemAmount = toNumber(item.amount);
-            if (itemAmount > mainCategoryRemaining) {
-              return res.status(400).json({ 
-                error: `Insufficient budget in main category "${itemEntry.category}". Remaining: ${mainCategoryRemaining.toFixed(2)}, Requested: ${itemAmount.toFixed(2)}` 
-              });
-            }
-          }
-        }
       }
     } else {
       const validation = validateExpense(item_name, departmentName, request_type, budgetOnlyItems, req.user.role);
       const rejected = rejectValidation(item_name, validation);
       if (rejected) return rejected;
-
-      // For subcategory requests, check main category budget (skip for reimbursements and cash advances)
-      const itemEntry = budgetOnlyItems.find((e: any) => e.itemName === item_name);
-      if (itemEntry && itemEntry.category && request_type !== 'reimbursement' && request_type !== 'cash_advance') {
-        const { data: mainCategory } = await supabase
-          .from('budget_categories')
-          .select('*')
-          .eq('category_name', itemEntry.category)
-          .eq('department_id', targetDepartmentId)
-          .eq('fiscal_year', activeFiscalYear)
-          .single();
-
-        if (mainCategory) {
-          const mainCategoryRemaining = toNumber(mainCategory.remaining_amount);
-          const itemAmount = requestAmount;
-          if (itemAmount > mainCategoryRemaining) {
-            return res.status(400).json({ 
-              error: `Insufficient budget in main category "${itemEntry.category}". Remaining: ${mainCategoryRemaining.toFixed(2)}, Requested: ${itemAmount.toFixed(2)}` 
-            });
-          }
-        }
-      }
     }
   }
 
