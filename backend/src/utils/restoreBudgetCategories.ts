@@ -488,7 +488,7 @@ export const loadBudgetCategoriesForBreakdown = async (
     }
   }
 
-  // Sync expense categories as sub-categories in budget_categories
+  // Sync expense categories as sub-categories in budget_categories (optimized to avoid timeout)
   const { data: expenseCategories, error: expenseError } = await supabase
     .from('expense_categories')
     .select('code, description, main_category_code')
@@ -502,27 +502,39 @@ export const loadBudgetCategoriesForBreakdown = async (
         .map(cat => [String(cat.category_code || '').trim().toUpperCase(), cat])
     );
 
-    // Sync expense categories as budget sub-categories
-    for (const ec of expenseCategories) {
+    // Filter expense categories that have matching main categories
+    const validExpenseCategories = expenseCategories.filter(ec => {
       const mainCode = String(ec.main_category_code || '').trim().toUpperCase();
-      const parentCategory = mainCategoryByCode.get(mainCode);
-      
-      if (!parentCategory) continue;
+      return mainCategoryByCode.has(mainCode);
+    });
 
-      // Check if sub-category already exists in budget_categories
-      const { data: existingSub } = await supabase
+    if (validExpenseCategories.length > 0) {
+      // Batch check which sub-categories already exist
+      const existingCodes = new Set();
+      const { data: existingSubs } = await supabase
         .from('budget_categories')
-        .select('id')
-        .eq('category_code', ec.code)
-        .eq('department_id', parentCategory.department_id)
-        .eq('fiscal_year', fiscalYear)
-        .maybeSingle();
+        .select('category_code, department_id, fiscal_year')
+        .in('category_code', validExpenseCategories.map(ec => ec.code))
+        .eq('fiscal_year', fiscalYear);
 
-      if (!existingSub) {
-        // Create sub-category in budget_categories
-        await supabase
-          .from('budget_categories')
-          .insert({
+      if (existingSubs) {
+        existingSubs.forEach(sub => {
+          existingCodes.add(`${sub.category_code}_${sub.department_id}_${sub.fiscal_year}`);
+        });
+      }
+
+      // Batch insert new sub-categories
+      const newSubCategories = validExpenseCategories
+        .filter(ec => {
+          const mainCode = String(ec.main_category_code || '').trim().toUpperCase();
+          const parentCategory = mainCategoryByCode.get(mainCode);
+          const key = `${ec.code}_${parentCategory?.department_id}_${fiscalYear}`;
+          return parentCategory && !existingCodes.has(key);
+        })
+        .map(ec => {
+          const mainCode = String(ec.main_category_code || '').trim().toUpperCase();
+          const parentCategory = mainCategoryByCode.get(mainCode);
+          return {
             department_id: parentCategory.department_id,
             fiscal_year: fiscalYear,
             category_code: ec.code,
@@ -532,12 +544,18 @@ export const loadBudgetCategoriesForBreakdown = async (
             committed_amount: 0,
             remaining_amount: 0,
             parent_category_id: parentCategory.id
-          });
-      }
-    }
+          };
+        });
 
-    // Re-fetch categories to include newly created sub-categories
-    categories = await fetchCategoriesForDepartments(supabase, departmentIds, fiscalYear);
+      if (newSubCategories.length > 0) {
+        await supabase
+          .from('budget_categories')
+          .insert(newSubCategories);
+      }
+
+      // Re-fetch categories to include newly created sub-categories
+      categories = await fetchCategoriesForDepartments(supabase, departmentIds, fiscalYear);
+    }
   }
 
   return categories;

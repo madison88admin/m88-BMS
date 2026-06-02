@@ -45,7 +45,7 @@ exports.handler = async (event, context) => {
           .eq('department_id', departmentId)
           .eq('fiscal_year', department.fiscal_year);
 
-        // Sync expense categories as sub-categories
+        // Sync expense categories as sub-categories (optimized to avoid timeout)
         const { data: expenseCategories } = await supabase
           .from('expense_categories')
           .select('code, description, main_category_code')
@@ -58,24 +58,39 @@ exports.handler = async (event, context) => {
               .map(cat => [String(cat.category_code || '').trim().toUpperCase(), cat])
           );
 
-          for (const ec of expenseCategories) {
+          // Filter expense categories that have matching main categories
+          const validExpenseCategories = expenseCategories.filter(ec => {
             const mainCode = String(ec.main_category_code || '').trim().toUpperCase();
-            const parentCategory = mainCategoryByCode.get(mainCode);
-            
-            if (!parentCategory) continue;
+            return mainCategoryByCode.has(mainCode);
+          });
 
-            const { data: existingSub } = await supabase
+          if (validExpenseCategories.length > 0) {
+            // Batch check which sub-categories already exist
+            const existingCodes = new Set();
+            const { data: existingSubs } = await supabase
               .from('budget_categories')
-              .select('id')
-              .eq('category_code', ec.code)
-              .eq('department_id', parentCategory.department_id)
-              .eq('fiscal_year', department.fiscal_year)
-              .maybeSingle();
+              .select('category_code, department_id, fiscal_year')
+              .in('category_code', validExpenseCategories.map(ec => ec.code))
+              .eq('fiscal_year', department.fiscal_year);
 
-            if (!existingSub) {
-              await supabase
-                .from('budget_categories')
-                .insert({
+            if (existingSubs) {
+              existingSubs.forEach(sub => {
+                existingCodes.add(`${sub.category_code}_${sub.department_id}_${sub.fiscal_year}`);
+              });
+            }
+
+            // Batch insert new sub-categories
+            const newSubCategories = validExpenseCategories
+              .filter(ec => {
+                const mainCode = String(ec.main_category_code || '').trim().toUpperCase();
+                const parentCategory = mainCategoryByCode.get(mainCode);
+                const key = `${ec.code}_${parentCategory?.department_id}_${department.fiscal_year}`;
+                return parentCategory && !existingCodes.has(key);
+              })
+              .map(ec => {
+                const mainCode = String(ec.main_category_code || '').trim().toUpperCase();
+                const parentCategory = mainCategoryByCode.get(mainCode);
+                return {
                   department_id: parentCategory.department_id,
                   fiscal_year: department.fiscal_year,
                   category_code: ec.code,
@@ -85,26 +100,32 @@ exports.handler = async (event, context) => {
                   committed_amount: 0,
                   remaining_amount: 0,
                   parent_category_id: parentCategory.id
-                });
+                };
+              });
+
+            if (newSubCategories.length > 0) {
+              await supabase
+                .from('budget_categories')
+                .insert(newSubCategories);
             }
+
+            // Re-fetch categories to include newly created sub-categories
+            const { data: updatedCategories } = await supabase
+              .from('budget_categories')
+              .select('*')
+              .eq('department_id', departmentId)
+              .eq('fiscal_year', department.fiscal_year);
+
+            return {
+              statusCode: 200,
+              headers: { 'Access-Control-Allow-Origin': '*' },
+              body: JSON.stringify({
+                department,
+                categories: updatedCategories || [],
+                totals: { annual_budget: department.annual_budget, used_budget: department.used_budget }
+              }),
+            };
           }
-
-          // Re-fetch categories to include newly created sub-categories
-          const { data: updatedCategories } = await supabase
-            .from('budget_categories')
-            .select('*')
-            .eq('department_id', departmentId)
-            .eq('fiscal_year', department.fiscal_year);
-
-          return {
-            statusCode: 200,
-            headers: { 'Access-Control-Allow-Origin': '*' },
-            body: JSON.stringify({
-              department,
-              categories: updatedCategories || [],
-              totals: { annual_budget: department.annual_budget, used_budget: department.used_budget }
-            }),
-          };
         }
 
         return {
