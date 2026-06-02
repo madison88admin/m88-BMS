@@ -70,7 +70,9 @@ const buildRequestStatusEmail = (name: string, requestCode: string, subject: str
   };
 };
 
-const toNumber = (value: unknown) => Number.parseFloat(String(value ?? 0)) || 0;
+const toCents = (value: unknown) => Math.round((Number.parseFloat(String(value ?? 0)) || 0) * 100);
+const fromCents = (cents: number) => cents / 100;
+const toNumber = (value: unknown) => fromCents(toCents(value));
 const toText = (value: unknown) => String(value ?? '').trim();
 
 const appendRequestRelations = async (rows: any[]) => {
