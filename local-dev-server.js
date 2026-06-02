@@ -48,7 +48,7 @@ const normalizeAttachments = (attachments = []) =>
       file_name: String(attachment?.file_name || '').trim(),
       file_url: String(attachment?.file_url || '').trim(),
       attachment_type: String(attachment?.attachment_type || '').trim() || null,
-      attachment_scope: ['request', 'disbursement', 'liquidation'].includes(String(attachment?.attachment_scope || '').trim())
+      attachment_scope: ['request', 'disbursement', 'liquidation', 'document_upload'].includes(String(attachment?.attachment_scope || '').trim())
         ? String(attachment?.attachment_scope || '').trim()
         : 'request'
     }))

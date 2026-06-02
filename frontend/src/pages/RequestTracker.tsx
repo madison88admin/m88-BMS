@@ -759,7 +759,7 @@ const RequestTracker = () => {
               <div className="mt-4">
                 <h3 className="text-lg font-bold text-[var(--role-text)]">Supporting Documents</h3>
                 <div className="mt-3 space-y-3">
-                  {['request', 'disbursement', 'liquidation'].map((scope) => {
+                  {['request', 'disbursement', 'liquidation', 'document_upload'].map((scope) => {
                     const scoped = (selectedRequest.attachments || []).filter((attachment: any) => attachment.attachment_scope === scope);
                     if (scoped.length === 0) return null;
 

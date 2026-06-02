@@ -183,6 +183,7 @@ const DocumentUploads = () => {
         const uploaded = await uploadSupportingFile(file);
         attachments.push({
           ...uploaded,
+          attachment_scope: 'document_upload',
           file_type: fileType,
           file_size: file.size,
         });

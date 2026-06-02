@@ -119,7 +119,7 @@ const normalizeAttachments = (attachments: AttachmentInput[] = []) =>
       file_name: toText(attachment.file_name),
       file_url: toText(attachment.file_url),
       attachment_type: toText(attachment.attachment_type),
-      attachment_scope: ['request', 'disbursement', 'liquidation'].includes(toText(attachment.attachment_scope))
+      attachment_scope: ['request', 'disbursement', 'liquidation', 'document_upload'].includes(toText(attachment.attachment_scope))
         ? toText(attachment.attachment_scope)
         : 'request'
     }))
@@ -134,11 +134,25 @@ const validateCategoryBudgetsForSubmission = async (
   items: any[] = []
 ) => {
   const itemCategoryTotals = new Map<string, number>();
+  const itemCategoryNameTotals = new Map<string, number>();
+  let unassignedItemsTotal = 0;
+
   (items || []).forEach((item) => {
     const itemCategoryId = toText(item.category_id);
-    if (!itemCategoryId) return;
-    itemCategoryTotals.set(itemCategoryId, (itemCategoryTotals.get(itemCategoryId) || 0) + toNumber(item.amount));
+    const itemCategoryName = toText(item.category || item.main_category || '');
+    const itemAmount = toNumber(item.amount);
+
+    if (itemCategoryId) {
+      itemCategoryTotals.set(itemCategoryId, (itemCategoryTotals.get(itemCategoryId) || 0) + itemAmount);
+    } else if (itemCategoryName) {
+      itemCategoryNameTotals.set(itemCategoryName, (itemCategoryNameTotals.get(itemCategoryName) || 0) + itemAmount);
+    } else {
+      unassignedItemsTotal += itemAmount;
+    }
   });
+
+  const normalizedCategoryId = toText(categoryId);
+  const normalizedCategoryName = toText(categoryName);
 
   if (itemCategoryTotals.size > 0) {
     const categoryIds = Array.from(itemCategoryTotals.keys());
@@ -155,28 +169,66 @@ const validateCategoryBudgetsForSubmission = async (
       const requestedAmount = itemCategoryTotals.get(id) || 0;
 
       if (!category) {
-        // If category doesn't exist, skip validation - allow request to proceed
-        continue;
+        return `Requested category ID ${id} was not found. Please choose a valid budget category.`;
       }
 
       if (category.department_id !== targetDepartmentId || Number(category.fiscal_year) !== fiscalYear) {
         return `Category "${category.category_name || id}" does not belong to the selected department and fiscal year.`;
       }
 
-      // If it's a sub-category, validate against sub-category budget
-      // If it's a main category, validate against main category budget
       if (toNumber(category.remaining_amount) < requestedAmount) {
         const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
         return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${requestedAmount.toFixed(2)}`;
       }
     }
-
-    return null;
   }
 
-  const normalizedCategoryId = toText(categoryId);
-  const normalizedCategoryName = toText(categoryName);
-  if (!normalizedCategoryId && !normalizedCategoryName) return null;
+  if (itemCategoryNameTotals.size > 0) {
+    for (const [name, requestedAmount] of itemCategoryNameTotals.entries()) {
+      const { data: category, error } = await supabase
+        .from('budget_categories')
+        .select('id, category_name, department_id, fiscal_year, remaining_amount, parent_category_id')
+        .eq('department_id', targetDepartmentId)
+        .eq('fiscal_year', fiscalYear)
+        .eq('category_name', name)
+        .maybeSingle();
+
+      if (error) return error.message;
+      if (!category) {
+        return `Requested category "${name}" was not found for the selected department and fiscal year.`;
+      }
+
+      if (toNumber(category.remaining_amount) < requestedAmount) {
+        const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
+        return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${requestedAmount.toFixed(2)}`;
+      }
+    }
+  }
+
+  if (unassignedItemsTotal > 0) {
+    if (!normalizedCategoryId && !normalizedCategoryName) {
+      return 'Unable to validate budget for one or more items: missing category assignment.';
+    }
+    if (toNumber(unassignedItemsTotal) > 0) {
+      const categoryError = await validateCategoryBudgetsForSubmission(
+        targetDepartmentId,
+        fiscalYear,
+        unassignedItemsTotal,
+        normalizedCategoryId,
+        normalizedCategoryName,
+        []
+      );
+      if (categoryError) return categoryError;
+    }
+  }
+
+  if (itemCategoryTotals.size === 0 && itemCategoryNameTotals.size === 0 && unassignedItemsTotal === 0) {
+    if (!normalizedCategoryId && !normalizedCategoryName) return 'Category assignment is required for this request.';
+  }
+
+  if (!normalizedCategoryId && !normalizedCategoryName) {
+    return null;
+  }
 
   let categoryQuery = supabase
     .from('budget_categories')
@@ -191,12 +243,9 @@ const validateCategoryBudgetsForSubmission = async (
   const { data: category, error } = await categoryQuery.maybeSingle();
   if (error) return error.message;
   if (!category) {
-    // If category doesn't exist, skip validation - allow request to proceed
-    return null;
+    return `Category "${normalizedCategoryName || normalizedCategoryId}" was not found for the selected department and fiscal year.`;
   }
 
-  // If it's a sub-category, validate against sub-category budget
-  // If it's a main category, validate against main category budget
   if (toNumber(category.remaining_amount) < totalAmount) {
     const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
     return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${totalAmount.toFixed(2)}`;
@@ -533,6 +582,8 @@ const releaseRequest = async (
   // Only check category budget (main or sub), not department annual budget
   // Department used_budget is intentionally not updated here.
 
+  const categoryAuditEntries: any[] = [];
+
   for (const allocation of normalizedAllocations) {
     if (releaseMethod === 'petty_cash') {
       const { data: department, error: departmentError } = await supabase
@@ -578,9 +629,8 @@ const releaseRequest = async (
 
         const { data: catBudget } = await supabase
           .from('budget_categories')
-          .select('id, committed_amount, used_amount, budget_amount, remaining_amount')
+          .select('id, category_name, committed_amount, used_amount, budget_amount, remaining_amount')
           .eq('id', rItem.category_id)
-          .eq('department_id', allocation.department_id)
           .maybeSingle();
 
         if (!catBudget) continue;
@@ -594,19 +644,34 @@ const releaseRequest = async (
           .update({ used_amount: newUsed, committed_amount: newCommitted, remaining_amount: newRemaining, updated_at: new Date() })
           .eq('id', catBudget.id);
 
-        if (updateCatErr) console.error('Failed to update category on release:', updateCatErr);
-        else await checkBudgetUtilizationWarning(catBudget.id);
+        if (updateCatErr) {
+          console.error('Failed to update category on release:', updateCatErr);
+        } else {
+          categoryAuditEntries.push({
+            entity_type: 'request',
+            action: 'category_budget_deducted',
+            field_name: 'used_amount',
+            old_value: String(catBudget.used_amount),
+            new_value: String(newUsed.toFixed(2)),
+            note: `Category budget deducted for ${catBudget.category_name || catBudget.id}`
+          });
+          await checkBudgetUtilizationWarning(catBudget.id);
+        }
       }
-    } else if (request.category) {
-      // Single-item fallback: use request.category name
-      const categoryName = String(request.category).trim();
-      const { data: categoryBudget, error: fetchCategoryError } = await supabase
-        .from('budget_categories')
-        .select('*')
-        .eq('category_name', categoryName)
-        .eq('department_id', allocation.department_id)
-        .eq('fiscal_year', request.fiscal_year)
-        .single();
+    } else if (request.category_id || request.category) {
+      const categoryId = request.category_id;
+      let categoryBudgetQuery = supabase.from('budget_categories').select('id, category_name, committed_amount, used_amount, budget_amount, remaining_amount');
+
+      if (categoryId) {
+        categoryBudgetQuery = categoryBudgetQuery.eq('id', categoryId);
+      } else {
+        categoryBudgetQuery = categoryBudgetQuery
+          .eq('category_name', String(request.category).trim())
+          .eq('department_id', allocation.department_id)
+          .eq('fiscal_year', request.fiscal_year);
+      }
+
+      const { data: categoryBudget, error: fetchCategoryError } = await categoryBudgetQuery.maybeSingle();
 
       if (!fetchCategoryError && categoryBudget) {
         const amountToDeduct = toNumber(allocation.amount);
@@ -619,8 +684,19 @@ const releaseRequest = async (
           .update({ used_amount: newUsedAmount, committed_amount: newCommitted, remaining_amount: newRemainingAmount, updated_at: new Date() })
           .eq('id', categoryBudget.id);
 
-        if (updateCategoryError) console.error('Failed to update category budget on release:', updateCategoryError);
-        else await checkBudgetUtilizationWarning(categoryBudget.id);
+        if (updateCategoryError) {
+          console.error('Failed to update category budget on release:', updateCategoryError);
+        } else {
+          categoryAuditEntries.push({
+            entity_type: 'request',
+            action: 'category_budget_deducted',
+            field_name: 'used_amount',
+            old_value: String(categoryBudget.used_amount),
+            new_value: String(newUsedAmount.toFixed(2)),
+            note: `Category budget deducted for ${categoryBudget.category_name || categoryBudget.id}`
+          });
+          await checkBudgetUtilizationWarning(categoryBudget.id);
+        }
       }
     }
   }
@@ -768,49 +844,9 @@ const releaseRequest = async (
         release_reference_no: releaseReferenceNo,
         liquidation_due_at: liquidationDueAt || null
       }
-    }
+    },
+    ...categoryAuditEntries
   ];
-
-  // Add audit logs for department budget deductions
-  for (const allocation of normalizedAllocations) {
-    const { data: dept } = await supabase
-      .from('departments')
-      .select('name')
-      .eq('id', allocation.department_id)
-      .single();
-    
-    auditEntries.push({
-      entity_type: 'request',
-      action: 'department_budget_deducted',
-      field_name: 'used_budget',
-      old_value: '',
-      new_value: String(allocation.amount),
-      note: `Department budget deducted for ${dept?.name || allocation.department_id}`
-    });
-
-    // Add audit log for category budget if applicable
-    if (request.category) {
-      const categoryName = String(request.category).trim();
-      const { data: categoryBudget } = await supabase
-        .from('budget_categories')
-        .select('category_name, used_amount')
-        .eq('category_name', categoryName)
-        .eq('department_id', allocation.department_id)
-        .eq('fiscal_year', request.fiscal_year)
-        .single();
-
-      if (categoryBudget) {
-        auditEntries.push({
-          entity_type: 'request',
-          action: 'category_budget_deducted',
-          field_name: 'used_amount',
-          old_value: String(categoryBudget.used_amount),
-          new_value: String((parseFloat(categoryBudget.used_amount?.toString() || '0') + toNumber(allocation.amount)).toFixed(2)),
-          note: `Category budget deducted for ${categoryName}`
-        });
-      }
-    }
-  }
 
   await insertAuditLogs(request.id, actorId, auditEntries);
 
@@ -1144,11 +1180,10 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     }
   }
 
-  // 2. Validate both department projected remaining AND category remaining (skip for budget proposals, reimbursements and cash advances)
+  // 2. Validate category remaining for all expense submissions except budget proposals.
   const totalAmount = toNumber(amount);
 
-  if (!isBudgetFlow && request_type !== 'reimbursement' && request_type !== 'cash_advance') {
-    // Only check category budget (main or sub), not department annual budget
+  if (!isBudgetFlow) {
     const categoryBudgetError = await validateCategoryBudgetsForSubmission(
       targetDepartmentId,
       activeFiscalYear,
@@ -2686,16 +2721,16 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
 
   const newAmount = normalizedAmount || request.amount;
   
-  // Validate budget before resubmit (skip for reimbursement, cash_advance, budget_request, budget_revision)
+  // Validate budget before resubmit (skip only for budget proposals/revisions)
   const targetDeptId = req.body?.department_id || request.department_id;
   const requestType = request.request_type || 'reimbursement';
-  const shouldBypassBudget = requestType === 'reimbursement' || requestType === 'cash_advance' || requestType === 'budget_request' || requestType === 'budget_revision';
+  const shouldBypassBudget = requestType === 'budget_request' || requestType === 'budget_revision';
 
   if (targetDeptId && !shouldBypassBudget) {
     // Validate against category/sub-category remaining amounts instead of department annual budget
     const { data: requestItems, error: itemsError } = await supabase
       .from('request_items')
-      .select('category_id, amount')
+      .select('id, category_id, amount')
       .eq('request_id', id);
 
     const itemsForValidation = (requestItems || []).map((ri: any) => ({ category_id: ri.category_id, amount: ri.amount }));
@@ -2793,24 +2828,27 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
 
   // Re-commit budget categories on resubmit (per item if multi-item, else single category)
   const { data: resubmitItems } = await supabase
-    .from('request_items').select('category_id, amount').eq('request_id', id);
+    .from('request_items').select('id, category_id, amount').eq('request_id', id);
 
   if (resubmitItems && resubmitItems.length > 0) {
-    // Multi-item: re-commit each item's category
-    // If amount changed, scale proportionally
+    // Multi-item: re-commit each item's category and update item amounts proportionally
     const originalAmount = toNumber(request.amount);
     const scaleFactor = originalAmount > 0 && toNumber(newAmount) !== originalAmount ? toNumber(newAmount) / originalAmount : 1;
     for (const rItem of resubmitItems) {
       if (!rItem.category_id) continue;
+      const itemAmt = toNumber(rItem.amount) * scaleFactor;
       const { data: catBudget } = await supabase.from('budget_categories').select('committed_amount, remaining_amount').eq('id', rItem.category_id).single();
       if (catBudget) {
-        const itemAmt = toNumber(rItem.amount) * scaleFactor;
         await supabase.from('budget_categories').update({
           committed_amount: toNumber(catBudget.committed_amount) + itemAmt,
           remaining_amount: Math.max(0, toNumber(catBudget.remaining_amount) - itemAmt),
           updated_at: new Date()
         }).eq('id', rItem.category_id);
       }
+      await supabase.from('request_items').update({
+        amount: itemAmt,
+        updated_at: new Date()
+      }).eq('id', rItem.id);
     }
   } else {
     // Single-item fallback
