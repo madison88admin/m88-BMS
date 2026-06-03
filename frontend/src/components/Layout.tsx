@@ -2,7 +2,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 import toast, { Toaster } from 'react-hot-toast';
-import PageSkeleton from '../components/Skeleton';
+import PageSkeleton from './Skeleton';
 import { supabase } from '../lib/supabase';
 import { normalizeDisplayName, formatDateTime } from '../utils/format';
 
