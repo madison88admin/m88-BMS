@@ -67,7 +67,7 @@ const fetchCategoriesForDepartments = async (
   const { data, error } = await supabase
     .from('budget_categories')
     .select(
-      'id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id, fiscal_year'
+      'id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id, fiscal_year, is_locked'
     )
     .in('department_id', departmentIds)
     .eq('fiscal_year', fiscalYear)
