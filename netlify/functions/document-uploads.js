@@ -231,9 +231,6 @@ exports.handler = async (event) => {
       if (!description) {
         return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Description / remarks is required' }) };
       }
-      if (!attachments.length) {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'At least one attachment is required' }) };
-      }
 
       const { data: categoryRow, error: categoryError } = await supabase
         .from('expense_categories')
@@ -253,30 +250,8 @@ exports.handler = async (event) => {
 
       const canCA = Boolean(categoryRow.cash_advance_allowed);
       const canRE = Boolean(categoryRow.reimbursement_allowed);
-      const requiresAmount = canCA || canRE;
-      const amountValue = toNumber(body.amount);
       const budgetOverrideValue = toNumber(body.budget_override);
-      if (requiresAmount && amountValue <= 0) {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Amount is required for this category' }) };
-      }
-
       const targetFiscalYear = body.fiscal_year ? Number.parseInt(String(body.fiscal_year), 10) : 2026;
-      if (requiresAmount && amountValue > 0) {
-        const { data: budgetData, error: budgetError } = await supabase
-          .from('budget_categories')
-          .select('id, remaining_amount, category_name')
-          .eq('department_id', departmentId)
-          .eq('fiscal_year', targetFiscalYear)
-          .eq('category_code', categoryCode)
-          .maybeSingle();
-        if (budgetError) throw budgetError;
-        if (budgetData) {
-          const remaining = Number(budgetData.remaining_amount);
-          if (remaining < amountValue) {
-            return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: `Insufficient budget in "${budgetData.category_name || categoryCode}". Available: ₱${remaining.toFixed(2)}, Requested: ₱${amountValue.toFixed(2)}` }) };
-          }
-        }
-      }
 
       const resolvedExpenseDepartment = resolveExpenseCategoryDepartmentName(String(categoryRow.department || ''));
       const isFinanceOrAdminDept = department.name === 'Finance Department' || department.name === 'Admin Department';
@@ -307,7 +282,7 @@ exports.handler = async (event) => {
           uploaded_by: user.id,
           uploaded_by_role: role,
           description,
-          amount: requiresAmount ? amountValue : amountValue || null,
+          amount: null,
           budget_override: budgetOverrideValue > 0 ? budgetOverrideValue : null,
           fiscal_year: Number.isInteger(targetFiscalYear) && targetFiscalYear > 0 ? targetFiscalYear : null,
           status: 'submitted_to_accounting',

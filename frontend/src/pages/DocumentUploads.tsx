@@ -51,18 +51,6 @@ interface DocumentUpload {
   current_remaining_amount?: number | null;
 }
 
-const resolveUploadFileType = (file: File) => {
-  const mime = String(file.type || '').toLowerCase();
-  if (mime.includes('pdf')) return 'pdf';
-  if (mime.includes('png')) return 'png';
-  if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
-  const ext = String(file.name.split('.').pop() || '').toLowerCase();
-  if (ext === 'pdf') return 'pdf';
-  if (ext === 'png') return 'png';
-  if (ext === 'jpeg' || ext === 'jpg') return 'jpg';
-  return '';
-};
-
 const DocumentUploads = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
@@ -73,9 +61,7 @@ const DocumentUploads = () => {
   const [mainCategory, setMainCategory] = useState('');
   const [selectedCode, setSelectedCode] = useState('');
   const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
   const [budgetOverride, setBudgetOverride] = useState('');
-  const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploads, setUploads] = useState<DocumentUpload[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -123,17 +109,6 @@ const DocumentUploads = () => {
     return status;
   };
 
-  const uploadSupportingFile = async (file: File) => {
-    const token = localStorage.getItem('token');
-    if (!token) throw new Error('Not authenticated');
-    const formData = new FormData();
-    formData.append('file', file);
-    const response = await api.post('/api/upload', formData, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return response.data;
-  };
-
   const fetchHistory = async (showError = true) => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -163,66 +138,35 @@ const DocumentUploads = () => {
       toast.error('Please enter description / remarks');
       return;
     }
-    if (!files.length) {
-      toast.error('Please attach at least one file');
+    if (!budgetOverride || Number.parseFloat(budgetOverride) <= 0) {
+      toast.error('Please enter a budget amount to set/override');
       return;
-    }
-    if (requiresAmount) {
-      const value = Number.parseFloat(amount);
-      if (!Number.isFinite(value) || value <= 0) {
-        toast.error('Please enter a valid amount');
-        return;
-      }
     }
 
     setSubmitting(true);
     const token = localStorage.getItem('token');
     try {
-      const attachments: any[] = [];
-      for (const file of files) {
-        const fileType = resolveUploadFileType(file);
-        if (!fileType) {
-          toast.error(`Unsupported file type: ${file.name}`);
-          continue;
-        }
-        const uploaded = await uploadSupportingFile(file);
-        attachments.push({
-          ...uploaded,
-          attachment_scope: 'document_upload',
-          file_type: fileType,
-          file_size: file.size,
-        });
-      }
-
-      if (!attachments.length) {
-        toast.error('No valid attachments were uploaded');
-        return;
-      }
-
       await api.post(
         '/api/document-uploads',
         {
           category_code: selectedCode,
           description,
-          amount: amount ? Number.parseFloat(amount) : null,
-          budget_override: budgetOverride ? Number.parseFloat(budgetOverride) : null,
+          budget_override: Number.parseFloat(budgetOverride),
           fiscal_year: fiscalYear,
-          attachments,
+          attachments: [],
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      toast.success('Document upload submitted to accounting');
+      toast.success('Budget updated successfully');
       setMainCategory('');
       setSelectedCode('');
       setDescription('');
-      setAmount('');
       setBudgetOverride('');
-      setFiles([]);
       setActiveTab('history');
       await fetchHistory(false);
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to submit document upload'));
+      toast.error(getErrorMessage(err, 'Failed to update budget'));
     } finally {
       setSubmitting(false);
     }
@@ -312,13 +256,13 @@ const DocumentUploads = () => {
   return (
     <div className="text-[var(--role-text)] page-transition">
       <div className="page-header">
-        <h1 className="page-title">Document Uploads</h1>
-        <p className="page-subtitle">Submit supporting documents and track accounting review</p>
+        <h1 className="page-title">Budget Management</h1>
+        <p className="page-subtitle">Set and override category budgets</p>
       </div>
 
       <div className="flex gap-2 mb-6">
         {[
-          { key: 'submit', label: 'Submit Upload' },
+          { key: 'submit', label: 'Set Budget' },
           { key: 'history', label: 'History' },
         ].map((tab) => (
           <button
@@ -394,53 +338,32 @@ const DocumentUploads = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Amount {requiresAmount ? '*' : '(Optional)'}</label>
+              <label className="block text-sm font-medium mb-2">Budget Override (Required) *</label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  required={requiresAmount}
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                  placeholder={requiresAmount ? '0.00' : 'Optional'}
-                />
-              </div>
-              {selectedItem && !requiresAmount && (
-                <p className="mt-2 text-xs text-[var(--role-text)]/60">
-                  Amount is optional for this category.
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Budget Override (Optional)</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  required
                   value={budgetOverride}
                   onChange={(e) => setBudgetOverride(e.target.value)}
                   className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                  placeholder="Set new budget for this category"
+                  placeholder="Enter budget amount to set/override"
                 />
               </div>
               <p className="mt-2 text-xs text-[var(--role-text)]/60">
-                Leave empty to keep existing budget. Enter amount to override category budget.
+                This will set or override the budget for the selected category.
               </p>
             </div>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Status</label>
-            <input
-              value="Submitted to Accounting"
-              disabled
-              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-gray-100"
-            />
+            <div>
+              <label className="block text-sm font-medium mb-2">Status</label>
+              <input
+                value="Submitted to Accounting"
+                disabled
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-gray-100"
+              />
+            </div>
           </div>
 
           <div className="mb-4">
@@ -450,55 +373,8 @@ const DocumentUploads = () => {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] min-h-[100px]"
-              placeholder="Add notes for accounting..."
+              placeholder="Add notes explaining the budget adjustment..."
             />
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-3">Attachments *</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-              {files.map((file, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--role-accent)] border border-[var(--role-border)]">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <svg className="w-5 h-5 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828L18 9.828M8 7v.01M10.5 21H19a2 2 0 002-2V8.414a1 1 0 00-.293-.707l-3.414-3.414A1 1 0 0016.586 4H10.5a2 2 0 00-2 2V7" />
-                    </svg>
-                    <span className="text-sm truncate">{file.name}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="border-2 border-dashed border-[var(--role-border)] rounded-xl p-6 text-center hover:border-[var(--role-primary)]/50 transition-colors">
-              <input
-                type="file"
-                multiple
-                accept="image/*,.pdf"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    const incoming = Array.from(e.target.files);
-                    setFiles((prev) => [...prev, ...incoming]);
-                  }
-                }}
-                className="hidden"
-                id="document-uploads-attachments"
-              />
-              <label htmlFor="document-uploads-attachments" className="cursor-pointer">
-                <svg className="w-10 h-10 mx-auto mb-2 text-[var(--role-text)]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-sm text-[var(--role-text)]/60">Click to add PDF or images</p>
-              </label>
-            </div>
           </div>
 
           <div className="flex gap-3">
@@ -506,7 +382,7 @@ const DocumentUploads = () => {
               Cancel
             </button>
             <button type="submit" disabled={submitting} className="btn-primary px-8 flex-1">
-              {submitting ? 'Submitting...' : 'Submit to Accounting'}
+              {submitting ? 'Updating...' : 'Update Budget'}
             </button>
           </div>
         </form>
