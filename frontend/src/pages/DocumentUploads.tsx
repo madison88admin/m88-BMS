@@ -74,6 +74,7 @@ const DocumentUploads = () => {
   const [selectedCode, setSelectedCode] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [budgetOverride, setBudgetOverride] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploads, setUploads] = useState<DocumentUpload[]>([]);
@@ -204,6 +205,7 @@ const DocumentUploads = () => {
           category_code: selectedCode,
           description,
           amount: amount ? Number.parseFloat(amount) : null,
+          budget_override: budgetOverride ? Number.parseFloat(budgetOverride) : null,
           fiscal_year: fiscalYear,
           attachments,
         },
@@ -215,6 +217,7 @@ const DocumentUploads = () => {
       setSelectedCode('');
       setDescription('');
       setAmount('');
+      setBudgetOverride('');
       setFiles([]);
       setActiveTab('history');
       await fetchHistory(false);
@@ -412,13 +415,32 @@ const DocumentUploads = () => {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Status</label>
-              <input
-                value="Submitted to Accounting"
-                disabled
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-gray-100"
-              />
+              <label className="block text-sm font-medium mb-2">Budget Override (Optional)</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={budgetOverride}
+                  onChange={(e) => setBudgetOverride(e.target.value)}
+                  className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                  placeholder="Set new budget for this category"
+                />
+              </div>
+              <p className="mt-2 text-xs text-[var(--role-text)]/60">
+                Leave empty to keep existing budget. Enter amount to override category budget.
+              </p>
             </div>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Status</label>
+            <input
+              value="Submitted to Accounting"
+              disabled
+              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-gray-100"
+            />
           </div>
 
           <div className="mb-4">

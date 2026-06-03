@@ -255,6 +255,7 @@ exports.handler = async (event) => {
       const canRE = Boolean(categoryRow.reimbursement_allowed);
       const requiresAmount = canCA || canRE;
       const amountValue = toNumber(body.amount);
+      const budgetOverrideValue = toNumber(body.budget_override);
       if (requiresAmount && amountValue <= 0) {
         return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Amount is required for this category' }) };
       }
@@ -307,6 +308,7 @@ exports.handler = async (event) => {
           uploaded_by_role: role,
           description,
           amount: requiresAmount ? amountValue : amountValue || null,
+          budget_override: budgetOverrideValue > 0 ? budgetOverrideValue : null,
           fiscal_year: Number.isInteger(targetFiscalYear) && targetFiscalYear > 0 ? targetFiscalYear : null,
           status: 'submitted_to_accounting',
           created_at: new Date().toISOString(),
@@ -315,6 +317,51 @@ exports.handler = async (event) => {
         .select('*')
         .single();
       if (insertError) throw insertError;
+
+      // If budget override is provided, update the budget_categories table
+      if (budgetOverrideValue > 0) {
+        const { data: existingBudget, error: budgetCheckError } = await supabase
+          .from('budget_categories')
+          .select('id, budget_amount, allocated_amount, spent_amount')
+          .eq('department_id', departmentId)
+          .eq('fiscal_year', targetFiscalYear)
+          .eq('category_code', categoryCode)
+          .maybeSingle();
+        if (budgetCheckError) throw budgetCheckError;
+
+        if (existingBudget) {
+          // Update existing budget
+          const spentAmount = toNumber(existingBudget.spent_amount || 0);
+          const remainingAmount = budgetOverrideValue - spentAmount;
+          const { error: updateError } = await supabase
+            .from('budget_categories')
+            .update({
+              budget_amount: budgetOverrideValue,
+              allocated_amount: budgetOverrideValue,
+              remaining_amount: Math.max(0, remainingAmount),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingBudget.id);
+          if (updateError) throw updateError;
+        } else {
+          // Create new budget entry if it doesn't exist
+          const { error: createError } = await supabase
+            .from('budget_categories')
+            .insert({
+              department_id: departmentId,
+              category_code: categoryCode,
+              category_name: categoryRow.description,
+              fiscal_year: targetFiscalYear,
+              budget_amount: budgetOverrideValue,
+              allocated_amount: budgetOverrideValue,
+              spent_amount: 0,
+              remaining_amount: budgetOverrideValue,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+          if (createError) throw createError;
+        }
+      }
 
       const attachmentPayload = attachments.map((file) => ({
         document_upload_id: inserted.id,
