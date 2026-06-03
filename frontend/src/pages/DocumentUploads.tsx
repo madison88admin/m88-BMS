@@ -61,7 +61,7 @@ const DocumentUploads = () => {
   const [mainCategory, setMainCategory] = useState('');
   const [selectedCode, setSelectedCode] = useState('');
   const [description, setDescription] = useState('');
-  const [budgetOverride, setBudgetOverride] = useState('');
+  const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [uploads, setUploads] = useState<DocumentUpload[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -73,13 +73,6 @@ const DocumentUploads = () => {
 
   const fiscalYear = 2026;
   const isReviewRole = user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'super_admin';
-
-  const selectedItem = useMemo(
-    () => officialList.find((item) => item.code === selectedCode),
-    [officialList, selectedCode]
-  );
-
-  const requiresAmount = Boolean(selectedItem?.canCA || selectedItem?.canRE);
 
   const uniqueMainCategories = useMemo(() => {
     const categories = new Set<string>();
@@ -138,7 +131,7 @@ const DocumentUploads = () => {
       toast.error('Please enter description / remarks');
       return;
     }
-    if (!budgetOverride || Number.parseFloat(budgetOverride) <= 0) {
+    if (!amount || Number.parseFloat(amount) <= 0) {
       toast.error('Please enter a budget amount to set/override');
       return;
     }
@@ -151,7 +144,7 @@ const DocumentUploads = () => {
         {
           category_code: selectedCode,
           description,
-          budget_override: Number.parseFloat(budgetOverride),
+          budget_override: Number.parseFloat(amount),
           fiscal_year: fiscalYear,
           attachments: [],
         },
@@ -162,7 +155,7 @@ const DocumentUploads = () => {
       setMainCategory('');
       setSelectedCode('');
       setDescription('');
-      setBudgetOverride('');
+      setAmount('');
       setActiveTab('history');
       await fetchHistory(false);
     } catch (err: any) {
@@ -221,12 +214,6 @@ const DocumentUploads = () => {
     if (activeTab !== 'history') return;
     void fetchHistory(false);
   }, [activeTab, statusFilter]);
-
-  useEffect(() => {
-    if (!requiresAmount) {
-      setAmount('');
-    }
-  }, [requiresAmount]);
 
   if (loading) {
     return <PageSkeleton />;
@@ -346,8 +333,8 @@ const DocumentUploads = () => {
                   min="0"
                   step="0.01"
                   required
-                  value={budgetOverride}
-                  onChange={(e) => setBudgetOverride(e.target.value)}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
                   className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
                   placeholder="Enter budget amount to set/override"
                 />
