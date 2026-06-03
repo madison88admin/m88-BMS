@@ -295,8 +295,7 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
 });
 
 // PATCH /api/budget/categories/:id/unlock - Unlock budget category (accounting only)
-// Allow `super_admin` to perform unlocks as well
-router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
   try {
     const { id } = req.params;
 
