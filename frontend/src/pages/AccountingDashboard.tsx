@@ -977,6 +977,7 @@ const AccountingDashboard = () => {
                   <th className="pb-3 pr-4">Sub-category</th>
                   <th className="pb-3 pr-4">Description</th>
                   <th className="pb-3 pr-4">Amount</th>
+                  <th className="pb-3 pr-4">Remaining</th>
                   <th className="pb-3 pr-4">Status</th>
                   <th className="pb-3">Files</th>
                 </tr>
@@ -984,7 +985,7 @@ const AccountingDashboard = () => {
               <tbody className="divide-y divide-[var(--role-border)]">
                 {documentUploads.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-[var(--role-text)]/60">
+                    <td colSpan={8} className="py-8 text-center text-[var(--role-text)]/60">
                       No document uploads yet.
                     </td>
                   </tr>
@@ -996,6 +997,22 @@ const AccountingDashboard = () => {
                       <td className="py-3 pr-4">{upload.category_name || upload.category_code || '—'}</td>
                       <td className="py-3 pr-4 max-w-xs truncate" title={upload.description}>{upload.description}</td>
                       <td className="py-3 pr-4 whitespace-nowrap">{upload.amount != null ? formatMoney(toNumber(upload.amount)) : '—'}</td>
+                      <td className="py-3 pr-4 whitespace-nowrap">
+                        {upload.current_remaining_amount != null ? (
+                          <div className="space-y-1">
+                            <div>{formatMoney(toNumber(upload.current_remaining_amount))}</div>
+                            <div className="text-[var(--role-text)]/60 text-xs">
+                              {toNumber(upload.current_remaining_amount) >= toNumber(upload.amount)
+                                ? 'Sufficient'
+                                : toNumber(upload.current_remaining_amount) > 0
+                                  ? 'Insufficient'
+                                  : 'No budget left'}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[var(--role-text)]/60">No category budget</span>
+                        )}
+                      </td>
                       <td className="py-3 pr-4">
                         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
                           upload.status === 'submitted' || upload.status === 'pending_review'
