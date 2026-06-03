@@ -38,6 +38,18 @@ const formatCategoryWithCodes = (category: string): string => {
 
 };
 
+const DEPT_NAME_MAP: Record<string, string> = {
+  'HR Department': 'HR',
+  'Admin Department': 'Admin',
+  'Finance Department': 'Accounting',
+  'IT Department': 'IT'
+};
+
+const mapDepartmentNameToShort = (name?: string): string | null => {
+  if (!name) return null;
+  return DEPT_NAME_MAP[String(name).trim()] || null;
+};
+
 const getMainCategoryDisplay = (request: any): string => {
   if (request?.main_category_name) return request.main_category_name;
   if (request?.metadata?.main_category) return request.metadata.main_category;
@@ -1387,6 +1399,50 @@ const Approvals = () => {
     return String(request?.category || request?.main_category_name || request?.metadata?.main_category || '').trim();
   };
 
+  const getRequestDepartmentShort = (request: any) => {
+    const requestDeptId = request?.department_id;
+    if (!requestDeptId) return null;
+    const requestDept = departments.find((d: any) => d.id === requestDeptId);
+    if (!requestDept?.name) return null;
+    return mapDepartmentNameToShort(requestDept.name);
+  };
+
+  const getRequestExpenseCategoryScope = (request: any) => {
+    try {
+      const raw = localStorage.getItem('prefetch_expense_categories');
+      if (!raw) return null;
+      const expenseCache = JSON.parse(raw)?.data;
+      if (!Array.isArray(expenseCache)) return null;
+
+      const categoryName = getRequestCategoryName(request).trim().toLowerCase();
+      if (!categoryName) return null;
+
+      const requestCode = String(request?.category_code || request?.main_category_code || request?.metadata?.main_category_code || '').trim().toLowerCase();
+      const requestDeptShort = getRequestDepartmentShort(request);
+
+      const matches = expenseCache.filter((ec: any) => {
+        const ecName = String(ec.main_category_name || ec.category_name || '').trim().toLowerCase();
+        const ecCode = String(ec.main_category_code || ec.category_code || '').trim().toLowerCase();
+        if (requestCode && ecCode && ecCode === requestCode) return true;
+        if (ecName && ecName === categoryName) return true;
+        return false;
+      });
+      if (!matches.length) return null;
+
+      if (requestDeptShort) {
+        const scopedMatch = matches.find((ec: any) => String(ec.department || '').trim().toLowerCase() === requestDeptShort.toLowerCase());
+        if (scopedMatch) return String(scopedMatch.department || '').trim();
+      }
+
+      const explicitDeptMatch = matches.find((ec: any) => String(ec.department || '').trim().toLowerCase() !== 'all');
+      if (explicitDeptMatch) return String(explicitDeptMatch.department || '').trim();
+
+      return String(matches[0].department || '').trim();
+    } catch {
+      return null;
+    }
+  };
+
   const resolveCategoryBudgetForDepartment = (request: any, dept: any) => {
     const categoryName = getRequestCategoryName(request);
     if (!categoryName) return null;
@@ -1410,12 +1466,20 @@ const Approvals = () => {
     return resolveCategoryBudgetForDepartment(request, { id: request.department_id });
   };
 
+  const shouldShowDepartmentForRequestCategory = (req: any, dept: any) => {
+    const scope = getRequestExpenseCategoryScope(req);
+    if (!scope || scope.toLowerCase() === 'all') return true;
+    const deptShort = mapDepartmentNameToShort(dept.name);
+    return deptShort?.trim().toLowerCase() === scope.toLowerCase();
+  };
+
   const getDepartmentOptionsForRequest = (req: any) => {
     const categoryName = getRequestCategoryName(req).toLowerCase();
     const reqFiscalYear = req.fiscal_year ?? null;
     return departments
       .filter((dept) => {
         if (!categoryName) return true;
+        if (!shouldShowDepartmentForRequestCategory(req, dept)) return false;
         return budgetCategories.some(
           (cat) =>
             cat.department_id === dept.id &&
