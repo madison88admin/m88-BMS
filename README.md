@@ -90,8 +90,6 @@ This helper inserts departments and the default users:
 ### 5. **Test the Application**
 Your site will be live! Test with these accounts:
 - **Employee**: john.employee@madison88.com / password123
-- **Supervisor**: jane.supervisor@madison88.com / password123
-- **Accounting**: bob.accounting@madison88.com / password123
 
 ## API Endpoints (Netlify Functions)
 
