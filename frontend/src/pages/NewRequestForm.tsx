@@ -75,10 +75,6 @@ const NewRequestForm = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Selected main categories for hierarchical dropdowns
-  const [cashAdvanceMainCategory, setCashAdvanceMainCategory] = useState('');
-  const [reimbursementMainCategory, setReimbursementMainCategory] = useState('');
-
   // Helper: Get unique main categories from official list
   const getUniqueMainCategories = () => {
     const categories = new Set<string>();
@@ -151,8 +147,7 @@ const NewRequestForm = () => {
     ] as Array<{
       item: string;
       amount: string;
-    }>,
-    receipt_files: [] as File[]
+    }>
   });
 
   // Cash Advance Form
@@ -170,8 +165,7 @@ const NewRequestForm = () => {
       { item: 'Transportation', amount: '' },
       { item: 'Meals', amount: '' },
       { item: 'Miscellaneous', amount: '' }
-    ],
-    attachments: [] as File[]
+    ]
   });
 
   // Liquidation Form
@@ -188,10 +182,7 @@ const NewRequestForm = () => {
     if (rDraft) {
       try {
         const parsed = JSON.parse(rDraft);
-        setReimbursementForm((prev: any) => ({ ...prev, ...parsed, receipt_files: [] }));
-        if (parsed.main_category) {
-          setReimbursementMainCategory(parsed.main_category);
-        }
+        setReimbursementForm((prev: any) => ({ ...prev, ...parsed }));
       } catch (e) { /* invalid draft, skip */ }
     }
 
@@ -199,7 +190,7 @@ const NewRequestForm = () => {
     if (cDraft) {
       try {
         const parsed = JSON.parse(cDraft);
-        setCashAdvanceForm((prev: any) => ({ ...prev, ...parsed, attachments: [] }));
+        setCashAdvanceForm((prev: any) => ({ ...prev, ...parsed }));
       } catch (e) { /* invalid draft, skip */ }
     }
 
@@ -223,8 +214,7 @@ const NewRequestForm = () => {
     // Save whenever there is substantial content
     const hasContent = reimbursementForm.items.some(i => i.item && i.amount) || reimbursementForm.business_purpose;
     if (hasContent) {
-      const { receipt_files, ...rest } = reimbursementForm;
-      localStorage.setItem('reimbursement_draft', JSON.stringify(rest));
+      localStorage.setItem('reimbursement_draft', JSON.stringify(reimbursementForm));
     }
   }, [reimbursementForm]);
 
@@ -237,8 +227,7 @@ const NewRequestForm = () => {
       cashAdvanceForm.department_id !== '';
     
     if (hasAnyContent) {
-      const { attachments, ...rest } = cashAdvanceForm;
-      localStorage.setItem('cash_advance_draft', JSON.stringify(rest));
+      localStorage.setItem('cash_advance_draft', JSON.stringify(cashAdvanceForm));
     }
   }, [cashAdvanceForm]);
 
@@ -447,58 +436,37 @@ const NewRequestForm = () => {
     const token = localStorage.getItem('token');
 
     try {
-      let attachments: any[] = [];
-      
-      // Upload all files
-      if (reimbursementForm.receipt_files.length > 0) {
-        for (const file of reimbursementForm.receipt_files) {
-          try {
-            const uploaded = await uploadSupportingFile(file);
-            attachments.push(uploaded);
-          } catch (uploadErr: any) {
-            toast.error(getErrorMessage(uploadErr, 'Failed to upload file'));
-          }
-        }
-      }
-
-      // Calculate total and prepare items
       const totalAmount = reimbursementForm.items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-      
-      // Prepare items with category info for backend
-      const itemsForBackend = reimbursementForm.items.map(item => {
-        const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === item.item);
-        return {
-          item_name: item.item,
-          main_category: selectedItem?.category || reimbursementForm.main_category || '',
-          category: selectedItem?.category || reimbursementForm.main_category || '',
-          category_id: resolveCategoryIdFromOfficialItem(selectedItem, categories),
-          amount: parseFloat(item.amount) || 0
-        };
-      });
+      const selectedCategory = categories.find(c => c.category_name === reimbursementForm.main_category);
+      const categoryId = selectedCategory?.id || '';
 
-      const mainOfficialItem = officialList.find(i => `${i.code} | ${i.itemName}` === reimbursementForm.item_name);
-      const primaryCategoryId = resolveCategoryIdFromOfficialItem(mainOfficialItem, categories);
+      const itemsForBackend = reimbursementForm.items.map(item => ({
+        item_name: item.item,
+        main_category: reimbursementForm.main_category || 'Reimbursement',
+        category: reimbursementForm.main_category || 'Reimbursement',
+        category_id: categoryId,
+        amount: parseFloat(item.amount) || 0
+      }));
 
       await api.post('/api/requests', {
         request_type: 'reimbursement',
         item_name: reimbursementForm.item_name,
         department_id: reimbursementForm.department_id,
-        category: mainOfficialItem?.category || reimbursementForm.main_category || 'Reimbursement',
-        category_id: primaryCategoryId || '',
+        category: reimbursementForm.main_category || 'Reimbursement',
+        category_id: categoryId,
         amount: totalAmount,
         purpose: reimbursementForm.business_purpose,
         expense_date: reimbursementForm.expense_date,
         cost_center_id: reimbursementForm.cost_center_id,
         project: reimbursementForm.project,
         priority: 'normal',
-        attachments,
         items: itemsForBackend,
         metadata: {
           request_type: 'reimbursement',
           expense_date: reimbursementForm.expense_date,
           cost_center_id: reimbursementForm.cost_center_id || null,
           project: reimbursementForm.project || null,
-          main_category: reimbursementForm.main_category || mainOfficialItem?.category || null,
+          main_category: reimbursementForm.main_category || null,
         }
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -530,46 +498,30 @@ const NewRequestForm = () => {
     const totalAmount = cashAdvanceForm.breakdown.reduce((sum: number, item: any) => sum + (parseFloat(item.amount as string) || 0), 0);
 
     try {
-      let attachments: any[] = [];
-      if (cashAdvanceForm.attachments.length > 0) {
-        for (const file of cashAdvanceForm.attachments) {
-          try {
-            const uploaded = await uploadSupportingFile(file);
-            attachments.push(uploaded);
-          } catch (uploadErr: any) {
-            toast.error(getErrorMessage(uploadErr, 'Failed to upload file'));
-          }
-        }
-      }
-
-      const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === cashAdvanceForm.item_name);
-      const itemsForBackend = cashAdvanceForm.breakdown.map(item => {
-        const breakdownItem = officialList.find(i => `${i.code} | ${i.itemName}` === item.item);
-        return {
-          item_name: item.item,
-          main_category: breakdownItem?.category || cashAdvanceForm.main_category || selectedItem?.category || '',
-          category: breakdownItem?.category || cashAdvanceForm.main_category || selectedItem?.category || '',
-          category_id: resolveCategoryIdFromOfficialItem(breakdownItem, categories) || '',
-          amount: parseFloat(item.amount) || 0
-        };
-      });
-      const primaryBreakdownCategoryId = itemsForBackend.find(i => i.category_id)?.category_id || resolveCategoryIdFromOfficialItem(selectedItem, categories) || '';
+      const selectedCategory = categories.find(c => c.category_name === cashAdvanceForm.main_category);
+      const categoryId = selectedCategory?.id || '';
+      const itemsForBackend = cashAdvanceForm.breakdown.map(item => ({
+        item_name: item.item,
+        main_category: cashAdvanceForm.main_category || 'Cash Advance',
+        category: cashAdvanceForm.main_category || 'Cash Advance',
+        category_id: categoryId,
+        amount: parseFloat(item.amount) || 0
+      }));
 
       await api.post('/api/requests', {
         request_type: 'cash_advance',
         item_name: cashAdvanceForm.item_name,
         department_id: cashAdvanceForm.department_id,
-        category: selectedItem?.category || cashAdvanceForm.main_category || 'Cash Advance',
-        category_id: primaryBreakdownCategoryId || '',
+        category: cashAdvanceForm.main_category || 'Cash Advance',
+        category_id: categoryId,
         amount: totalAmount,
         purpose: cashAdvanceForm.purpose,
         expected_liquidation_date: cashAdvanceForm.expected_liquidation_date,
         priority: 'normal',
-        attachments,
         items: itemsForBackend,
         metadata: {
           request_type: 'cash_advance',
-          main_category: cashAdvanceForm.main_category || selectedItem?.category || null,
+          main_category: cashAdvanceForm.main_category || null,
         },
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -746,56 +698,28 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Main Category *</label>
-            <select
-              required
-              value={reimbursementMainCategory}
-              onChange={(e) => {
-                const selectedMainCat = e.target.value;
-                setReimbursementMainCategory(selectedMainCat);
-                setReimbursementForm(prev => ({ 
-                  ...prev, 
-                  main_category: selectedMainCat,
-                  item_name: ''
-                }));
-              }}
-              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-            >
-              <option value="">Select main category...</option>
-              {getUniqueMainCategories()
-                .filter(cat => getItemsByMainCategory(cat, 'canRE').length > 0)
-                .map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-            </select>
-          </div>
-
-          {reimbursementMainCategory && (
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Sub-category / Item *</label>
-              <select
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Expense Category / Type *</label>
+              <input
+                required
+                value={reimbursementForm.main_category}
+                onChange={(e) => setReimbursementForm(prev => ({ ...prev, main_category: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                placeholder="e.g. Travel, Meals, Office Supplies"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Primary Expense Item *</label>
+              <input
                 required
                 value={reimbursementForm.item_name}
-                onChange={(e) => {
-                  const selectedItemValue = e.target.value;
-                  setReimbursementForm(prev => ({ 
-                    ...prev, 
-                    item_name: selectedItemValue
-                  }));
-                }}
+                onChange={(e) => setReimbursementForm(prev => ({ ...prev, item_name: e.target.value }))}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                <option value="">Select sub-category...</option>
-                {getItemsByMainCategory(reimbursementMainCategory, 'canRE')
-                  .map(item => (
-                    <option key={item.code} value={`${item.code} | ${item.itemName}`}>
-                      {item.category} - {item.itemName}
-                    </option>
-                  ))}
-              </select>
+                placeholder="e.g. Taxi fare, Lunch meeting"
+              />
             </div>
-          )}
+          </div>
 
           {/* Multiple Items Section */}
           <div className="mb-6">
@@ -821,7 +745,7 @@ const NewRequestForm = () => {
               {reimbursementForm.items.map((item, index) => (
                 <div key={index} className="flex items-center gap-3">
                   <span className="text-sm text-[var(--role-text)]/60">→</span>
-                  <select
+                  <input
                     value={item.item}
                     onChange={(e) => {
                       const newItems = [...reimbursementForm.items];
@@ -829,16 +753,9 @@ const NewRequestForm = () => {
                       setReimbursementForm(prev => ({ ...prev, items: newItems }));
                     }}
                     className="flex-1 px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-                  >
-                    <option value="">Select approved item...</option>
-                    {officialList
-                      .filter(off => isVisibleForRequestForm(off, 'canRE'))
-                      .map(off => (
-                        <option key={off.code} value={`${off.code} | ${off.itemName}`}>
-                          {off.category} - {off.itemName}
-                        </option>
-                      ))}
-                  </select>
+                    placeholder="Description of expense"
+                    required
+                  />
                   <div className="relative w-40">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60">₱</span>
                     <input
@@ -975,56 +892,9 @@ const NewRequestForm = () => {
             />
           </div>
 
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-3">Supporting Documents (Optional)</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-              {reimbursementForm.receipt_files.map((file, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--role-accent)] border border-[var(--role-border)]">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <svg className="w-5 h-5 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <span className="text-sm truncate">{file.name}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newFiles = reimbursementForm.receipt_files.filter((_, i) => i !== idx);
-                      setReimbursementForm(prev => ({ ...prev, receipt_files: newFiles }));
-                    }}
-                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-            
-            <div className="border-2 border-dashed border-[var(--role-border)] rounded-xl p-6 text-center hover:border-[var(--role-primary)]/50 transition-colors">
-              <input
-                type="file"
-                multiple
-                accept="image/*,.pdf"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    const files = Array.from(e.target.files);
-                    setReimbursementForm(prev => ({ ...prev, receipt_files: [...prev.receipt_files, ...files] }));
-                  }
-                }}
-                className="hidden"
-                id="receipt-upload"
-              />
-              <label htmlFor="receipt-upload" className="cursor-pointer">
-                <svg className="w-10 h-10 mx-auto mb-2 text-[var(--role-text)]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-sm text-[var(--role-text)]/60">
-                  Click to add receipts or documents
-                </p>
-              </label>
-            </div>
+          <div className="mb-6 rounded-xl border border-dashed border-[var(--role-border)]/40 bg-[var(--role-accent)]/50 p-4">
+            <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-2">Receipts and supporting documents are handled by Accounting after submission.</p>
+            <p className="text-sm text-[var(--role-text)]/60">No file upload is required in this reimbursement form.</p>
           </div>
 
           <div className="flex gap-3">
@@ -1111,59 +981,28 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Main Category *</label>
-            <select
-              required
-              value={cashAdvanceMainCategory}
-              onChange={(e) => {
-                const selectedMainCat = e.target.value;
-                setCashAdvanceMainCategory(selectedMainCat);
-                setCashAdvanceForm(prev => ({ 
-                  ...prev, 
-                  main_category: selectedMainCat,
-                  item_name: '',
-                  advance_type: ''
-                }));
-              }}
-              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-            >
-              <option value="">Select main category...</option>
-              {getUniqueMainCategories()
-                .filter(cat => getItemsByMainCategory(cat, 'canCA').length > 0)
-                .map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-            </select>
-          </div>
-
-          {cashAdvanceMainCategory && (
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Sub-category / Item *</label>
-              <select
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Expense Category / Type *</label>
+              <input
+                required
+                value={cashAdvanceForm.main_category}
+                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, main_category: e.target.value }))}
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                placeholder="e.g. Travel, Per Diem, Events"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Primary Expense Item *</label>
+              <input
                 required
                 value={cashAdvanceForm.item_name}
-                onChange={(e) => {
-                  const selectedItemValue = e.target.value;
-                  const selectedItem = officialList.find(i => `${i.code} | ${i.itemName}` === selectedItemValue);
-                  setCashAdvanceForm(prev => ({ 
-                    ...prev, 
-                    item_name: selectedItemValue,
-                    advance_type: selectedItem ? selectedItem.category : prev.advance_type
-                  }));
-                }}
+                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, item_name: e.target.value }))}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                <option value="">Select sub-category...</option>
-                {getItemsByMainCategory(cashAdvanceMainCategory, 'canCA')
-                  .map(item => (
-                    <option key={item.code} value={`${item.code} | ${item.itemName}`}>
-                      {item.category} - {item.itemName}
-                    </option>
-                  ))}
-              </select>
+                placeholder="e.g. Client transport, hotel booking"
+              />
             </div>
-          )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
@@ -1212,7 +1051,7 @@ const NewRequestForm = () => {
               {cashAdvanceForm.breakdown.map((item, index) => (
                 <div key={index} className="flex items-center gap-3">
                   <span className="text-sm text-[var(--role-text)]/60">→</span>
-                  <select
+                  <input
                     value={item.item}
                     onChange={(e) => {
                       const newBreakdown = [...cashAdvanceForm.breakdown];
@@ -1220,16 +1059,9 @@ const NewRequestForm = () => {
                       setCashAdvanceForm(prev => ({ ...prev, breakdown: newBreakdown }));
                     }}
                     className="flex-1 px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-                  >
-                    <option value="">Select approved item...</option>
-                    {officialList
-                      .filter(off => isVisibleForRequestForm(off, 'canCA'))
-                      .map(off => (
-                        <option key={off.code} value={`${off.code} | ${off.itemName}`}>
-                          {off.category} - {off.itemName}
-                        </option>
-                      ))}
-                  </select>
+                    placeholder="Expense description"
+                    required
+                  />
                   <div className="relative w-40">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60">₱</span>
                     <input
@@ -1282,56 +1114,9 @@ const NewRequestForm = () => {
           </div>
 
           {/* Supporting Documents Section for Cash Advance */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-3">Supporting Documents (Optional)</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-              {cashAdvanceForm.attachments.map((file, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--role-accent)] border border-[var(--role-border)]">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <svg className="w-5 h-5 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <span className="text-sm truncate">{file.name}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newAtts = cashAdvanceForm.attachments.filter((_, i) => i !== idx);
-                      setCashAdvanceForm(prev => ({ ...prev, attachments: newAtts }));
-                    }}
-                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-            
-            <div className="border-2 border-dashed border-[var(--role-border)] rounded-xl p-6 text-center hover:border-[var(--role-primary)]/50 transition-colors">
-              <input
-                type="file"
-                multiple
-                accept="image/*,.pdf"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    const files = Array.from(e.target.files);
-                    setCashAdvanceForm(prev => ({ ...prev, attachments: [...prev.attachments, ...files] }));
-                  }
-                }}
-                className="hidden"
-                id="cash-advance-attachments"
-              />
-              <label htmlFor="cash-advance-attachments" className="cursor-pointer">
-                <svg className="w-10 h-10 mx-auto mb-2 text-[var(--role-text)]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-sm text-[var(--role-text)]/60">
-                  Click to add images or PDFs
-                </p>
-              </label>
-            </div>
+          <div className="mb-6 rounded-xl border border-dashed border-[var(--role-border)]/40 bg-[var(--role-accent)]/50 p-4">
+            <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-2">Receipts and supporting documents are handled by Accounting after request submission.</p>
+            <p className="text-sm text-[var(--role-text)]/60">No file upload is required here.</p>
           </div>
 
           {/* Budget status hidden from Cash Advance form - they can submit continuously */}

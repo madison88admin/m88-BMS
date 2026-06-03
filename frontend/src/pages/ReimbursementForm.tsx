@@ -1,7 +1,6 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
-import { supabase } from '../lib/supabase';
 import { getErrorMessage } from '../utils/format';
 
 interface ReimbursementItem {
@@ -15,7 +14,6 @@ interface ReimbursementFormData {
   cash_advance_ref: string;
   cash_advance_balance: string;
   business_justification: string;
-  supporting_docs: FileList | null;
 }
 
 const ReimbursementForm = () => {
@@ -25,13 +23,11 @@ const ReimbursementForm = () => {
   const [form, setForm] = useState<ReimbursementFormData>({
     cash_advance_ref: '',
     cash_advance_balance: '',
-    business_justification: '',
-    supporting_docs: null
+    business_justification: ''
   });
   const [loading, setLoading] = useState(false);
   const [linkedCA, setLinkedCA] = useState<any>(null);
   const [checkingCA, setCheckingCA] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const totalAmount = useMemo(() => {
     return items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
@@ -106,46 +102,6 @@ const ReimbursementForm = () => {
     setLoading(true);
     const token = localStorage.getItem('token');
 
-    // Handle file uploads if any
-    let attachments: any[] = [];
-    if (form.supporting_docs && form.supporting_docs.length > 0) {
-      if (!supabase) {
-        toast.error('Supabase client not initialized. Cannot upload files.');
-        setLoading(false);
-        return;
-      }
-
-      for (let i = 0; i < form.supporting_docs.length; i++) {
-        const file = form.supporting_docs[i];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
-        const filePath = `attachments/${fileName}`;
-
-        try {
-          const { error: uploadError } = await supabase.storage
-            .from('attachments')
-            .upload(filePath, file);
-
-          if (uploadError) throw uploadError;
-
-          const { data: { publicUrl } } = supabase.storage
-            .from('attachments')
-            .getPublicUrl(filePath);
-
-          attachments.push({
-            file_name: file.name,
-            file_url: publicUrl,
-            attachment_type: file.type,
-            attachment_scope: 'request'
-          });
-        } catch (uploadErr: any) {
-          toast.error(`Failed to upload ${file.name}: ${uploadErr.message}`);
-          setLoading(false);
-          return;
-        }
-      }
-    }
-
     const combinedItemName = items.map(item => `${item.payee_name} (${item.expense_type})`).join(', ');
     const itemBreakdown = items.map(item => 
       `${item.expense_date} | ${item.payee_name} | ${item.expense_type}: ₱${parseFloat(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2 }) }`
@@ -161,7 +117,6 @@ const ReimbursementForm = () => {
       project_id: null,
       vendor_id: null,
       business_reason: form.business_justification,
-      attachments,
       metadata: {
         items: items.map(item => ({
           ...item,
@@ -184,13 +139,9 @@ const ReimbursementForm = () => {
       setForm({
         cash_advance_ref: '',
         cash_advance_balance: '',
-        business_justification: '',
-        supporting_docs: null
+        business_justification: ''
       });
       setLinkedCA(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
     } catch (err: any) {
       toast.error(getErrorMessage(err, 'Submission failed'));
     } finally {
@@ -275,23 +226,13 @@ const ReimbursementForm = () => {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
                       <label className="field-label !text-[10px] uppercase">Expense Type</label>
-                      <select
+                          <input
                         className="field-input !py-2 !text-sm"
                         value={item.expense_type}
                         onChange={e => updateItem(index, 'expense_type', e.target.value)}
+                        placeholder="Expense category or type"
                         required
-                      >
-                        <option value="">Select type...</option>
-                        <option value="Travel">Travel / Transportation</option>
-                        <option value="Meals">Meals / Entertainment</option>
-                        <option value="Supplies">Office Supplies</option>
-                        <option value="Equipment">Equipment / Hardware</option>
-                        <option value="Software">Software / Subscriptions</option>
-                        <option value="Communication">Communication / Internet</option>
-                        <option value="Utilities">Utilities</option>
-                        <option value="Professional">Professional Services</option>
-                        <option value="Other">Other</option>
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="field-label !text-[10px] uppercase">Amount</label>
@@ -352,19 +293,9 @@ const ReimbursementForm = () => {
               />
             </div>
 
-            <div>
-              <label className="field-label">Supporting Documents</label>
-              <div className="field-input cursor-pointer border-2 border-dashed border-[var(--role-secondary)]/30 bg-[var(--role-accent)] hover:border-[var(--role-secondary)]/50">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                  onChange={e => setForm({ ...form, supporting_docs: e.target.files })}
-                  className="w-full text-sm text-[var(--role-text)]/70 file:mr-4 file:cursor-pointer file:rounded file:border-0 file:bg-[var(--role-secondary)]/20 file:px-3 file:py-1 file:text-xs file:font-bold file:text-[var(--role-primary)] file:transition hover:file:bg-[var(--role-secondary)]/30"
-                />
-              </div>
-              <p className="mt-1 text-xs text-[var(--role-text)]/50 font-medium">Upload receipts, invoices, or other supporting documents (PDF, JPG, PNG, DOC)</p>
+            <div className="mb-4 rounded-xl border border-dashed border-[var(--role-border)]/40 bg-[var(--role-accent)]/50 p-4">
+              <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-1">No file upload required here.</p>
+              <p className="text-sm text-[var(--role-text)]/60">Accounting will collect receipts separately after submission.</p>
             </div>
 
             <div className="rounded-2xl border border-[var(--role-secondary)]/20 bg-[var(--role-accent)] p-5">
