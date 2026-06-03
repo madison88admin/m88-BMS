@@ -413,10 +413,12 @@ const Admin = () => {
     const token = localStorage.getItem('token');
     try {
       const res = await api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } });
-      setDepartments(res.data);
+      const depts = Array.isArray(res.data) ? res.data : [];
+      if (!Array.isArray(res.data)) console.warn('Admin.fetchDepartments: unexpected response shape', res.data);
+      setDepartments(depts);
       setBudgetInputs(prev => {
         const next = { ...prev };
-        res.data.forEach((dept: any) => {
+        depts.forEach((dept: any) => {
           if (!(dept.id in next)) next[dept.id] = '';
         });
         return next;

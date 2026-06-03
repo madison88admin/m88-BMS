@@ -324,9 +324,11 @@ const BudgetManagement = () => {
     const token = localStorage.getItem('token');
     try {
       const res = await api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } });
-      setDepartments(res.data || []);
-      setBudgetInputs(prev => { const n = { ...prev }; res.data.forEach((d: any) => { if (!(d.id in n)) n[d.id] = ''; }); return n; });
-      const visible: any[] = Array.from(res.data.filter((d: any) => !/^m88/i.test(d.name || '')).reduce((m: Map<string, any>, d: any) => { const k = `${String(d.name || '').trim().toLowerCase()}::${d.fiscal_year}`; const ex = m.get(k); m.set(k, !ex || toNumber(d.used_budget) > toNumber(ex.used_budget) ? d : ex); return m; }, new Map()).values());
+      const depts = Array.isArray(res.data) ? res.data : [];
+      if (!Array.isArray(res.data)) console.warn('fetchDepartments: unexpected response shape', res.data);
+      setDepartments(depts);
+      setBudgetInputs(prev => { const n = { ...prev }; depts.forEach((d: any) => { if (!(d.id in n)) n[d.id] = ''; }); return n; });
+      const visible: any[] = Array.from(depts.filter((d: any) => !/^m88/i.test(d.name || '')).reduce((m: Map<string, any>, d: any) => { const k = `${String(d.name || '').trim().toLowerCase()}::${d.fiscal_year}`; const ex = m.get(k); m.set(k, !ex || toNumber(d.used_budget) > toNumber(ex.used_budget) ? d : ex); return m; }, new Map()).values());
       if (visible.length) {
         const latestFY = Math.max(...visible.map((d: any) => Number(d.fiscal_year || 0)), new Date().getFullYear());
         setSelectedFiscalYear(curr => curr || latestFY);
