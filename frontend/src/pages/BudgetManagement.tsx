@@ -136,7 +136,8 @@ const BudgetManagement = () => {
   const [revisionHistory, setRevisionHistory] = useState<Record<string, any[]>>({});
   const [submittingProposal, setSubmittingProposal] = useState(false);
 
-  const canEditMatrix = ['accounting', 'admin', 'super_admin'].includes(String(user?.role || '').toLowerCase());
+  // Only accounting and admin may edit/unlock budget matrix
+  const canEditMatrix = ['accounting', 'admin'].includes(String(user?.role || '').toLowerCase());
   const isViewOnlyMatrix = user?.role === 'supervisor' || user?.role === 'vp' || user?.role === 'president';
 
   const visibleDepartments = useMemo(() => {
