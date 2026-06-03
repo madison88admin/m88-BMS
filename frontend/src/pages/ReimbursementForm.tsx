@@ -28,6 +28,7 @@ const ReimbursementForm = () => {
   const [loading, setLoading] = useState(false);
   const [linkedCA, setLinkedCA] = useState<any>(null);
   const [checkingCA, setCheckingCA] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
 
   // Common expense types
   const expenseTypes = [
@@ -101,6 +102,36 @@ const ReimbursementForm = () => {
     }
   };
 
+  const uploadSupportingFile = async (file: File) => {
+    const token = localStorage.getItem('token');
+    if (!token) throw new Error('Not authenticated');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post('/api/upload', formData, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    return response.data;
+  };
+
+  const uploadFiles = async (files: File[]) => {
+    const uploadedAttachments: any[] = [];
+    for (const file of files) {
+      const uploaded = await uploadSupportingFile(file);
+      uploadedAttachments.push({
+        file_name: uploaded.file_name,
+        file_url: uploaded.file_url,
+        attachment_type: uploaded.attachment_type || 'receipt',
+        attachment_scope: 'request'
+      });
+    }
+    return uploadedAttachments;
+  };
+
   const handleSubmit = async (e: any) => {
     e.preventDefault();
 
@@ -122,6 +153,10 @@ const ReimbursementForm = () => {
       `${item.expense_date} | ${item.payee_name} | ${item.expense_type}: ₱${parseFloat(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2 }) }`
     ).join('\n');
 
+    const reimbursementAttachments = attachments.length > 0
+      ? await uploadFiles(attachments)
+      : [];
+
     const payload = {
       item_name: `[REIMBURSEMENT] ${combinedItemName}`,
       category: 'Reimbursement',
@@ -141,7 +176,8 @@ const ReimbursementForm = () => {
         cash_advance_balance: linkedCA ? caBalance : null,
         total_amount: totalAmount,
         net_reimbursement: netReimbursement
-      }
+      },
+      attachments: reimbursementAttachments
     };
 
     try {
@@ -313,8 +349,44 @@ const ReimbursementForm = () => {
             </div>
 
             <div className="mb-4 rounded-xl border border-dashed border-[var(--role-border)]/40 bg-[var(--role-accent)]/50 p-4">
-              <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-1">No file upload required here.</p>
-              <p className="text-sm text-[var(--role-text)]/60">Accounting will collect receipts separately after submission.</p>
+              <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-3">Attach receipts or supporting documents for this reimbursement.</p>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <label htmlFor="reimbursement-attachments" className="btn-secondary cursor-pointer">
+                    Select files
+                  </label>
+                  <span className="text-sm text-[var(--role-text)]/70">Upload receipts or PDFs to include them with this claim.</span>
+                </div>
+                <input
+                  id="reimbursement-attachments"
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (!files) return;
+                    setAttachments(prev => ([...prev, ...Array.from(files)]));
+                    e.target.value = '';
+                  }}
+                />
+                {attachments.length > 0 && (
+                  <div className="grid gap-2">
+                    {attachments.map((file, idx) => (
+                      <div key={idx} className="flex items-center justify-between rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] px-3 py-2 text-sm">
+                        <span className="truncate">{file.name}</span>
+                        <button
+                          type="button"
+                          className="text-red-600 hover:text-red-800"
+                          onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="rounded-2xl border border-[var(--role-secondary)]/20 bg-[var(--role-accent)] p-5">

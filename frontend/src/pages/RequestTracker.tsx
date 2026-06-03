@@ -795,6 +795,20 @@ const RequestTracker = () => {
               </div>
             )}
 
+            {((selectedRequest.metadata?.items?.length || selectedRequest.items?.length) > 0) && (
+              <div className="mt-4">
+                <h3 className="text-lg font-bold text-[var(--role-text)]">Estimated Breakdown</h3>
+                <div className="mt-3 space-y-2">
+                  {(selectedRequest.metadata?.items || selectedRequest.items || []).map((item: any, index: number) => (
+                    <div key={index} className="panel-muted bg-white/40 flex items-center justify-between gap-4">
+                      <p className="text-sm text-[var(--role-text)]/80">{item.item_name || item.item || item.description || 'Item'}</p>
+                      <p className="text-sm font-semibold text-[var(--role-text)]">{formatMoney(toNumber(item.amount))}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {selectedRequest.attachments?.length > 0 && (
               <div className="mt-4">
                 <h3 className="text-lg font-bold text-[var(--role-text)]">Supporting Documents</h3>

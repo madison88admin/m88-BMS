@@ -152,6 +152,20 @@ const NewRequestForm = () => {
     return response.data;
   };
 
+  const uploadFiles = async (files: File[]) => {
+    const attachments: any[] = [];
+    for (const file of files) {
+      const uploaded = await uploadSupportingFile(file);
+      attachments.push({
+        file_name: uploaded.file_name,
+        file_url: uploaded.file_url,
+        attachment_type: uploaded.attachment_type || 'receipt',
+        attachment_scope: 'request'
+      });
+    }
+    return attachments;
+  };
+
   // Fetch cash advance request details and build category breakdown
   const fetchAndBuildCategoryBreakdown = async (advanceId: string) => {
     try {
@@ -220,7 +234,8 @@ const NewRequestForm = () => {
     ] as Array<{
       item: string;
       amount: string;
-    }>
+    }>,
+    attachments: [] as File[]
   });
 
   // Cash Advance Form
@@ -238,7 +253,8 @@ const NewRequestForm = () => {
       { item: 'Transportation', amount: '' },
       { item: 'Meals', amount: '' },
       { item: 'Miscellaneous', amount: '' }
-    ]
+    ],
+    attachments: [] as File[]
   });
 
   // Liquidation Form
@@ -520,6 +536,10 @@ const NewRequestForm = () => {
         amount: parseFloat(item.amount) || 0
       }));
 
+      const reimbursementAttachments = reimbursementForm.attachments.length > 0
+        ? await uploadFiles(reimbursementForm.attachments)
+        : [];
+
       await api.post('/api/requests', {
         request_type: 'reimbursement',
         item_name: reimbursementForm.item_name,
@@ -539,7 +559,8 @@ const NewRequestForm = () => {
           cost_center_id: reimbursementForm.cost_center_id || null,
           project: reimbursementForm.project || null,
           main_category: reimbursementForm.main_category || null,
-        }
+        },
+        attachments: reimbursementAttachments
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -580,6 +601,10 @@ const NewRequestForm = () => {
         amount: parseFloat(item.amount) || 0
       }));
 
+      const cashAdvanceAttachments = cashAdvanceForm.attachments.length > 0
+        ? await uploadFiles(cashAdvanceForm.attachments)
+        : [];
+
       await api.post('/api/requests', {
         request_type: 'cash_advance',
         item_name: cashAdvanceForm.item_name,
@@ -595,6 +620,7 @@ const NewRequestForm = () => {
           request_type: 'cash_advance',
           main_category: cashAdvanceForm.main_category || null,
         },
+        attachments: cashAdvanceAttachments
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -1013,8 +1039,50 @@ const NewRequestForm = () => {
           </div>
 
           <div className="mb-6 rounded-xl border border-dashed border-[var(--role-border)]/40 bg-[var(--role-accent)]/50 p-4">
-            <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-2">Receipts and supporting documents are handled by Accounting after submission.</p>
-            <p className="text-sm text-[var(--role-text)]/60">No file upload is required in this reimbursement form.</p>
+            <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-3">Attach receipts or supporting documents for this reimbursement.</p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <label htmlFor="reimbursement-attachments" className="btn-secondary cursor-pointer">
+                  Select files
+                </label>
+                <span className="text-sm text-[var(--role-text)]/70">Upload multiple images or PDF files.</span>
+              </div>
+              <input
+                id="reimbursement-attachments"
+                type="file"
+                multiple
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (!files) return;
+                  setReimbursementForm(prev => ({
+                    ...prev,
+                    attachments: [...prev.attachments, ...Array.from(files)]
+                  }));
+                  e.target.value = '';
+                }}
+              />
+              {reimbursementForm.attachments.length > 0 && (
+                <div className="grid gap-2">
+                  {reimbursementForm.attachments.map((file, idx) => (
+                    <div key={idx} className="flex items-center justify-between rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] px-3 py-2 text-sm">
+                      <span className="truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        className="text-red-600 hover:text-red-800"
+                        onClick={() => setReimbursementForm(prev => ({
+                          ...prev,
+                          attachments: prev.attachments.filter((_, i) => i !== idx)
+                        }))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-3">
@@ -1256,8 +1324,50 @@ const NewRequestForm = () => {
 
           {/* Supporting Documents Section for Cash Advance */}
           <div className="mb-6 rounded-xl border border-dashed border-[var(--role-border)]/40 bg-[var(--role-accent)]/50 p-4">
-            <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-2">Receipts and supporting documents are handled by Accounting after request submission.</p>
-            <p className="text-sm text-[var(--role-text)]/60">No file upload is required here.</p>
+            <p className="text-sm font-semibold text-[var(--role-text)]/70 mb-3">Attach receipts or supporting documents for this cash advance.</p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <label htmlFor="cash-advance-attachments" className="btn-secondary cursor-pointer">
+                  Select files
+                </label>
+                <span className="text-sm text-[var(--role-text)]/70">Upload multiple images or PDF receipts.</span>
+              </div>
+              <input
+                id="cash-advance-attachments"
+                type="file"
+                multiple
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (!files) return;
+                  setCashAdvanceForm(prev => ({
+                    ...prev,
+                    attachments: [...prev.attachments, ...Array.from(files)]
+                  }));
+                  e.target.value = '';
+                }}
+              />
+              {cashAdvanceForm.attachments.length > 0 && (
+                <div className="grid gap-2">
+                  {cashAdvanceForm.attachments.map((file, idx) => (
+                    <div key={idx} className="flex items-center justify-between rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] px-3 py-2 text-sm">
+                      <span className="truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        className="text-red-600 hover:text-red-800"
+                        onClick={() => setCashAdvanceForm(prev => ({
+                          ...prev,
+                          attachments: prev.attachments.filter((_, i) => i !== idx)
+                        }))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Budget status hidden from Cash Advance form - they can submit continuously */}
