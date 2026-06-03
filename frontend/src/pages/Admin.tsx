@@ -153,7 +153,6 @@ const Admin = () => {
   const [budgetHealthFilter, setBudgetHealthFilter] = useState<'all' | 'low' | 'high' | 'critical'>('all');
   const [newDept, setNewDept] = useState({
     name: '',
-    annual_budget: '',
     fiscal_year: new Date().getFullYear()
   });
   const [pettyCashForm, setPettyCashForm] = useState({
@@ -474,19 +473,6 @@ const Admin = () => {
     }
   };
 
-  const updateBudget = async (deptId: string, budget: number) => {
-    const token = localStorage.getItem('token');
-    try {
-      await api.patch(`/api/departments/${deptId}/budget`, { annual_budget: budget }, { headers: { Authorization: `Bearer ${token}` } });
-      toast.success('Budget updated!');
-      await fetchDepartments(false);
-      await fetchDepartmentBreakdown(deptId, false, false);
-      setBudgetInputs(prev => ({ ...prev, [deptId]: '' }));
-    } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to update budget'));
-    }
-  };
-
   const updateCategoryBudget = async (categoryId: string, budget: number) => {
     const token = localStorage.getItem('token');
     try {
@@ -663,7 +649,6 @@ const Admin = () => {
         '/api/departments',
         {
           name: newDept.name,
-          annual_budget: toNumber(newDept.annual_budget),
           fiscal_year: newDept.fiscal_year
         },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -676,7 +661,6 @@ const Admin = () => {
       );
       setNewDept({
         name: '',
-        annual_budget: '',
         fiscal_year: selectedFiscalYear || availableFiscalYears[0] || new Date().getFullYear()
       });
       setSelectedFiscalYear(newDept.fiscal_year);
@@ -758,7 +742,6 @@ const Admin = () => {
       setSelectedDepartmentId('');
       setNewDept({
         name: '',
-        annual_budget: '',
         fiscal_year: nextFiscalYear
       });
       await fetchDepartments(false);
@@ -1464,46 +1447,6 @@ return (
                   <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                       <div>
-                        <h3 className="text-lg font-semibold text-[var(--role-text)]">Budget Update</h3>
-                        <p className="mt-1 text-sm text-[var(--role-text)]/60">
-                          You can still update the total budget while the detailed breakdown route is being refreshed.
-                        </p>
-                      </div>
-                      <div className="rounded-full border border-[var(--role-border)] bg-[var(--role-surface)] px-4 py-2 text-sm text-[var(--role-text)]/60">
-                        Current Total: <span className="font-semibold text-[var(--role-text)]">{displayMoney(editableBudgetValue)}</span>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="New Budget Amount"
-                        className="field-input"
-                        value={budgetInputs[editableBudgetDepartmentId] || ''}
-                        onChange={(e) => setBudgetInputs(prev => ({ ...prev, [editableBudgetDepartmentId]: e.target.value }))}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const value = parseFloat((e.target as HTMLInputElement).value);
-                            if (value > 0 && editableBudgetDepartmentId) updateBudget(editableBudgetDepartmentId, value);
-                          }
-                        }}
-                      />
-                      <button
-                        onClick={() => {
-                          const value = parseFloat(budgetInputs[editableBudgetDepartmentId]);
-                          if (value > 0 && editableBudgetDepartmentId) updateBudget(editableBudgetDepartmentId, value);
-                        }}
-                        className="btn-success"
-                      >
-                        Update Budget
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                      <div>
                         <h3 className="text-lg font-semibold text-[var(--role-text)]">Petty Cash Adjustment</h3>
                         <p className="mt-1 text-sm text-[var(--role-text)]/60">
                           Add or deduct petty cash with a required reason so every balance change has a clear audit note.
@@ -1975,31 +1918,6 @@ return (
                       )}
                     </div>
 
-                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="New Budget Amount"
-                        className="field-input"
-                        value={budgetInputs[selectedDepartmentId] || ''}
-                        onChange={(e) => setBudgetInputs(prev => ({ ...prev, [selectedDepartmentId]: e.target.value }))}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const value = parseFloat((e.target as HTMLInputElement).value);
-                            if (value > 0 && selectedDepartmentId) updateBudget(selectedDepartmentId, value);
-                          }
-                        }}
-                      />
-                      <button
-                        onClick={() => {
-                          const value = parseFloat(budgetInputs[selectedDepartmentId]);
-                          if (value > 0 && selectedDepartmentId) updateBudget(selectedDepartmentId, value);
-                        }}
-                        className="btn-success"
-                      >
-                        Update Budget
-                      </button>
-                    </div>
                   </div>
 
                   {(user?.role === 'accounting' || user?.role === 'admin') && (
@@ -2224,9 +2142,8 @@ return (
               Add All Departments For FY {activeFiscalYear + 1}
             </button>
           </div>
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
             <input className="field-input" placeholder="Department Name" value={newDept.name} onChange={e => setNewDept({...newDept, name: e.target.value})} />
-            <input className="field-input" type="number" step="0.01" placeholder="Annual Budget" value={newDept.annual_budget} onChange={e => setNewDept({...newDept, annual_budget: e.target.value})} />
             <input className="field-input" type="number" placeholder="Fiscal Year" value={newDept.fiscal_year} onChange={e => setNewDept({...newDept, fiscal_year: Number(e.target.value)})} />
           </div>
           <button

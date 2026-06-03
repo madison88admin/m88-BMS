@@ -9,6 +9,10 @@ const normalizeDepartmentName = (value: string) => String(value || '').trim();
 const getDepartmentGroupKey = (department: { name?: string; fiscal_year?: number }) =>
   `${normalizeDepartmentName(department.name || '').toLowerCase()}::${department.fiscal_year ?? ''}`;
 
+const normalizeCategoryName = (value: unknown) => String(value || '').trim().toLowerCase();
+const getCategoryMapKey = (departmentId: string, fiscalYear: number, categoryName: string) =>
+  `${departmentId}::${fiscalYear}::${normalizeCategoryName(categoryName)}`;
+
 export const isBudgetCommittedStatus = (status?: string) => status === 'released' || status === 'approved';
 export const isBudgetWorkflow = (requestType?: string) => requestType === 'budget_request' || requestType === 'budget_revision';
 export const isActualExpenseCommittedStatus = (status?: string, requestType?: string) => isBudgetCommittedStatus(status) && !isBudgetWorkflow(requestType);
@@ -24,6 +28,15 @@ export interface RequestAllocationRow {
     name?: string;
     fiscal_year?: number;
   } | null;
+}
+
+interface RequestCategoryAllocation {
+  request_id: string;
+  department_id: string;
+  fiscal_year: number;
+  category_id?: string;
+  category_name?: string;
+  amount: number;
 }
 
 interface ExpenseRequestRow {
@@ -73,6 +86,46 @@ export const fetchRequestAllocationsByRequestId = async (requestIds: string[]) =
   });
 
   return allocationMap;
+};
+
+const extractRequestCategoryAllocations = (request: any): RequestCategoryAllocation[] => {
+  const allocationsMap = new Map<string, RequestCategoryAllocation>();
+  const addAllocation = (categoryId: string | undefined, categoryName: string | undefined, amount: number) => {
+    if (!categoryId && !categoryName) return;
+    const key = categoryId ? `id:${categoryId}` : `name:${getCategoryMapKey(request.department_id, Number(request.fiscal_year || 0), categoryName || '')}`;
+    const existing = allocationsMap.get(key);
+    if (existing) {
+      existing.amount += amount;
+      allocationsMap.set(key, existing);
+    } else {
+      allocationsMap.set(key, {
+        request_id: request.id,
+        department_id: request.department_id,
+        fiscal_year: Number(request.fiscal_year || 0),
+        category_id: categoryId,
+        category_name: categoryName,
+        amount
+      });
+    }
+  };
+
+  if (Array.isArray(request.metadata?.items) && request.metadata.items.length > 0) {
+    request.metadata.items.forEach((item: any) => {
+      const itemAmount = toNumber(item.amount);
+      if (itemAmount <= 0) return;
+      const categoryId = item.category_id ? String(item.category_id).trim() : undefined;
+      const categoryName = item.category ? String(item.category).trim() : item.main_category ? String(item.main_category).trim() : undefined;
+      addAllocation(categoryId, categoryName, itemAmount);
+    });
+  }
+
+  if (allocationsMap.size === 0) {
+    const categoryId = request.category_id ? String(request.category_id).trim() : undefined;
+    const categoryName = request.category ? String(request.category).trim() : request.main_category_name ? String(request.main_category_name).trim() : undefined;
+    addAllocation(categoryId, categoryName, toNumber(request.amount));
+  }
+
+  return Array.from(allocationsMap.values());
 };
 
 const getRequestBudgetImpacts = (
@@ -214,12 +267,70 @@ export const buildDepartmentBudgetSummaryMap = async () => {
   };
 };
 
-export const enrichRequests = (
+export const enrichRequests = async (
   rows: any[],
   budgetSummaryMap: Map<string, DepartmentBudgetSummary>,
   allocationsByRequestId: Map<string, RequestAllocationRow[]>
-) =>
-  rows.map((row) => {
+) => {
+  const requestCategoryAllocationsByRequestId = new Map<string, RequestCategoryAllocation[]>();
+  const categoryIds = new Set<string>();
+  const categoryNameLookup = new Set<string>();
+  const categoryNameValues = new Set<string>();
+  const departmentIds = new Set<string>();
+  const fiscalYears = new Set<number>();
+
+  rows.forEach((row) => {
+    const allocations = extractRequestCategoryAllocations(row);
+    requestCategoryAllocationsByRequestId.set(row.id, allocations);
+
+    allocations.forEach((allocation) => {
+      if (allocation.category_id) {
+        categoryIds.add(allocation.category_id);
+      } else if (allocation.category_name) {
+        categoryNameLookup.add(getCategoryMapKey(allocation.department_id, allocation.fiscal_year, allocation.category_name));
+        categoryNameValues.add(allocation.category_name);
+        departmentIds.add(allocation.department_id);
+        fiscalYears.add(allocation.fiscal_year);
+      }
+    });
+  });
+
+  const categoriesById = new Map<string, any>();
+  const categoriesByNameKey = new Map<string, any>();
+
+  if (categoryIds.size > 0) {
+    const { data: categories } = await supabase
+      .from('budget_categories')
+      .select('id, category_name, department_id, fiscal_year, remaining_amount')
+      .in('id', Array.from(categoryIds));
+
+    (categories || []).forEach((category: any) => {
+      categoriesById.set(String(category.id), category);
+      categoriesByNameKey.set(
+        getCategoryMapKey(String(category.department_id), Number(category.fiscal_year), String(category.category_name)),
+        category
+      );
+    });
+  }
+
+  if (categoryNameValues.size > 0 && departmentIds.size > 0 && fiscalYears.size > 0) {
+    const query = supabase
+      .from('budget_categories')
+      .select('id, category_name, department_id, fiscal_year, remaining_amount')
+      .in('category_name', Array.from(categoryNameValues))
+      .in('department_id', Array.from(departmentIds))
+      .in('fiscal_year', Array.from(fiscalYears));
+
+    const { data: categories } = await query;
+    (categories || []).forEach((category: any) => {
+      categoriesByNameKey.set(
+        getCategoryMapKey(String(category.department_id), Number(category.fiscal_year), String(category.category_name)),
+        category
+      );
+    });
+  }
+
+  return rows.map((row) => {
     const amount = toNumber(row.amount);
     const requestFallbackSummary = budgetSummaryMap.get(row.department_id) || null;
     const sourceAllocations = allocationsByRequestId.get(row.id) || [];
@@ -246,11 +357,17 @@ export const enrichRequests = (
     });
 
     const totalProjectedAfterApproval = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
-
-    // Calculate if request is within budget
-    const withinBudget = requestFallbackSummary 
-      ? toNumber(row.amount) <= requestFallbackSummary.remaining_budget 
-      : true;
+    const categoryAllocations = requestCategoryAllocationsByRequestId.get(row.id) || [];
+    const withinBudget = categoryAllocations.length > 0
+      ? categoryAllocations.every((allocation) => {
+          const category = allocation.category_id
+            ? categoriesById.get(String(allocation.category_id))
+            : categoriesByNameKey.get(getCategoryMapKey(allocation.department_id, allocation.fiscal_year, allocation.category_name || ''));
+          return category ? toNumber(allocation.amount) <= toNumber(category.remaining_amount) : false;
+        })
+      : requestFallbackSummary
+        ? toNumber(row.amount) <= requestFallbackSummary.remaining_budget
+        : true;
 
     return {
       ...row,
@@ -268,6 +385,7 @@ export const enrichRequests = (
         : null
     };
   });
+};
 
 export const enrichRequestsWithMainCategory = async (rows: any[]) => {
   if (!rows?.length) return [];

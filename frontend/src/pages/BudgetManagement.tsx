@@ -125,7 +125,7 @@ const BudgetManagement = () => {
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(new Date().getFullYear());
   const [departmentSearch, setDepartmentSearch] = useState('');
   const [budgetHealthFilter, setBudgetHealthFilter] = useState<'all' | 'low' | 'high' | 'critical'>('all');
-  const [newDept, setNewDept] = useState({ name: '', annual_budget: '', fiscal_year: new Date().getFullYear() });
+  const [newDept, setNewDept] = useState({ name: '', fiscal_year: new Date().getFullYear() });
   const [pettyCashForm, setPettyCashForm] = useState({ amount: '', purpose: '', action: 'replenish' as 'replenish' | 'disburse' });
   const [categoryPage, setCategoryPage] = useState(1);
   const [recentRequestsPage, setRecentRequestsPage] = useState(1);
@@ -362,16 +362,6 @@ const BudgetManagement = () => {
     } catch { setFxStatus('fallback'); if (showToast) toast.error('Failed to refresh exchange rate'); }
   };
 
-  const updateBudget = async (deptId: string, budget: number) => {
-    const token = localStorage.getItem('token');
-    try {
-      await api.patch(`/api/departments/${deptId}/budget`, { annual_budget: budget }, { headers: { Authorization: `Bearer ${token}` } });
-      toast.success('Budget updated!');
-      await fetchDepartments(false); await fetchBreakdown(deptId, false, false);
-      setBudgetInputs(prev => ({ ...prev, [deptId]: '' }));
-    } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to update budget')); }
-  };
-
   const updateCategoryBudget = async (catId: string, budget: number) => {
     const token = localStorage.getItem('token');
     
@@ -465,9 +455,9 @@ const BudgetManagement = () => {
   const createDepartment = async () => {
     const token = localStorage.getItem('token');
     try {
-      await api.post('/api/departments', { name: newDept.name, annual_budget: toNumber(newDept.annual_budget), fiscal_year: newDept.fiscal_year }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post('/api/departments', { name: newDept.name, fiscal_year: newDept.fiscal_year }, { headers: { Authorization: `Bearer ${token}` } });
       toast.success('Department created!');
-      setNewDept({ name: '', annual_budget: '', fiscal_year: selectedFiscalYear || availableFiscalYears[0] || new Date().getFullYear() });
+      setNewDept({ name: '', fiscal_year: selectedFiscalYear || availableFiscalYears[0] || new Date().getFullYear() });
       await fetchDepartments(false);
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to create department')); }
   };
@@ -761,15 +751,6 @@ const BudgetManagement = () => {
                 <p className="mt-2 text-sm text-[var(--role-text)]/60">{detailError || 'Select a department to view details.'}</p>
                 <button className="btn-secondary mt-4" onClick={() => { if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}>Try Again</button>
               </div>
-              {selectedDepartment && (
-                <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5 space-y-3">
-                  <h3 className="font-semibold text-[var(--role-text)]">Budget Update</h3>
-                  <div className="flex gap-3">
-                    <input type="number" step="0.01" placeholder="New Budget Amount" className="field-input flex-1" value={budgetInputs[selectedDepartmentId] || ''} onChange={e => setBudgetInputs(p => ({ ...p, [selectedDepartmentId]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') { const v = parseFloat((e.target as HTMLInputElement).value); if (v > 0) updateBudget(selectedDepartmentId, v); } }} />
-                    <button className="btn-success" onClick={() => { const v = parseFloat(budgetInputs[selectedDepartmentId]); if (v > 0) updateBudget(selectedDepartmentId, v); }}>Update</button>
-                  </div>
-                </div>
-              )}
             </div>
           ) : (
             <div className="mt-6 space-y-6">
@@ -1126,20 +1107,6 @@ const BudgetManagement = () => {
                     )}
                   </div>
 
-                  {/* Budget Update */}
-                  {canEditMatrix && (
-                  <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                      <h3 className="text-lg font-semibold text-[var(--role-text)]">Update Annual Budget</h3>
-                      <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-surface)] px-4 py-2 text-sm text-[var(--role-text)]/60">Current: <span className="font-semibold text-[var(--role-text)]">{displayMoney(breakdownTotals.annual_budget)}</span></span>
-                    </div>
-                    <div className="flex gap-3">
-                      <input type="number" step="0.01" placeholder="New Budget Amount" className="field-input flex-1" value={budgetInputs[selectedDepartmentId] || ''} onChange={e => setBudgetInputs(p => ({ ...p, [selectedDepartmentId]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') { const v = parseFloat((e.target as HTMLInputElement).value); if (v > 0) updateBudget(selectedDepartmentId, v); } }} />
-                      <button className="btn-success" onClick={() => { const v = parseFloat(budgetInputs[selectedDepartmentId]); if (v > 0) updateBudget(selectedDepartmentId, v); }}>Update Budget</button>
-                    </div>
-                  </div>
-                  )}
-
                   {/* Petty Cash */}
                   {canEditMatrix && (
                   <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
@@ -1269,9 +1236,8 @@ const BudgetManagement = () => {
             Add All Depts for FY {activeFiscalYear + 1}
           </button>
         </div>
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
           <input className="field-input" placeholder="Department Name" value={newDept.name} onChange={e => setNewDept(p => ({ ...p, name: e.target.value }))} />
-          <input className="field-input" type="number" step="0.01" placeholder="Annual Budget" value={newDept.annual_budget} onChange={e => setNewDept(p => ({ ...p, annual_budget: e.target.value }))} />
           <input className="field-input" type="number" placeholder="Fiscal Year" value={newDept.fiscal_year} onChange={e => setNewDept(p => ({ ...p, fiscal_year: Number(e.target.value) }))} />
         </div>
         <button className="btn-primary mt-4" onClick={createDepartment}>Create Department</button>

@@ -124,15 +124,15 @@ const RequestForm = () => {
   }, [items]);
 
   const budgetImpact = useMemo(() => {
-    if (!department) return null;
-    const currentRemaining = toNumber(department.remaining_budget || (toNumber(department.annual_budget) - toNumber(department.used_budget)));
+    if (!selectedCategoryBudget) return null;
+    const currentRemaining = toNumber(selectedCategoryBudget.remaining_amount);
     const nextRemaining = currentRemaining - totalAmount;
     return {
       currentRemaining,
       nextRemaining,
       isOverBudget: nextRemaining < 0
     };
-  }, [department, totalAmount]);
+  }, [selectedCategoryBudget, totalAmount]);
 
   const addItem = () => {
     setItems([...items, { name: '', amount: '' }]);
@@ -399,15 +399,14 @@ const RequestForm = () => {
               
               {budgetImpact && requestType !== 'reimbursement' && requestType !== 'cash_advance' && (
                 <div className="mt-4 pt-4 border-t border-[var(--role-secondary)]/10 space-y-3">
-                  {/* Budget Overview */}
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="rounded-xl bg-[var(--role-secondary)]/5 p-2">
-                      <p className="text-[10px] uppercase tracking-wider text-[var(--role-text)]/50 font-bold">Annual Budget</p>
-                      <p className="text-sm font-bold text-[var(--role-text)]">{formatMoney(toNumber(department.annual_budget))}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-[var(--role-text)]/50 font-bold">Category Budget</p>
+                      <p className="text-sm font-bold text-[var(--role-text)]">{formatMoney(toNumber(selectedCategoryBudget.budget_amount))}</p>
                     </div>
                     <div className="rounded-xl bg-[var(--role-secondary)]/5 p-2">
                       <p className="text-[10px] uppercase tracking-wider text-[var(--role-text)]/50 font-bold">Used</p>
-                      <p className="text-sm font-bold text-[var(--role-primary)]">{formatMoney(toNumber(department.annual_budget) - budgetImpact.currentRemaining)}</p>
+                      <p className="text-sm font-bold text-[var(--role-primary)]">{formatMoney(toNumber(selectedCategoryBudget.used_amount))}</p>
                     </div>
                     <div className="rounded-xl bg-[var(--role-secondary)]/5 p-2">
                       <p className="text-[10px] uppercase tracking-wider text-[var(--role-text)]/50 font-bold">Remaining</p>
@@ -415,23 +414,21 @@ const RequestForm = () => {
                     </div>
                   </div>
 
-                  {/* Progress Bar */}
                   <div className="space-y-1">
                     <div className="flex justify-between text-[10px] uppercase tracking-wider font-bold">
-                      <span className="text-[var(--role-text)]/50">Budget Utilization</span>
+                      <span className="text-[var(--role-text)]/50">Category Utilization</span>
                       <span className={budgetImpact.isOverBudget ? 'text-red-500' : 'text-[var(--role-text)]/70'}>
-                        {((toNumber(department.annual_budget) - budgetImpact.currentRemaining) / toNumber(department.annual_budget) * 100).toFixed(1)}%
+                        {((toNumber(selectedCategoryBudget.budget_amount) - budgetImpact.currentRemaining) / Math.max(1, toNumber(selectedCategoryBudget.budget_amount)) * 100).toFixed(1)}%
                       </span>
                     </div>
                     <div className="h-2 w-full bg-[var(--role-border)]/30 rounded-full overflow-hidden">
                       <div 
                         className={`h-full transition-all duration-500 ${budgetImpact.isOverBudget ? 'bg-red-500' : 'bg-gradient-to-r from-emerald-400 to-emerald-500'}`}
-                        style={{ width: `${Math.min(100, ((toNumber(department.annual_budget) - budgetImpact.currentRemaining) / (toNumber(department.annual_budget) || 1)) * 100)}%` }}
+                        style={{ width: `${Math.min(100, ((toNumber(selectedCategoryBudget.budget_amount) - budgetImpact.currentRemaining) / Math.max(1, toNumber(selectedCategoryBudget.budget_amount))) * 100)}%` }}
                       />
                     </div>
                   </div>
 
-                  {/* After Request Impact */}
                   <div className={`rounded-xl p-3 ${budgetImpact.isOverBudget ? 'bg-red-500/10 border border-red-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/70">
@@ -446,7 +443,7 @@ const RequestForm = () => {
                         <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
-                        <span>⚠️ OVER BUDGET: This request exceeds your department's remaining budget. Supervisor approval required.</span>
+                        <span>⚠️ OVER BUDGET: This request exceeds the selected category's remaining budget.</span>
                       </div>
                     )}
                   </div>

@@ -1159,7 +1159,7 @@ router.get('/', authenticate, async (req: any, res) => {
   try {
     const rowsWithRelations = await appendRequestRelations(data || []);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
-    const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
+    const enrichedRows = await enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
     const withMainCategory = await enrichRequestsWithMainCategory(enrichedRows);
     res.json(await appendWorkflowDataToRequests(withMainCategory));
   } catch (summaryError: any) {
@@ -1180,7 +1180,7 @@ router.get('/my', authenticate, async (req: any, res) => {
   try {
     const rowsWithRelations = await appendRequestRelations(data || []);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
-    const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
+    const enrichedRows = await enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
     const withMainCategory = await enrichRequestsWithMainCategory(enrichedRows);
     res.json(await appendWorkflowDataToRequests(withMainCategory));
   } catch (summaryError: any) {
@@ -1632,7 +1632,7 @@ router.get('/:id', authenticate, async (req: any, res) => {
   try {
     const rowsWithRelations = await appendRequestRelations([data]);
     const { summaryByDepartmentId, allocationsByRequestId } = await buildDepartmentBudgetSummaryMap();
-    const enrichedRows = enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
+    const enrichedRows = await enrichRequests(rowsWithRelations, summaryByDepartmentId, allocationsByRequestId);
     res.json((await appendWorkflowDataToRequests(enrichedRows))[0]);
   } catch (summaryError: any) {
     res.status(400).json({ error: summaryError?.message || summaryError });

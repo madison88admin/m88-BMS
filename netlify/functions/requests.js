@@ -254,12 +254,12 @@ exports.handler = async (event, context) => {
         }
       }
 
-      // Validate category budget (skip for budget proposals and cash advances)
+// Validate category budget for all non-budget expense requests
       let categoryBudget = null;
       const requestType = request_type || 'reimbursement';
-      
-      if (!isBudgetFlow && requestType !== 'cash_advance') {
-        const categoryQuery = cleanCategoryId 
+
+      if (!isBudgetFlow && (cleanCategoryId || cleanCategory)) {
+        const categoryQuery = cleanCategoryId
           ? { id: cleanCategoryId }
           : { category_name: cleanCategory, department_id: targetDepartmentId };
 
@@ -269,7 +269,7 @@ exports.handler = async (event, context) => {
           .eq('fiscal_year', targetFiscalYear)
           .match(categoryQuery)
           .maybeSingle();
-        
+
         if (categoryError) throw categoryError;
         if (!budgetData) {
           // If category doesn't exist, skip validation - allow request to proceed
@@ -278,40 +278,14 @@ exports.handler = async (event, context) => {
           categoryBudget = budgetData;
           const remaining = Number(categoryBudget.remaining_amount);
           if (remaining < normalizedAmount) {
-            return { 
-              statusCode: 400, 
+            return {
+              statusCode: 400,
               body: JSON.stringify(createErrorResponse(
-                `Insufficient budget in "${cleanCategory}". Available: ₱${remaining.toFixed(2)}, Requested: ₱${normalizedAmount.toFixed(2)}`, 
+                `Insufficient budget in "${cleanCategory || budgetData.category_name}". Available: ₱${remaining.toFixed(2)}, Requested: ₱${normalizedAmount.toFixed(2)}`,
                 400
-              )) 
+              ))
             };
           }
-        }
-      }
-
-      if (!isBudgetFlow) {
-        const { data: deptSummary, error: summaryError } = await supabase
-          .from('departments')
-          .select('annual_budget, used_budget')
-          .eq('id', targetDepartmentId)
-          .single();
-
-        if (summaryError || !deptSummary) {
-          return {
-            statusCode: 400,
-            body: JSON.stringify(createErrorResponse('Department budget not found', 400)),
-          };
-        }
-
-        const projectedRemaining = toNumber(deptSummary.annual_budget) - toNumber(deptSummary.used_budget);
-        if (projectedRemaining < normalizedAmount) {
-          return {
-            statusCode: 400,
-            body: JSON.stringify(createErrorResponse(
-              `Insufficient department budget. Remaining: ${projectedRemaining.toFixed(2)}, Requested: ${normalizedAmount.toFixed(2)}`,
-              400
-            )),
-          };
         }
       }
 

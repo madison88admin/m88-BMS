@@ -500,10 +500,7 @@ const handleRelease = async (request, user, body) => {
     .single();
   if (deptError || !dept) throw new Error('Department not found');
 
-  if (toNumber(dept.annual_budget) - toNumber(dept.used_budget) < toNumber(request.amount)) {
-    throw new Error('Insufficient department budget');
-  }
-
+  // Department annual budget is not used for release validation; category budgets are enforced separately.
   const releaseMethod = ['cash', 'bank_transfer', 'check', 'petty_cash', 'other'].includes(String(body.release_method || ''))
     ? String(body.release_method)
     : 'other';
