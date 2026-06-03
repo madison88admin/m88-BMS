@@ -1,6 +1,12 @@
 import axios, { AxiosError } from 'axios';
 import toast from 'react-hot-toast';
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    suppressErrorToast?: boolean;
+  }
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (
   import.meta.env.PROD ? 'https://m88-bms.onrender.com' : 'http://localhost:5000'
 );
@@ -33,9 +39,10 @@ api.interceptors.response.use(
     // Don't show toast for auth endpoints (handled by components)
     const isAuthEndpoint = error.config?.url?.includes('/auth/');
     const isLogin = error.config?.url?.includes('/auth/login');
+    const suppressErrorToast = error.config?.suppressErrorToast;
     
-    if (!isLogin && !isAuthEndpoint) {
-      toast.error(errorMessage);
+    if (!isLogin && !isAuthEndpoint && !suppressErrorToast) {
+      toast.error(errorMessage, { id: error.config?.url || 'api-error' });
     }
 
     // Handle specific error codes

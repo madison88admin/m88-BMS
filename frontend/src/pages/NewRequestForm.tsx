@@ -697,18 +697,20 @@ const NewRequestForm = () => {
 
       await api.patch(`/api/requests/${selectedAdvance.request_id}/liquidation`, {
         cash_advance_id: selectedAdvance.id,
+        amount_spent: totalSpent,
         category_items: categoryItems,
         total_amount_spent: totalSpent,
         remarks: liquidationForm.remarks
       }, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        suppressErrorToast: true
       });
 
       toast.success('Liquidation submitted successfully!');
       localStorage.removeItem('liquidation_draft');
       navigate('/tracker');
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to submit liquidation'));
+      toast.error(getErrorMessage(err, 'Failed to submit liquidation'), { id: 'liquidation-submit' });
     } finally {
       setSubmitting(false);
     }

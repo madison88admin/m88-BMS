@@ -348,7 +348,7 @@ const RequestTracker = () => {
           remarks: liquidationDraft.remarks,
           attachments: liquidationDraft.attachments
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` }, suppressErrorToast: true }
       );
       toast.dismiss(loadingToast);
       toast.success('Liquidation submitted!');
@@ -357,7 +357,7 @@ const RequestTracker = () => {
       await fetchCashAdvances();
     } catch (err: any) {
       toast.dismiss(loadingToast);
-      toast.error(getErrorMessage(err, 'Liquidation failed'));
+      toast.error(getErrorMessage(err, 'Liquidation failed'), { id: 'liquidation-submit' });
     }
   };
 
