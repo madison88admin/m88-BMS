@@ -157,14 +157,6 @@ The UI features:
 - Email notifications sent on approval/rejection through Brevo SMTP
 - PDF/Excel reports generated server-side via Netlify Functions
 
-## Test Accounts
-
-After running the seed data, you can login with:
-- **Employee**: john.employee@madison88.com / password123 (m88IT)
-- **Supervisor**: jane.supervisor@madison88.com / password123 (m88IT)
-- **Accounting**: bob.accounting@madison88.com / password123 (m88accounting) - **Can manage budgets**
-- **Admin**: alice.admin@madison88.com / password123 (m88accounting)
-
 ## 🎉 **Ready for Production!**
 
 The entire system is now configured for single-platform Netlify deployment. No need for separate backend hosting - everything runs on Netlify! 🚀
