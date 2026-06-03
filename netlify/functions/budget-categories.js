@@ -154,29 +154,96 @@ exports.handler = async (event, context) => {
     if (event.httpMethod === 'GET') {
       const { department_id, fiscal_year, all_years } = event.queryStringParameters || {};
       let query = supabase.from('budget_categories').select('*');
-      
+
       // Get active fiscal year if not specified
       const targetFiscalYear = fiscal_year ? validateFiscalYear(fiscal_year) : 
                               await getLatestConfiguredFiscalYear();
-      
+
       if (!all_years || all_years !== 'true') {
         query = query.eq('fiscal_year', targetFiscalYear);
       }
-      
+
       if (department_id) {
         validateUUID(department_id);
         query = query.eq('department_id', department_id);
       }
-      
+
       const { data, error } = await query.order('category_name');
       if (error) throw error;
+
+      // Role-and-department display filter (server-side only, no DB changes)
+      // Filter applies only to non-accounting viewers (Supervisor, Employee, Manager, VP, President).
+      const role = String((user && user.role) || '').toLowerCase();
+      const filteredRoles = new Set(['employee', 'supervisor', 'manager', 'vp', 'president']);
+
+      const allowedMainCodes = new Set([
+        '6010','6020','6040','6041','6170','6240',
+        '6330','6340','6350','6430','6490','6500','6650','6670','6710',
+        '6720','6840','6860','6870','6900','9900'
+      ]);
+
+      let allowedCodesFromExpense = null; // null => no extra restriction (accounting/admin)
+
+      if (filteredRoles.has(role)) {
+        // Determine user's department short name via departments table
+        const deptMap = {
+          'HR Department': 'HR',
+          'Admin Department': 'Admin',
+          'Finance Department': 'Accounting',
+          'IT Department': 'IT'
+        };
+
+        let deptShort = null;
+        if (user && user.department_id) {
+          try {
+            const { data: deptData } = await supabase.from('departments').select('name').eq('id', user.department_id).maybeSingle();
+            if (deptData && deptData.name && deptMap[deptData.name]) {
+              deptShort = deptMap[deptData.name];
+            }
+          } catch (err) {
+            // ignore and fallback to only 'All'
+            console.warn('Dept lookup failed for display filter:', err?.message || err);
+          }
+        }
+
+        // Query expense_categories to determine which main_category_codes are relevant
+        try {
+          const ecQuery = supabase.from('expense_categories').select('main_category_code');
+          // restrict to our allowed main codes to limit result set
+          ecQuery.in('main_category_code', Array.from(allowedMainCodes));
+          if (deptShort) {
+            ecQuery.in('department', ['All', deptShort]);
+          } else {
+            ecQuery.eq('department', 'All');
+          }
+
+          const { data: ecData, error: ecError } = await ecQuery;
+          if (ecError) throw ecError;
+          allowedCodesFromExpense = new Set((ecData || []).map(e => String(e.main_category_code)));
+        } catch (err) {
+          console.warn('Expense categories lookup failed for display filter:', err?.message || err);
+          // If lookup fails, fall back to allowing only 'All' via empty set (no categories)
+          allowedCodesFromExpense = new Set();
+        }
+      }
 
       const enriched = (data || []).map((row) => ({
         ...row,
         is_main_category: !row.parent_category_id,
         requires_president_approval: !row.parent_category_id
           && requiresPresidentBudgetApproval(toNumber(row.budget_amount)),
-      }));
+      }))
+      // apply display filter if applicable
+      .filter((row) => {
+        if (!filteredRoles.has(role)) return true; // accounting/admin/super_admin see all
+        // show only main categories (no sub-categories)
+        if (row.parent_category_id) return false;
+        // category_code must be one of the allowed main codes
+        if (!allowedMainCodes.has(String(row.category_code))) return false;
+        // must be present in expense_categories for user's department (or 'All')
+        if (allowedCodesFromExpense && !allowedCodesFromExpense.has(String(row.category_code))) return false;
+        return true;
+      });
 
       return {
         statusCode: 200,
