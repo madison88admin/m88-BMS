@@ -180,25 +180,30 @@ const NewRequestForm = () => {
       const res = await api.get(`/api/requests/${advance.request_id}`);
       const request = res.data;
 
-      // Build category breakdown from request items
-      const categoryMap = new Map<string, { category_id: string; category_name: string; original_amount: number; items: string[] }>();
+      // Build category breakdown from request metadata items or request items
+      const requestItems = Array.isArray(request.items)
+        ? request.items
+        : Array.isArray(request.metadata?.items)
+          ? request.metadata.items
+          : [];
 
-      if (request.items && Array.isArray(request.items)) {
-        request.items.forEach((item: any) => {
-          const catKey = item.category_id || 'uncategorized';
-          if (!categoryMap.has(catKey)) {
-            categoryMap.set(catKey, {
-              category_id: item.category_id || '',
-              category_name: item.category_name || 'Uncategorized',
-              original_amount: 0,
-              items_in_category: []
-            });
-          }
-          const cat = categoryMap.get(catKey)!;
-          cat.original_amount += parseFloat(item.amount || 0);
-          if (item.item_name) cat.items_in_category.push(item.item_name);
-        });
-      }
+      const categoryMap = new Map<string, { category_id: string; category_name: string; original_amount: number; items_in_category: string[] }>();
+
+      requestItems.forEach((item: any) => {
+        const catKey = item.category_id || item.category || item.main_category || 'uncategorized';
+        if (!categoryMap.has(catKey)) {
+          categoryMap.set(catKey, {
+            category_id: item.category_id || '',
+            category_name: item.category_name || item.category || item.main_category || 'Uncategorized',
+            original_amount: 0,
+            items_in_category: []
+          });
+        }
+        const cat = categoryMap.get(catKey)!;
+        cat.original_amount += parseFloat(item.amount || 0) || 0;
+        const itemLabel = item.item_name || item.item || item.description;
+        if (itemLabel) cat.items_in_category.push(itemLabel);
+      });
 
       const breakdown = Array.from(categoryMap.values());
       setAdvanceCategoryBreakdown(breakdown);
