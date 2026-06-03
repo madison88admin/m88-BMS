@@ -45,6 +45,9 @@ interface DocumentUpload {
   created_at: string;
   updated_at: string;
   attachments: DocumentUploadAttachment[];
+  budget_amount?: number | null;
+  current_used_amount?: number | null;
+  current_remaining_amount?: number | null;
 }
 
 const resolveUploadFileType = (file: File) => {
@@ -535,6 +538,10 @@ const DocumentUploads = () => {
                       <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Amount</p>
                       <p className="mt-1 font-semibold">{upload.amount ? formatMoney(upload.amount) : '—'}</p>
                     </div>
+                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
+                      <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Remaining</p>
+                      <p className="mt-1 font-semibold">{upload.current_remaining_amount != null ? formatMoney(upload.current_remaining_amount) : '—'}</p>
+                    </div>
                   </div>
                   <div className="mt-3 flex items-center justify-between text-xs text-[var(--role-text)]/60">
                     <span>{(upload.attachments || []).length} attachment(s)</span>
@@ -578,6 +585,10 @@ const DocumentUploads = () => {
                 <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
                   <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Amount</p>
                   <p className="mt-1 font-semibold">{selectedUpload.amount ? formatMoney(selectedUpload.amount) : '—'}</p>
+                </div>
+                <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                  <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Remaining</p>
+                  <p className="mt-1 font-semibold">{selectedUpload.current_remaining_amount != null ? formatMoney(selectedUpload.current_remaining_amount) : '—'}</p>
                 </div>
                 <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
                   <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Submitted</p>

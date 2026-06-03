@@ -234,13 +234,13 @@ const BudgetManagement = () => {
   }, [enrichedCategories, user, selectedDepartment]);
 
   const lockedCategories = useMemo(
-    () => enrichedCategories.filter((category) => category.is_locked),
-    [enrichedCategories]
+    () => visibleEnrichedCategories.filter((category) => category.is_locked),
+    [visibleEnrichedCategories]
   );
 
   const orderedCategories = useMemo(
-    () => buildOrderedCategories(enrichedCategories, categorySearch),
-    [enrichedCategories, categorySearch]
+    () => buildOrderedCategories(visibleEnrichedCategories, categorySearch),
+    [visibleEnrichedCategories, categorySearch]
   );
 
   const MAIN_CATEGORY_CODES = useMemo(() => new Set([
@@ -884,7 +884,7 @@ const BudgetManagement = () => {
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <h3 className="text-lg font-semibold text-[var(--role-text)]">Category Budgets</h3>
-                        <p className="text-xs text-[var(--role-text)]/50 mt-0.5">FY{selectedDepartment?.fiscal_year} · {selectedBreakdown?.categories?.length || 0} categories · {displayMoney(editableBudgetValue)} budget</p>
+                        <p className="text-xs text-[var(--role-text)]/50 mt-0.5">FY{selectedDepartment?.fiscal_year} · {visibleEnrichedCategories.length || 0} categories · {displayMoney(editableBudgetValue)} budget</p>
                       </div>
                       <button onClick={() => setShowAddCategory(v => !v)} disabled={!canEditMatrix} className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-600 transition flex items-center gap-1 disabled:opacity-50">
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
@@ -903,7 +903,7 @@ const BudgetManagement = () => {
                       />
                       {categorySearch.trim() && (
                         <p className="mt-1 text-xs text-[var(--role-text)]/50">
-                          Showing {orderedCategories.length} of {enrichedCategories.length} categories
+                          Showing {orderedCategories.length} of {visibleEnrichedCategories.length} categories
                         </p>
                       )}
                     </div>

@@ -9,6 +9,44 @@ const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 
+const adjustBudgetForDocumentUpload = async (upload: any, deduct: boolean) => {
+  const amount = toNumber(upload.amount);
+  if (amount <= 0 || !upload.department_id || !upload.fiscal_year || !upload.category_code) {
+    return;
+  }
+
+  const { data: categoryBudget, error: categoryError } = await supabase
+    .from('budget_categories')
+    .select('id, used_amount, remaining_amount')
+    .eq('department_id', upload.department_id)
+    .eq('fiscal_year', upload.fiscal_year)
+    .eq('category_code', upload.category_code)
+    .maybeSingle();
+
+  if (categoryError) {
+    throw categoryError;
+  }
+  if (!categoryBudget) {
+    return;
+  }
+
+  const nextUsed = deduct
+    ? toNumber(categoryBudget.used_amount) + amount
+    : Math.max(0, toNumber(categoryBudget.used_amount) - amount);
+  const nextRemaining = deduct
+    ? Math.max(0, toNumber(categoryBudget.remaining_amount) - amount)
+    : toNumber(categoryBudget.remaining_amount) + amount;
+
+  await supabase
+    .from('budget_categories')
+    .update({
+      used_amount: nextUsed,
+      remaining_amount: nextRemaining,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', categoryBudget.id);
+};
+
 const normalizeFileType = (input: string) => {
   const value = String(input || '').trim().toLowerCase();
   if (!value) return '';
@@ -57,6 +95,32 @@ const loadUploadWithAttachments = async (uploadId: string) => {
   if (attachmentError) throw attachmentError;
 
   return { ...upload, attachments: attachments || [] };
+};
+
+const loadUploadBudgetInfo = async (uploads: any[]) => {
+  const departmentIds = Array.from(new Set(uploads.map((upload) => String(upload.department_id || '').trim()).filter(Boolean)));
+  const fiscalYears = Array.from(new Set(uploads.map((upload) => Number.parseInt(String(upload.fiscal_year || ''), 10)).filter((year) => Number.isInteger(year))));
+  const categoryCodes = Array.from(new Set(uploads.map((upload) => String(upload.category_code || '').trim()).filter(Boolean)));
+
+  if (!departmentIds.length || !fiscalYears.length || !categoryCodes.length) {
+    return new Map<string, any>();
+  }
+
+  const { data: budgets, error } = await supabase
+    .from('budget_categories')
+    .select('department_id, fiscal_year, category_code, remaining_amount, used_amount, budget_amount')
+    .in('department_id', departmentIds)
+    .in('fiscal_year', fiscalYears)
+    .in('category_code', categoryCodes);
+  if (error) throw error;
+
+  const map = new Map<string, any>();
+  (budgets || []).forEach((row: any) => {
+    const key = `${String(row.department_id)}|${String(row.fiscal_year)}|${String(row.category_code)}`;
+    map.set(key, row);
+  });
+
+  return map;
 };
 
 router.post('/', authenticate, async (req: any, res) => {
@@ -258,11 +322,20 @@ router.get('/', authenticate, async (req: any, res) => {
       attachmentsByUploadId.set(entry.document_upload_id, list);
     });
 
+    const budgetInfo = await loadUploadBudgetInfo(uploads || []);
+
     res.json(
-      (uploads || []).map((row: any) => ({
-        ...row,
-        attachments: attachmentsByUploadId.get(row.id) || [],
-      }))
+      (uploads || []).map((row: any) => {
+        const budgetKey = `${String(row.department_id)}|${String(row.fiscal_year)}|${String(row.category_code)}`;
+        const budgetRow = budgetInfo.get(budgetKey);
+        return {
+          ...row,
+          attachments: attachmentsByUploadId.get(row.id) || [],
+          budget_amount: budgetRow?.budget_amount ?? null,
+          current_used_amount: budgetRow?.used_amount ?? null,
+          current_remaining_amount: budgetRow?.remaining_amount ?? null,
+        };
+      })
     );
   } catch (err: any) {
     res.status(400).json({ error: err.message || err });
@@ -290,6 +363,13 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
 
     const current = await loadUploadWithAttachments(uploadId);
     if (!current) return res.status(404).json({ error: 'Upload not found' });
+
+    if (nextStatus === 'acknowledged' && current.status !== 'acknowledged') {
+      await adjustBudgetForDocumentUpload(current, true);
+    }
+    if (nextStatus === 'returned' && current.status === 'acknowledged') {
+      await adjustBudgetForDocumentUpload(current, false);
+    }
 
     const { data: updated, error: updateError } = await supabase
       .from('document_uploads')
