@@ -7,6 +7,18 @@ import FilePreviewer from '../components/FilePreviewer';
 import { formatMoney, toNumber, getStatusLabel, getStatusColor, formatDateTime , getErrorMessage } from '../utils/format';
 import jsPDF from 'jspdf';
 
+const formatSafe = (value: any, fallback = '') => {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
 const buildFlow = (status: string, requestType?: string) => {
   const isBudgetRequest = requestType === 'budget_request';
   
@@ -903,7 +915,7 @@ const RequestTracker = () => {
                             )}
                             {log.old_value && log.new_value && (
                               <p className="mt-1 text-xs text-[var(--role-text)]/60">
-                                {log.old_value} → {log.new_value}
+                                {formatSafe(log.old_value)} → {formatSafe(log.new_value)}
                               </p>
                             )}
                             {log.digital_signature && (
