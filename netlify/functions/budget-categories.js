@@ -151,6 +151,60 @@ exports.handler = async (event, context) => {
       };
     }
 
+    if (event.httpMethod === 'PATCH' && lastSegment === 'lock') {
+      authorize(['accounting', 'admin'])(user);
+      validateUUID(secondLast);
+
+      const { data: current, error: fetchError } = await supabase
+        .from('budget_categories')
+        .select('*')
+        .eq('id', secondLast)
+        .single();
+
+      if (fetchError || !current) {
+        return {
+          statusCode: 404,
+          body: JSON.stringify(createErrorResponse('Category not found', 404)),
+        };
+      }
+
+      const { data, error } = await supabase
+        .from('budget_categories')
+        .update({ is_locked: true, locked_at: new Date(), updated_at: new Date() })
+        .eq('id', secondLast)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const lockBody = (() => {
+        try { return event.body ? JSON.parse(event.body) : {}; } catch { return {}; }
+      })();
+
+      await logAuditEvent({
+        user,
+        actionType: AUDIT_ACTIONS.BUDGET_LOCKED,
+        recordType: 'budget',
+        recordId: secondLast,
+        recordLabel: current.category_name,
+        oldValue: { is_locked: false },
+        newValue: { is_locked: true },
+        remarks: lockBody.reason || 'Locked by accounting',
+      });
+      await notifyDepartmentSupervisor(
+        current.department_id,
+        `Budget category "${current.category_name}" was locked by accounting. No further edits are allowed until unlocked.`
+      );
+
+      await syncDepartmentBudget(current.department_id, current.fiscal_year);
+
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify(data),
+      };
+    }
+
     if (event.httpMethod === 'GET') {
       const { department_id, fiscal_year, all_years } = event.queryStringParameters || {};
       let query = supabase.from('budget_categories').select('*');

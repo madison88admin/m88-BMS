@@ -498,6 +498,42 @@ const BudgetManagement = () => {
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to unlock category')); }
   };
 
+  const lockAllCategories = async () => {
+    if (!selectedDepartmentId || enrichedCategories.length === 0) return;
+    if (!confirm(`Lock all ${enrichedCategories.length} categories?`)) return;
+    const token = localStorage.getItem('token');
+    try {
+      toast.loading('Locking all categories…', { id: 'lockAll' });
+      await Promise.all(
+        enrichedCategories.map(cat =>
+          api.patch(`/api/budget/categories/${cat.id}/lock`, {}, { headers: { Authorization: `Bearer ${token}` } })
+        )
+      );
+      toast.success('All categories locked', { id: 'lockAll' });
+      if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to lock categories'), { id: 'lockAll' });
+    }
+  };
+
+  const unlockAllCategories = async () => {
+    if (!selectedDepartmentId || enrichedCategories.length === 0) return;
+    if (!confirm(`Unlock all ${enrichedCategories.length} categories?`)) return;
+    const token = localStorage.getItem('token');
+    try {
+      toast.loading('Unlocking all categories…', { id: 'unlockAll' });
+      await Promise.all(
+        enrichedCategories.map(cat =>
+          api.patch(`/api/budget/categories/${cat.id}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } })
+        )
+      );
+      toast.success('All categories unlocked', { id: 'unlockAll' });
+      if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to unlock categories'), { id: 'unlockAll' });
+    }
+  };
+
   const submitBudgetProposals = async () => {
     if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
     const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
@@ -867,10 +903,24 @@ const BudgetManagement = () => {
                         <h3 className="text-lg font-semibold text-[var(--role-text)]">Category Budgets</h3>
                         <p className="text-xs text-[var(--role-text)]/50 mt-0.5">FY{selectedDepartment?.fiscal_year} · {visibleEnrichedCategories.length || 0} categories · {displayMoney(editableBudgetValue)} budget</p>
                       </div>
-                      <button onClick={() => setShowAddCategory(v => !v)} disabled={!canEditMatrix} className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-600 transition flex items-center gap-1 disabled:opacity-50">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                        {showAddCategory ? 'Cancel' : 'Add'}
-                      </button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {canEditMatrix && enrichedCategories.length > 0 && (
+                          <>
+                            <button onClick={lockAllCategories} className="text-xs bg-amber-500 text-white px-3 py-1.5 rounded-lg hover:bg-amber-600 transition flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm6-10V7a3 3 0 00-6 0v4a3 3 0 006 0z" /></svg>
+                              Lock All
+                            </button>
+                            <button onClick={unlockAllCategories} className="text-xs bg-blue-500 text-white px-3 py-1.5 rounded-lg hover:bg-blue-600 transition flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              Unlock All
+                            </button>
+                          </>
+                        )}
+                        <button onClick={() => setShowAddCategory(v => !v)} disabled={!canEditMatrix} className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-600 transition flex items-center gap-1 disabled:opacity-50">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                          {showAddCategory ? 'Cancel' : 'Add'}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mb-4">
