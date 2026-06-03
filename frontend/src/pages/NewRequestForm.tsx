@@ -75,6 +75,10 @@ const NewRequestForm = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // Selected main categories for hierarchical dropdowns
+  const [reimbursementMainCategory, setReimbursementMainCategory] = useState('');
+  const [cashAdvanceMainCategory, setCashAdvanceMainCategory] = useState('');
+
   // Helper: Get unique main categories from official list
   const getUniqueMainCategories = () => {
     const categories = new Set<string>();
@@ -698,28 +702,49 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Expense Category / Type *</label>
-              <input
-                required
-                value={reimbursementForm.main_category}
-                onChange={(e) => setReimbursementForm(prev => ({ ...prev, main_category: e.target.value }))}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                placeholder="e.g. Travel, Meals, Office Supplies"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Primary Expense Item *</label>
-              <input
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Main Category *</label>
+            <select
+              required
+              value={reimbursementMainCategory}
+              onChange={(e) => {
+                const selectedMainCat = e.target.value;
+                setReimbursementMainCategory(selectedMainCat);
+                setReimbursementForm(prev => ({ 
+                  ...prev, 
+                  main_category: selectedMainCat,
+                  item_name: ''
+                }));
+              }}
+              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+            >
+              <option value="">Select main category...</option>
+              {getUniqueMainCategories()
+                .filter(cat => getItemsByMainCategory(cat, 'canRE').length > 0)
+                .map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+            </select>
+          </div>
+
+          {reimbursementMainCategory && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Sub-category / Item *</label>
+              <select
                 required
                 value={reimbursementForm.item_name}
                 onChange={(e) => setReimbursementForm(prev => ({ ...prev, item_name: e.target.value }))}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                placeholder="e.g. Taxi fare, Lunch meeting"
-              />
+              >
+                <option value="">Select item...</option>
+                {getItemsByMainCategory(reimbursementMainCategory, 'canRE').map((item) => (
+                  <option key={`${item.code}-${item.itemName}`} value={`${item.code} | ${item.itemName}`}>
+                    {item.itemName}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
+          )}
 
           {/* Multiple Items Section */}
           <div className="mb-6">
@@ -982,27 +1007,49 @@ const NewRequestForm = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Expense Category / Type *</label>
-              <input
-                required
-                value={cashAdvanceForm.main_category}
-                onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, main_category: e.target.value }))}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                placeholder="e.g. Travel, Per Diem, Events"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Primary Expense Item *</label>
-              <input
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Main Category *</label>
+            <select
+              required
+              value={cashAdvanceMainCategory}
+              onChange={(e) => {
+                const selectedMainCat = e.target.value;
+                setCashAdvanceMainCategory(selectedMainCat);
+                setCashAdvanceForm(prev => ({ 
+                  ...prev, 
+                  main_category: selectedMainCat,
+                  item_name: ''
+                }));
+              }}
+              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+            >
+              <option value="">Select main category...</option>
+              {getUniqueMainCategories()
+                .filter(cat => getItemsByMainCategory(cat, 'canCA').length > 0)
+                .map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+            </select>
+          </div>
+
+          {cashAdvanceMainCategory && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Sub-category / Item *</label>
+              <select
                 required
                 value={cashAdvanceForm.item_name}
                 onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, item_name: e.target.value }))}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                placeholder="e.g. Client transport, hotel booking"
-              />
+              >
+                <option value="">Select item...</option>
+                {getItemsByMainCategory(cashAdvanceMainCategory, 'canCA').map((item) => (
+                  <option key={`${item.code}-${item.itemName}`} value={`${item.code} | ${item.itemName}`}>
+                    {item.itemName}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>

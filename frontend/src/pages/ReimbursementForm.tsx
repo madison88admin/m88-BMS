@@ -29,6 +29,21 @@ const ReimbursementForm = () => {
   const [linkedCA, setLinkedCA] = useState<any>(null);
   const [checkingCA, setCheckingCA] = useState(false);
 
+  // Common expense types
+  const expenseTypes = [
+    'Travel',
+    'Meals & Entertainment',
+    'Office Supplies',
+    'Transportation',
+    'Accommodation',
+    'Utilities',
+    'Professional Services',
+    'Equipment',
+    'Training & Development',
+    'Client Reimbursement',
+    'Other'
+  ];
+
   const totalAmount = useMemo(() => {
     return items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
   }, [items]);
@@ -226,13 +241,17 @@ const ReimbursementForm = () => {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
                       <label className="field-label !text-[10px] uppercase">Expense Type</label>
-                          <input
+                      <select
                         className="field-input !py-2 !text-sm"
                         value={item.expense_type}
                         onChange={e => updateItem(index, 'expense_type', e.target.value)}
-                        placeholder="Expense category or type"
                         required
-                      />
+                      >
+                        <option value="">Select expense type...</option>
+                        {expenseTypes.map(type => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label className="field-label !text-[10px] uppercase">Amount</label>
