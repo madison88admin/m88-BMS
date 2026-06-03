@@ -145,7 +145,6 @@ const RequestTracker = () => {
       filtered = filtered.filter(req =>
         req.item_name?.toLowerCase().includes(query) ||
         req.request_code?.toLowerCase().includes(query) ||
-        req.category?.toLowerCase().includes(query) ||
         req.status?.toLowerCase().includes(query)
       );
     }
@@ -198,11 +197,10 @@ const RequestTracker = () => {
   }, [selectedRequest?.id]);
 
   const exportToCSV = () => {
-    const headers = ['Expense No', 'Item Name', 'Category', 'Amount', 'Status', 'Submitted At', 'Priority', 'Attachment Count'];
+    const headers = ['Expense No', 'Item Name', 'Amount', 'Status', 'Submitted At', 'Priority', 'Attachment Count'];
     const rows = filteredRequests.map(req => [
       req.request_code,
       req.item_name,
-      req.category,
       req.amount,
       req.status,
       formatDateTime(req.submitted_at),
@@ -392,13 +390,10 @@ const RequestTracker = () => {
       doc.text('Item Name:', 14, 82);
       doc.text(req.item_name, 60, 82);
       
-      doc.text('Category:', 14, 88);
-      doc.text(req.category, 60, 88);
+      doc.text('Amount:', 14, 88);
+      doc.text(`PHP ${Number(req.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 60, 88);
       
-      doc.text('Amount:', 14, 94);
-      doc.text(`PHP ${Number(req.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 60, 94);
-      
-      doc.text('Department:', 14, 100);
+      doc.text('Department:', 14, 94);
       doc.text(req.department_name || 'N/A', 60, 100);
       
       doc.text('Priority:', 14, 106);
@@ -542,7 +537,7 @@ const RequestTracker = () => {
               <input
                 type="text"
                 className="field-input"
-                placeholder="Search by item, expense no, category..."
+                placeholder="Search by item or expense no..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
@@ -629,7 +624,7 @@ const RequestTracker = () => {
               <div className="mb-4 flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-bold text-[var(--role-text)]">{req.item_name}</h2>
-                  <p className="mt-1 text-sm text-[var(--role-text)]/70">{formatMoney(toNumber(req.amount))} • {req.category}</p>
+                  <p className="mt-1 text-sm text-[var(--role-text)]/70">{formatMoney(toNumber(req.amount))}</p>
                   <p className="mt-2 text-sm font-medium text-[var(--role-text)]/80">{getStatusLabel(req.status)}</p>
                   {req.within_budget !== undefined && (
                     <p className={`mt-1 text-xs font-semibold ${req.within_budget ? 'text-emerald-600' : 'text-red-500'}`}>
@@ -733,10 +728,6 @@ const RequestTracker = () => {
               <div className="panel-muted bg-white/40">
                 <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-bold">Amount</p>
                 <p className="mt-2 text-lg font-bold text-[var(--role-text)]">{formatMoney(toNumber(selectedRequest.amount))}</p>
-              </div>
-              <div className="panel-muted bg-white/40">
-                <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-bold">Category</p>
-                <p className="mt-2 text-lg font-bold text-[var(--role-text)]">{selectedRequest.category}</p>
               </div>
               <div className="panel-muted bg-white/40">
                 <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-bold">Priority</p>
@@ -1010,20 +1001,6 @@ const RequestTracker = () => {
                       </div>
                     </div>
 
-                    {/* Category — read-only */}
-                    <div>
-                      <label className="field-label">Budget Category</label>
-                      <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
-                        <p className="font-semibold text-[var(--role-text)]">{selectedRequest.category || selectedRequest.item_name}</p>
-                        {selectedRequest.metadata?.main_category && selectedRequest.metadata.main_category !== selectedRequest.category && (
-                          <p className="text-xs text-[var(--role-text)]/55 mt-0.5">Main: {selectedRequest.metadata.main_category}</p>
-                        )}
-                        <p className="text-xs text-[var(--role-text)]/40 mt-0.5 uppercase tracking-wider">
-                          {selectedRequest.request_type === 'budget_revision' ? 'Budget Revision' : 'Budget Proposal'} · {selectedRequest.request_code}
-                        </p>
-                      </div>
-                    </div>
-
                     {/* Proposed Amount */}
                     <div>
                       <label className="field-label">Proposed Amount (₱)</label>
@@ -1084,10 +1061,8 @@ const RequestTracker = () => {
                         const token = localStorage.getItem('token');
                         try {
                           await api.patch(`/api/requests/${selectedRequest.id}/resubmit`, {
-                            item_name: `${selectedRequest.request_type === 'budget_revision' ? 'Budget Revision' : 'Budget Proposal'}: ${selectedRequest.category || selectedRequest.item_name}`,
+                            item_name: `${selectedRequest.request_type === 'budget_revision' ? 'Budget Revision' : 'Budget Proposal'}: ${selectedRequest.item_name}`,
                             amount: toNumber(budgetResubmit.amount),
-                            category: selectedRequest.category,
-                            category_id: selectedRequest.category_id,
                             purpose: budgetResubmit.purpose.trim(),
                             priority: selectedRequest.priority || 'normal'
                           }, { headers: { Authorization: `Bearer ${token}` } });

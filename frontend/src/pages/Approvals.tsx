@@ -11,32 +11,10 @@ import { supabase } from '../lib/supabase';
 
 import FilePreviewer from '../components/FilePreviewer';
 
-import { buildCategorySearchString, getCategoryCode } from '../utils/categories';
-
 import { formatMoney, toNumber, getStatusLabel, getRequesterName, formatDateTime } from '../utils/format';
 import { useExchangeRates } from '../hooks/useExchangeRates';
 
 
-
-// Format category with account codes for display
-
-const formatCategoryWithCodes = (category: string): string => {
-
-  if (!category) return '';
-
-  const parts = category.split(' > ');
-
-  const formattedParts = parts.map(part => {
-
-    const code = getCategoryCode(part.trim());
-
-    return code ? `${part} (${code})` : part;
-
-  });
-
-  return formattedParts.join(' > ');
-
-};
 
 const DEPT_NAME_MAP: Record<string, string> = {
   'HR Department': 'HR',
@@ -49,40 +27,6 @@ const mapDepartmentNameToShort = (name?: string): string | null => {
   if (!name) return null;
   return DEPT_NAME_MAP[String(name).trim()] || null;
 };
-
-const getMainCategoryDisplay = (request: any): string => {
-  if (request?.main_category_name) return request.main_category_name;
-  if (request?.metadata?.main_category) return request.metadata.main_category;
-  if (request?.request_type === 'budget_request' || request?.request_type === 'budget_revision') {
-    return request.category || '';
-  }
-  const fromItems = [
-    ...new Set(
-      (request?.metadata?.items || [])
-        .map((item: any) => item.main_category)
-        .filter(Boolean)
-    ),
-  ];
-  if (fromItems.length === 1) return fromItems[0] as string;
-  if (fromItems.length > 1) return (fromItems as string[]).join(' / ');
-  return '';
-};
-
-const getSubCategoryDisplay = (request: any): string => {
-  const mainCategory = getMainCategoryDisplay(request);
-  const subItems = (request?.metadata?.items || [])
-    .map((item: any) => item.category || item.item_name)
-    .filter(Boolean);
-  if (subItems.length > 0) {
-    return [...new Set(subItems)].join(', ');
-  }
-  if (request?.category && request.category !== mainCategory) {
-    return request.category;
-  }
-  return request?.item_name || '';
-};
-
-
 
 const Approvals = () => {
 
@@ -789,17 +733,11 @@ const Approvals = () => {
 
       result = result.filter(req => {
 
-        const categoryWithCodes = buildCategorySearchString(req.category || '').toLowerCase();
-
         return (
 
           String(req.item_name || '').toLowerCase().includes(query) ||
 
           String(req.request_code || '').toLowerCase().includes(query) ||
-
-          String(req.category || '').toLowerCase().includes(query) ||
-
-          categoryWithCodes.includes(query) ||
 
           String(getRequesterName(req)).toLowerCase().includes(query)
 
@@ -1067,7 +1005,7 @@ const Approvals = () => {
 
     
 
-    const headers = ['Request Code', 'Requester', 'Department', 'Category', 'Amount', 'Status', 'Submitted Date', 'Priority'];
+    const headers = ['Request Code', 'Requester', 'Department', 'Amount', 'Status', 'Submitted Date', 'Priority'];
 
     const rows = filteredRequests.map(req => [
 
@@ -1076,8 +1014,6 @@ const Approvals = () => {
       getRequesterName(req),
 
       req.department_name || req.departments?.name || '',
-
-      req.category,
 
       req.amount,
 
@@ -1461,11 +1397,6 @@ const Approvals = () => {
     };
   };
 
-  const getRequestCategoryBudget = (request: any) => {
-    if (!request?.department_id) return null;
-    return resolveCategoryBudgetForDepartment(request, { id: request.department_id });
-  };
-
   const shouldShowDepartmentForRequestCategory = (req: any, dept: any) => {
     const scope = getRequestExpenseCategoryScope(req);
     if (!scope || scope.toLowerCase() === 'all') return true;
@@ -1490,7 +1421,7 @@ const Approvals = () => {
       .map((dept) => {
         const categoryBudget = resolveCategoryBudgetForDepartment(req, dept);
         const optionLabel = categoryBudget
-          ? `${dept.name} • ${categoryBudget.categoryName} Remaining ${displayMoney(categoryBudget.remaining, 'PHP')} • Projected ${displayMoney(categoryBudget.projected, 'PHP')}`
+          ? `${dept.name} • Remaining ${displayMoney(categoryBudget.remaining, 'PHP')} • Projected ${displayMoney(categoryBudget.projected, 'PHP')}`
           : `${dept.name} • Remaining ${displayMoney(toNumber(dept.remaining_budget), 'PHP')} • Projected ${displayMoney(toNumber(dept.projected_remaining_budget), 'PHP')}`;
         return {
           id: dept.id,
@@ -1593,7 +1524,7 @@ const Approvals = () => {
 
                 type="text"
 
-                placeholder="Search by category, code, item..."
+                placeholder="Search by code, item..."
 
                 className="field-input !pl-10"
 
@@ -1768,7 +1699,7 @@ const Approvals = () => {
             <div className="relative w-full sm:w-80">
               <input
                 type="text"
-                placeholder="Search by category, code, item..."
+                placeholder="Search by code, item..."
                 className="field-input !pl-10"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -2048,7 +1979,7 @@ const Approvals = () => {
                         <tr>
                           <th className="w-10 px-4 py-3"></th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Code</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Category / Item</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Item</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Type</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Submitted By</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Priority</th>
@@ -2090,13 +2021,10 @@ const Approvals = () => {
                               {/* Category / Item */}
                               <td className="px-4 py-3 max-w-[220px]">
                                 <p className="font-semibold text-[var(--role-text)] truncate" title={req.item_name}>{req.item_name}</p>
-                                {req.category && (
-                                  <p className="text-xs text-[var(--role-text)]/55 truncate" title={req.category}>{formatCategoryWithCodes(req.category)}</p>
-                                )}
                                 {isInsufficientBudget && (
                                   <div className="mt-2">
                                     <span className="inline-flex items-center rounded-full bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 text-xs font-semibold">Insufficient Budget</span>
-                                    <span className="ml-2 text-xs text-[var(--role-text)]/60">{categoryRemaining != null ? `Remaining ${displayMoney(Number(categoryRemaining), req.currency)}` : 'No category budget'}</span>
+                                    <span className="ml-2 text-xs text-[var(--role-text)]/60">{categoryRemaining != null ? `Remaining ${displayMoney(Number(categoryRemaining), req.currency)}` : 'No budget data'}</span>
                                   </div>
                                 )}
                                 {req.purpose && (
@@ -2265,17 +2193,12 @@ const Approvals = () => {
 
             const projectedRemainingAfterApproval = toNumber(budgetSummary?.projected_remaining_after_approval);
 
-            const categoryBudgetInfo = getRequestCategoryBudget(req);
-            const topBudgetLabel = categoryBudgetInfo ? 'Request Category Budget' : 'Requesting Dept Total Budget';
-            const topBudgetAmount = categoryBudgetInfo?.total ?? requestingDepartmentBudget;
-            const topBudgetDescription = categoryBudgetInfo
-              ? `${categoryBudgetInfo.categoryName} category budget for this request`
-              : `${req.department_name || 'Department'} total annual budget`;
-            const remainingAmountBeforeApproval = categoryBudgetInfo?.remaining ?? requestingDepartmentRemaining;
-            const projectedAfterApprovalAmount = categoryBudgetInfo
-              ? remainingAmountBeforeApproval - draftTotal
-              : projectedRemainingAfterApproval;
-            const remainingCardLabel = categoryBudgetInfo ? 'Category Remaining After Approval' : 'Dept Remaining After Approval';
+            const topBudgetLabel = 'Requesting Dept Total Budget';
+            const topBudgetAmount = requestingDepartmentBudget;
+            const topBudgetDescription = `${req.department_name || 'Department'} total annual budget`;
+            const remainingAmountBeforeApproval = requestingDepartmentRemaining;
+            const projectedAfterApprovalAmount = projectedRemainingAfterApproval;
+            const remainingCardLabel = 'Dept Remaining After Approval';
 
 
             return (
@@ -2436,46 +2359,8 @@ const Approvals = () => {
 
                       </div>
 
-                      {(() => {
-                        const mainCategory = getMainCategoryDisplay(req);
-                        const subCategory = getSubCategoryDisplay(req);
-                        if (!mainCategory && !subCategory) return null;
-                        return (
-                          <div className="mt-3 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
-                            <p className="text-xs font-bold uppercase tracking-widest text-[var(--role-text)]/45">Budget Category</p>
-                            {mainCategory && (
-                              <p className="mt-1 text-base font-semibold text-[var(--role-text)]">
-                                Main Category: {formatCategoryWithCodes(mainCategory)}
-                              </p>
-                            )}
-                            {subCategory && subCategory !== mainCategory && (
-                              <p className="mt-1 text-sm text-[var(--role-text)]/75">
-                                Sub-category / Item: {subCategory}
-                              </p>
-                            )}
-                            <p className="mt-2 text-sm text-[var(--role-text)]/75">
-                              {subCategory && subCategory !== mainCategory ? 'Deduct from sub-category budget:' : 'Deduct from category budget:'}
-                              <span className="ml-1 font-semibold text-[var(--role-text)]">{displayMoney(requestAmount, requestCurrency)}</span>
-                            </p>
-                            {budgetSummary && (
-                              <div className="mt-3 space-y-1 text-xs text-[var(--role-text)]/70">
-                                <p>
-                                  Remaining before approval: <span className="font-semibold text-[var(--role-text)]">{displayMoney(requestingDepartmentRemaining, 'PHP')}</span>
-                                </p>
-                                <p>
-                                  Projected after approval: <span className="font-semibold text-[var(--role-text)]">{displayMoney(projectedRemainingAfterApproval, 'PHP')}</span>
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
                       <p className="mt-2 text-lg text-[var(--role-text)]/90">
                         {displayMoney(requestAmount, requestCurrency)}
-                        {!getMainCategoryDisplay(req) && req.category && (
-                          <> • <span title={req.category}>{formatCategoryWithCodes(req.category)}</span></>
-                        )}
                       </p>
 
                       <p className={`mt-3 max-w-2xl text-[var(--role-text)]/70 ${isExpanded ? '' : 'approval-card-description'}`}>{req.purpose}</p>
@@ -2497,7 +2382,7 @@ const Approvals = () => {
                                   {req.metadata.items[0]?.expense_date !== undefined ? (
                                     <><th className="px-4 py-2 font-semibold">Date</th><th className="px-4 py-2 font-semibold">Payee</th><th className="px-4 py-2 font-semibold">Type</th></>
                                   ) : (
-                                    <><th className="px-4 py-2 font-semibold">Item</th><th className="px-4 py-2 font-semibold">Main Category</th><th className="px-4 py-2 font-semibold">Sub-category</th></>
+                                    <><th className="px-4 py-2 font-semibold">Item</th></>
                                   )}
 
                                   <th className="px-4 py-2 text-right font-semibold">Amount</th>
@@ -2517,8 +2402,6 @@ const Approvals = () => {
                                     ) : (
                                       <>
                                         <td className="px-4 py-2">{item.item_name}</td>
-                                        <td className="px-4 py-2">{item.main_category || getMainCategoryDisplay(req) || '—'}</td>
-                                        <td className="px-4 py-2">{item.category || '—'}</td>
                                       </>
                                     )}
 
@@ -2530,7 +2413,7 @@ const Approvals = () => {
 
                                 <tr className="bg-[var(--role-border)]/5 font-bold">
 
-                                  <td colSpan={3} className="px-4 py-2 text-right">Total</td>
+                                  <td colSpan={req.metadata.items[0]?.expense_date !== undefined ? 3 : 1} className="px-4 py-2 text-right">Total</td>
 
                                   <td className="px-4 py-2 text-right">{displayMoney(requestAmount, requestCurrency)}</td>
 
@@ -2846,88 +2729,10 @@ const Approvals = () => {
                           <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-semibold ${req.within_budget ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-red-300 bg-red-50 text-red-700'}`}>
                             {req.within_budget ? 'Within approved budget' : 'Outside approved budget'}
                             {/* For supervisors, show category-level remaining instead of department annual budget */}
-                            {user.role === 'supervisor' ? (
-                              (() => {
-                                const categoryIds = new Set<string>();
-                                if (req.category_id) categoryIds.add(req.category_id);
-                                for (const item of req.metadata?.items || []) {
-                                  if (item.category_id) categoryIds.add(item.category_id);
-                                }
-
-                                const matchedCategories = budgetCategories.filter((cat: any) => categoryIds.has(cat.id));
-
-                                // Fallback: match by category name when ids are not present
-                                if (matchedCategories.length === 0) {
-                                  const names = new Set<string>();
-                                  if (req.category) names.add(req.category);
-                                  if (req.main_category_name) names.add(req.main_category_name);
-                                  for (const item of req.metadata?.items || []) {
-                                    if (item.category) names.add(item.category);
-                                    if (item.main_category) names.add(item.main_category);
-                                  }
-                                  matchedCategories.push(...budgetCategories.filter((cat: any) => names.has(cat.category_name)));
-                                }
-
-                                if (matchedCategories.length === 0) {
-                                  return (
-                                    <p className="mt-1 text-xs font-normal opacity-80">Category budget: not available</p>
-                                  );
-                                }
-
-                                if (matchedCategories.length === 1) {
-                                  const cat = matchedCategories[0];
-                                  // compute requested amount against this category
-                                  let amtForCat = 0;
-                                  if (req.metadata?.items?.length) {
-                                    amtForCat = req.metadata.items.reduce((sum: number, it: any) => {
-                                      const matchById = it.category_id && String(it.category_id) === String(cat.id);
-                                      const matchByName = it.category && it.category === cat.category_name;
-                                      return sum + (matchById || matchByName ? toNumber(it.amount) : 0);
-                                    }, 0);
-                                    if (amtForCat === 0) amtForCat = requestAmount; // fallback
-                                  } else {
-                                    amtForCat = requestAmount;
-                                  }
-
-                                  const remaining = toNumber(cat.remaining_amount ?? cat.remaining_amount ?? 0);
-                                  const projected = remaining - amtForCat;
-
-                                  return (
-                                    <p className="mt-1 text-xs font-normal opacity-80">
-                                      Category remaining: {displayMoney(remaining, 'PHP')} · After approval: {displayMoney(projected, 'PHP')}
-                                    </p>
-                                  );
-                                }
-
-                                // Multiple categories: list each
-                                return (
-                                  <div className="mt-1 text-xs font-normal opacity-80">
-                                    {matchedCategories.map((cat: any) => {
-                                      const amtForCat = req.metadata?.items?.length
-                                        ? req.metadata.items.reduce((sum: number, it: any) => {
-                                            const matchById = it.category_id && String(it.category_id) === String(cat.id);
-                                            const matchByName = it.category && it.category === cat.category_name;
-                                            return sum + (matchById || matchByName ? toNumber(it.amount) : 0);
-                                          }, 0)
-                                        : 0;
-                                      const remaining = toNumber(cat.remaining_amount ?? 0);
-                                      const projected = remaining - (amtForCat || 0);
-                                      return (
-                                        <div key={cat.id} className="mt-1">
-                                          <div className="font-semibold">{cat.category_name}:</div>
-                                          <div>Remaining: {displayMoney(remaining, 'PHP')} · After: {displayMoney(projected, 'PHP')}</div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              })()
-                            ) : (
-                              budgetSummary && (
-                                <p className="mt-1 text-xs font-normal opacity-80">
-                                  Dept remaining: {displayMoney(requestingDepartmentRemaining, 'PHP')} · After approval: {displayMoney(projectedRemainingAfterApproval, 'PHP')}
-                                </p>
-                              )
+                            {budgetSummary && (
+                              <p className="mt-1 text-xs font-normal opacity-80">
+                                Dept remaining: {displayMoney(requestingDepartmentRemaining, 'PHP')} · After approval: {displayMoney(projectedRemainingAfterApproval, 'PHP')}
+                              </p>
                             )}
                           </div>
                         )}
