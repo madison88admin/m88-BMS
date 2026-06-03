@@ -32,6 +32,21 @@ interface CashAdvance {
   purpose: string;
 }
 
+interface CategoryBreakdownItem {
+  category_id: string;
+  category_name: string;
+  original_amount: number;
+  items_in_category: string[];
+}
+
+interface LiquidationCategoryItem {
+  category_id: string;
+  category_name: string;
+  original_amount: number;
+  amount_spent: string;
+  attachments: File[];
+}
+
 interface OfficialExpense {
   code: string;
   itemName: string;
@@ -137,6 +152,60 @@ const NewRequestForm = () => {
     return response.data;
   };
 
+  // Fetch cash advance request details and build category breakdown
+  const fetchAndBuildCategoryBreakdown = async (advanceId: string) => {
+    try {
+      const advance = cashAdvances.find(a => a.id === advanceId);
+      if (!advance || !advance.request_id) {
+        setAdvanceCategoryBreakdown([]);
+        setLiquidationForm(prev => ({ ...prev, categoryItems: [] }));
+        return;
+      }
+
+      // Fetch the original cash advance request details
+      const res = await api.get(`/api/requests/${advance.request_id}`);
+      const request = res.data;
+
+      // Build category breakdown from request items
+      const categoryMap = new Map<string, { category_id: string; category_name: string; original_amount: number; items: string[] }>();
+
+      if (request.items && Array.isArray(request.items)) {
+        request.items.forEach((item: any) => {
+          const catKey = item.category_id || 'uncategorized';
+          if (!categoryMap.has(catKey)) {
+            categoryMap.set(catKey, {
+              category_id: item.category_id || '',
+              category_name: item.category_name || 'Uncategorized',
+              original_amount: 0,
+              items_in_category: []
+            });
+          }
+          const cat = categoryMap.get(catKey)!;
+          cat.original_amount += parseFloat(item.amount || 0);
+          if (item.item_name) cat.items_in_category.push(item.item_name);
+        });
+      }
+
+      const breakdown = Array.from(categoryMap.values());
+      setAdvanceCategoryBreakdown(breakdown);
+
+      // Initialize liquidation category items
+      const categoryItems: LiquidationCategoryItem[] = breakdown.map(cat => ({
+        category_id: cat.category_id,
+        category_name: cat.category_name,
+        original_amount: cat.original_amount,
+        amount_spent: '',
+        attachments: []
+      }));
+      setLiquidationForm(prev => ({ ...prev, categoryItems }));
+    } catch (err) {
+      console.error('Error fetching cash advance details:', err);
+      toast.error('Failed to load cash advance details');
+      setAdvanceCategoryBreakdown([]);
+      setLiquidationForm(prev => ({ ...prev, categoryItems: [] }));
+    }
+  };
+
   // Reimbursement Form
   const [reimbursementForm, setReimbursementForm] = useState({
     expense_date: new Date().toISOString().split('T')[0],
@@ -175,10 +244,10 @@ const NewRequestForm = () => {
   // Liquidation Form
   const [liquidationForm, setLiquidationForm] = useState({
     advance_id: initialAdvanceId || '',
-    amount_spent: '',
     remarks: '',
-    attachments: [] as File[]
+    categoryItems: [] as LiquidationCategoryItem[]
   });
+  const [advanceCategoryBreakdown, setAdvanceCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
 
   // Load drafts on mount
   useEffect(() => {
@@ -205,9 +274,8 @@ const NewRequestForm = () => {
         setLiquidationForm((prev: any) => ({
           ...prev,
           advance_id: parsed.advance_id || '',
-          amount_spent: parsed.amount_spent || '',
           remarks: parsed.remarks || '',
-          attachments: []
+          categoryItems: []
         }));
       } catch (e) { /* invalid draft, skip */ }
     }
@@ -238,7 +306,7 @@ const NewRequestForm = () => {
   useEffect(() => {
     const hasDraft = Boolean(liquidationForm.advance_id);
     if (hasDraft) {
-      const { attachments, ...rest } = liquidationForm;
+      const { categoryItems, ...rest } = liquidationForm;
       localStorage.setItem('liquidation_draft', JSON.stringify(rest));
     }
   }, [liquidationForm]);
@@ -548,15 +616,32 @@ const NewRequestForm = () => {
       return;
     }
 
-    const amountSpent = parseFloat(String(liquidationForm.amount_spent || '0'));
-    if (!Number.isFinite(amountSpent) || amountSpent <= 0) {
-      toast.error('Please enter a valid amount spent');
+    if (liquidationForm.categoryItems.length === 0) {
+      toast.error('Please select a cash advance with breakdown');
       return;
     }
-    if (amountSpent > Number(selectedAdvance.balance || 0)) {
-      toast.error(`Amount spent cannot exceed the cash advance balance of ${formatMoney(Number(selectedAdvance.balance || 0))}`);
+
+    // Validate that all categories have amounts entered
+    const invalidItems = liquidationForm.categoryItems.filter(item => {
+      const amount = parseFloat(item.amount_spent || '0');
+      return !Number.isFinite(amount) || amount <= 0;
+    });
+
+    if (invalidItems.length > 0) {
+      toast.error('Please enter valid amount spent for all categories');
       return;
     }
+
+    // Calculate total
+    const totalSpent = liquidationForm.categoryItems.reduce((sum, item) => {
+      return sum + (parseFloat(item.amount_spent || '0') || 0);
+    }, 0);
+
+    if (totalSpent > Number(selectedAdvance.balance || 0)) {
+      toast.error(`Total amount cannot exceed the cash advance balance of ${formatMoney(Number(selectedAdvance.balance || 0))}`);
+      return;
+    }
+
     if (!selectedAdvance.request_id) {
       toast.error('Selected cash advance is missing request reference. Please contact admin.');
       return;
@@ -566,24 +651,34 @@ const NewRequestForm = () => {
     const token = localStorage.getItem('token');
 
     try {
-      // Upload files
-      let attachments: any[] = [];
-      if (liquidationForm.attachments.length > 0) {
-        for (const file of liquidationForm.attachments) {
-          try {
-            const uploaded = await uploadSupportingFile(file);
-            attachments.push(uploaded);
-          } catch (uploadErr: any) {
-            toast.error(getErrorMessage(uploadErr, 'Failed to upload file'));
+      // Process category items with their attachments
+      const categoryItems = await Promise.all(
+        liquidationForm.categoryItems.map(async (item) => {
+          let attachments: any[] = [];
+          if (item.attachments.length > 0) {
+            for (const file of item.attachments) {
+              try {
+                const uploaded = await uploadSupportingFile(file);
+                attachments.push(uploaded);
+              } catch (uploadErr: any) {
+                console.error('File upload error:', uploadErr);
+              }
+            }
           }
-        }
-      }
+          return {
+            category_id: item.category_id,
+            category_name: item.category_name,
+            amount_spent: parseFloat(item.amount_spent || '0'),
+            attachments
+          };
+        })
+      );
 
       await api.patch(`/api/requests/${selectedAdvance.request_id}/liquidation`, {
         cash_advance_id: selectedAdvance.id,
-        amount_spent: amountSpent,
-        remarks: liquidationForm.remarks,
-        attachments
+        category_items: categoryItems,
+        total_amount_spent: totalSpent,
+        remarks: liquidationForm.remarks
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -1263,7 +1358,10 @@ const NewRequestForm = () => {
                 onChange={(e) => {
                   const advance = cashAdvances.find(a => a.id === e.target.value);
                   setSelectedAdvance(advance || null);
-                  setLiquidationForm(prev => ({ ...prev, advance_id: e.target.value, amount_spent: '' }));
+                  setLiquidationForm(prev => ({ ...prev, advance_id: e.target.value }));
+                  if (e.target.value) {
+                    fetchAndBuildCategoryBreakdown(e.target.value);
+                  }
                 }}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
               >
@@ -1295,31 +1393,124 @@ const NewRequestForm = () => {
                 </div>
               </div>
 
+              {/* Category Breakdown with Amount Spent and Receipts */}
               <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">Amount Spent *</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max={Number(selectedAdvance.balance || 0)}
-                    value={liquidationForm.amount_spent}
-                    onChange={(e) => setLiquidationForm(prev => ({ ...prev, amount_spent: e.target.value }))}
-                    className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                    required
-                  />
-                </div>
-                {(() => {
-                  const amountSpent = parseFloat(String(liquidationForm.amount_spent || '0')) || 0;
-                  if (!amountSpent) return null;
-                  const remaining = Math.max(0, Number(selectedAdvance.balance || 0) - amountSpent);
-                  return (
-                    <div className="mt-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3 text-sm">
-                      Remaining balance after this submission: <span className="font-semibold">{formatMoney(remaining)}</span>
-                    </div>
-                  );
-                })()}
+                <label className="block text-sm font-medium mb-3">Category Breakdown</label>
+                {liquidationForm.categoryItems.length === 0 ? (
+                  <div className="rounded-xl border border-amber-300/40 bg-amber-50/50 px-4 py-3 text-sm text-amber-700">
+                    Select a cash advance to see category breakdown
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {liquidationForm.categoryItems.map((catItem, idx) => (
+                      <div key={idx} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                        <div className="mb-3">
+                          <h3 className="font-semibold text-[var(--role-text)]">{catItem.category_name}</h3>
+                          {advanceCategoryBreakdown[idx]?.items_in_category && advanceCategoryBreakdown[idx].items_in_category.length > 0 && (
+                            <p className="text-sm text-[var(--role-text)]/70 mt-1">
+                              Items: {advanceCategoryBreakdown[idx].items_in_category.join(', ')}
+                            </p>
+                          )}
+                          <p className="text-sm text-[var(--role-text)]/70 mt-1">
+                            Original Amount: <span className="font-semibold">{formatMoney(catItem.original_amount)}</span>
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Amount Spent */}
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--role-text)]/70 mb-1">Amount Spent *</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={catItem.original_amount}
+                                value={catItem.amount_spent}
+                                onChange={(e) => {
+                                  const newItems = [...liquidationForm.categoryItems];
+                                  newItems[idx].amount_spent = e.target.value;
+                                  setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
+                                }}
+                                className="w-full pl-8 pr-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          {/* Receipts */}
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--role-text)]/70 mb-1">Receipts</label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.multiple = true;
+                                input.accept = 'image/*,.pdf';
+                                input.onchange = (e: any) => {
+                                  if (e.target.files) {
+                                    const newItems = [...liquidationForm.categoryItems];
+                                    newItems[idx].attachments = [...newItems[idx].attachments, ...Array.from(e.target.files)];
+                                    setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
+                                  }
+                                };
+                                input.click();
+                              }}
+                              className="w-full px-3 py-2 rounded-lg border border-dashed border-[var(--role-border)] bg-[var(--role-surface)]/50 text-xs text-[var(--role-text)]/60 hover:bg-[var(--role-primary)]/5 transition-colors"
+                            >
+                              {catItem.attachments.length === 0 ? 'Add receipts' : `${catItem.attachments.length} file(s)`}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Display attached files */}
+                        {catItem.attachments.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-[var(--role-border)]/50">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {catItem.attachments.map((file, fileIdx) => (
+                                <div key={fileIdx} className="flex items-center justify-between p-2 rounded-lg bg-[var(--role-surface)] border border-[var(--role-border)]">
+                                  <span className="text-xs text-[var(--role-text)]/70 truncate">{file.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newItems = [...liquidationForm.categoryItems];
+                                      newItems[idx].attachments = newItems[idx].attachments.filter((_, i) => i !== fileIdx);
+                                      setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
+                                    }}
+                                    className="text-red-500 hover:text-red-700 ml-2"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {/* Total Amount */}
+                    {liquidationForm.categoryItems.length > 0 && (
+                      <div className="rounded-xl bg-emerald-50/50 border border-emerald-200 p-4">
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-emerald-900">Total Amount to be Liquidated:</span>
+                          <span className="text-2xl font-bold text-emerald-700">
+                            {formatMoney(
+                              liquidationForm.categoryItems.reduce((sum, item) => {
+                                const amount = parseFloat(item.amount_spent || '0') || 0;
+                                return sum + amount;
+                              }, 0)
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="mb-6">
@@ -1329,61 +1520,11 @@ const NewRequestForm = () => {
                   onChange={(e) => setLiquidationForm(prev => ({ ...prev, remarks: e.target.value }))}
                   rows={3}
                   className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                  placeholder="Add notes for accounting (e.g., where receipts are, explanation, etc.)"
+                  placeholder="Add notes for accounting (e.g., explanation, notes, etc.)"
                 />
               </div>
             </>
           )}
-
-          {/* Supporting Documents */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-3">Receipts / Supporting Documents</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-              {liquidationForm.attachments.map((file, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--role-accent)] border border-[var(--role-border)]">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <svg className="w-5 h-5 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <span className="text-sm truncate">{file.name}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newAtts = liquidationForm.attachments.filter((_, i) => i !== idx);
-                      setLiquidationForm(prev => ({ ...prev, attachments: newAtts }));
-                    }}
-                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="border-2 border-dashed border-[var(--role-border)] rounded-xl p-6 text-center hover:border-[var(--role-primary)]/50 transition-colors">
-              <input
-                type="file"
-                multiple
-                accept="image/*,.pdf"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    const files = Array.from(e.target.files);
-                    setLiquidationForm(prev => ({ ...prev, attachments: [...prev.attachments, ...files] }));
-                  }
-                }}
-                className="hidden"
-                id="liquidation-attachments"
-              />
-              <label htmlFor="liquidation-attachments" className="cursor-pointer">
-                <svg className="w-10 h-10 mx-auto mb-2 text-[var(--role-text)]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-sm text-[var(--role-text)]/60">Click to add receipts or documents</p>
-              </label>
-            </div>
-          </div>
 
           <div className="flex gap-3">
             <button type="button" onClick={() => navigate('/tracker')} className="btn-secondary px-8">Cancel</button>
