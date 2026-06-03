@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import api from '../api';
 import FilePreviewer from '../components/FilePreviewer';
 import Modal from '../components/Modal';
+import PageSkeleton from '../components/Skeleton';
 import { formatDateTime, formatMoney, getErrorMessage } from '../utils/format';
 
 interface OfficialExpense {
@@ -281,11 +282,7 @@ const DocumentUploads = () => {
   }, [requiresAmount]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="bms-spinner"></div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   return (
@@ -498,8 +495,10 @@ const DocumentUploads = () => {
           </div>
 
           {historyLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="bms-spinner"></div>
+            <div className="space-y-4 py-10">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-16 rounded-3xl bg-slate-200/80 dark:bg-slate-700/80 animate-pulse"></div>
+              ))}
             </div>
           ) : uploads.length === 0 ? (
             <div className="panel text-center py-14">

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 
 import Modal from '../components/Modal';
 
@@ -482,6 +483,9 @@ const Approvals = () => {
     }
 
     try {
+      if (request.within_budget === false) {
+        throw new Error('Cannot approve request: outside approved budget.');
+      }
 
       const role = user?.role;
       const amount = toNumber(request.amount);
@@ -1379,8 +1383,35 @@ const Approvals = () => {
 
 
 
+  const getRequestCategoryName = (request: any): string => {
+    return String(request?.category || request?.main_category_name || request?.metadata?.main_category || '').trim();
+  };
+
+  const resolveCategoryBudgetForDepartment = (request: any, dept: any) => {
+    const categoryName = getRequestCategoryName(request);
+    if (!categoryName) return null;
+    const reqFiscalYear = request?.fiscal_year ?? null;
+    const matchedCategory = budgetCategories.find((cat: any) =>
+      cat.department_id === dept.id &&
+      String(cat.category_name || '').trim().toLowerCase() === categoryName.toLowerCase() &&
+      (reqFiscalYear === null || cat.fiscal_year === reqFiscalYear)
+    );
+    if (!matchedCategory) return null;
+    return {
+      remaining: toNumber(matchedCategory.remaining_amount ?? matchedCategory.remaining_budget ?? 0),
+      projected: toNumber(matchedCategory.projected_remaining_budget ?? matchedCategory.projected_remaining_amount ?? matchedCategory.remaining_amount ?? 0),
+      total: toNumber(matchedCategory.budget_amount ?? matchedCategory.annual_budget ?? 0),
+      categoryName: matchedCategory.category_name || categoryName,
+    };
+  };
+
+  const getRequestCategoryBudget = (request: any) => {
+    if (!request?.department_id) return null;
+    return resolveCategoryBudgetForDepartment(request, { id: request.department_id });
+  };
+
   const getDepartmentOptionsForRequest = (req: any) => {
-    const categoryName = String(req.category || '').trim().toLowerCase();
+    const categoryName = getRequestCategoryName(req).toLowerCase();
     const reqFiscalYear = req.fiscal_year ?? null;
     return departments
       .filter((dept) => {
@@ -1392,15 +1423,21 @@ const Approvals = () => {
             (reqFiscalYear === null || cat.fiscal_year === reqFiscalYear)
         );
       })
-      .map((dept) => ({
-        id: dept.id,
-        label: `${dept.name} • Remaining ${displayMoney(toNumber(dept.remaining_budget), 'PHP')} • Projected ${displayMoney(toNumber(dept.projected_remaining_budget), 'PHP')}`
-      }));
+      .map((dept) => {
+        const categoryBudget = resolveCategoryBudgetForDepartment(req, dept);
+        const optionLabel = categoryBudget
+          ? `${dept.name} • ${categoryBudget.categoryName} Remaining ${displayMoney(categoryBudget.remaining, 'PHP')} • Projected ${displayMoney(categoryBudget.projected, 'PHP')}`
+          : `${dept.name} • Remaining ${displayMoney(toNumber(dept.remaining_budget), 'PHP')} • Projected ${displayMoney(toNumber(dept.projected_remaining_budget), 'PHP')}`;
+        return {
+          id: dept.id,
+          label: optionLabel,
+        };
+      });
   };
 
 
 
-  if (!user) return <div className="text-[var(--role-text)]">Loading...</div>;
+  if (!user) return <PageSkeleton />;
 
 
 
@@ -2040,8 +2077,9 @@ const Approvals = () => {
                                 <div className="flex items-center justify-center gap-1.5">
                                   <button
                                     onClick={() => void executeApprove(req)}
-                                    className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 transition whitespace-nowrap"
-                                    title="Approve"
+                                    className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 transition whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                                    disabled={req.status === 'on_hold' || req.within_budget === false}
+                                    title={req.status === 'on_hold' ? 'Cannot approve - request is On Hold' : req.within_budget === false ? 'Cannot approve - request is outside approved budget' : 'Approve'}
                                   >
                                     Approve
                                   </button>
@@ -2163,6 +2201,17 @@ const Approvals = () => {
 
             const projectedRemainingAfterApproval = toNumber(budgetSummary?.projected_remaining_after_approval);
 
+            const categoryBudgetInfo = getRequestCategoryBudget(req);
+            const topBudgetLabel = categoryBudgetInfo ? 'Request Category Budget' : 'Requesting Dept Total Budget';
+            const topBudgetAmount = categoryBudgetInfo?.total ?? requestingDepartmentBudget;
+            const topBudgetDescription = categoryBudgetInfo
+              ? `${categoryBudgetInfo.categoryName} category budget for this request`
+              : `${req.department_name || 'Department'} total annual budget`;
+            const remainingAmountBeforeApproval = categoryBudgetInfo?.remaining ?? requestingDepartmentRemaining;
+            const projectedAfterApprovalAmount = categoryBudgetInfo
+              ? remainingAmountBeforeApproval - draftTotal
+              : projectedRemainingAfterApproval;
+            const remainingCardLabel = categoryBudgetInfo ? 'Category Remaining After Approval' : 'Dept Remaining After Approval';
 
 
             return (
@@ -2875,11 +2924,11 @@ const Approvals = () => {
 
                           <div className="panel-muted !p-4">
 
-                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Requesting Dept Total Budget</p>
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">{topBudgetLabel}</p>
 
-                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(requestingDepartmentBudget, 'PHP')}</p>
+                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(topBudgetAmount, 'PHP')}</p>
 
-                            <p className="mt-1 text-xs text-[var(--role-text)]/60">{req.department_name || 'Unknown department'} total annual budget</p>
+                            <p className="mt-1 text-xs text-[var(--role-text)]/60">{topBudgetDescription}</p>
 
                           </div>
 
@@ -2911,13 +2960,13 @@ const Approvals = () => {
 
                           <div className="panel-muted !p-4">
 
-                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Dept Remaining After Approval</p>
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">{remainingCardLabel}</p>
 
-                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(projectedRemainingAfterApproval, 'PHP')}</p>
+                            <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(projectedAfterApprovalAmount, 'PHP')}</p>
 
                             <p className="mt-1 text-xs text-[var(--role-text)]/60">
 
-                              Current remaining {displayMoney(requestingDepartmentRemaining, 'PHP')} before approval
+                              Current remaining {displayMoney(remainingAmountBeforeApproval, 'PHP')} before approval
 
                             </p>
 
@@ -3254,6 +3303,7 @@ const Approvals = () => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
                             // VP always marks budget proposals as viewed (President does final approval)
                             const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow;
+                            const isOutOfBudget = req.within_budget === false;
                             const canActAtStage =
                               (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
                               (user.role === 'accounting' && req.status === 'pending_accounting' && !req.co_approved_by) ||
@@ -3264,9 +3314,15 @@ const Approvals = () => {
                             return (
                           <button 
                             onClick={() => void handleApprove(req)} 
-                            className={vpMarkViewed ? 'btn-secondary' : 'btn-success'}
-                            disabled={req.status === 'on_hold'}
-                            title={req.status === 'on_hold' ? 'Cannot approve - request is On Hold' : undefined}
+                            className={`${vpMarkViewed ? 'btn-secondary' : 'btn-success'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                            disabled={req.status === 'on_hold' || isOutOfBudget}
+                            title={
+                              req.status === 'on_hold'
+                                ? 'Cannot approve - request is On Hold'
+                                : isOutOfBudget
+                                  ? 'Cannot approve - request is outside approved budget'
+                                  : undefined
+                            }
                           >
                             {vpMarkViewed ? 'Mark as Viewed' : 'Approve'}
                           </button>

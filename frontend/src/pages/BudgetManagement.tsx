@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { formatMoney, formatDateTime, formatPercent, toNumber , getErrorMessage } from '../utils/format';
 import { supabase } from '../lib/supabase';
 
@@ -626,7 +627,7 @@ const BudgetManagement = () => {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="bms-spinner" /></div>;
+  if (loading) return <PageSkeleton />;
 
   const overviewCards = [
     { label: 'Departments', value: overview.totalDepartments.toString(), helper: 'Active in view', glow: 'bg-[var(--role-primary)]' },

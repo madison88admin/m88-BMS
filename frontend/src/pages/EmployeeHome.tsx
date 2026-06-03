@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
-import toast from 'react-hot-toast';
-import { formatMoney, toNumber, getStatusColor } from '../utils/format';
+import toast from 'react-hot-toast';import PageSkeleton from '../components/Skeleton';import { formatMoney, toNumber, getStatusColor } from '../utils/format';
 
 interface Request {
   id: string;
@@ -107,11 +106,7 @@ const EmployeeHome = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="bms-spinner"></div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   return (

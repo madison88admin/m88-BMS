@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { supabase } from '../lib/supabase';
 import { formatMoney, toNumber , getErrorMessage } from '../utils/format';
 
@@ -92,11 +93,7 @@ const FinanceDashboard = () => {
 
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="bms-spinner"></div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   return (

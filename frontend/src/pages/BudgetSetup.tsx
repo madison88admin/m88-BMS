@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { formatMoney, toNumber , getErrorMessage } from '../utils/format';
 
 interface Department {
@@ -228,11 +229,7 @@ const BudgetSetup = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="bms-spinner"></div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   const selectedDepartment = departments.find(d => d.id === selectedDept);

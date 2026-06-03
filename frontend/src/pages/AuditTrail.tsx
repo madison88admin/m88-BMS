@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { formatDateTime, formatActionLabel , getErrorMessage } from '../utils/format';
 
 interface AuditLog {
@@ -227,11 +228,7 @@ const AuditTrail = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="bms-spinner"></div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   if (!requestId && !AUDIT_VIEW_ROLES.includes(userRole)) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { supabase } from '../lib/supabase';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -533,7 +534,7 @@ const ManagementDashboard = () => {
     );
   }
 
-  if (loading) return <div className="p-8 text-center">Loading Management Dashboard...</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="space-y-8" ref={dashboardRef}>

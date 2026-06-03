@@ -3,6 +3,7 @@ import { useExchangeRates } from '../hooks/useExchangeRates';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { supabase } from '../lib/supabase';
 import {
   formatMoney,
@@ -393,7 +394,7 @@ const Dashboard = () => {
     }
   };
 
-  if (!user) return <div className="text-[var(--role-text)]">Loading...</div>;
+  if (!user) return <PageSkeleton />;
 
   if (user.role === 'vp' || user.role === 'president') {
     // Get latest fiscal year and filter to that year only

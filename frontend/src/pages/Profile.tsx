@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { normalizeDisplayName , getErrorMessage } from '../utils/format';
 
 interface DepartmentOption {
@@ -85,7 +86,7 @@ const Profile = () => {
   };
 
   if (isLoading) {
-    return <div className="text-[var(--role-text)]">Loading profile...</div>;
+    return <PageSkeleton />;
   }
 
   if (!user) {
