@@ -2,6 +2,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 import toast, { Toaster } from 'react-hot-toast';
+import PageSkeleton from '../components/Skeleton';
 import { supabase } from '../lib/supabase';
 import { normalizeDisplayName, formatDateTime } from '../utils/format';
 
@@ -231,17 +232,8 @@ const Layout = ({ children }: LayoutProps) => {
   if (!user) {
     return (
       <div className="app-shell flex min-h-screen items-center justify-center px-6">
-        <div className="panel w-full max-w-md overflow-hidden text-center">
-          <div className="mx-auto mb-5 flex items-center justify-center">
-            <div className="bms-spinner" />
-          </div>
-          <p className="text-xl font-semibold text-[var(--role-text)]">Loading BMS Workspace</p>
-          <p className="mt-2 text-sm text-[var(--role-text)]/70">Securing access, syncing roles, and preparing your dashboard.</p>
-          <div className="mt-6 space-y-3">
-            <div className="bms-shimmer h-3 w-full rounded-full" />
-            <div className="bms-shimmer h-3 w-10/12 rounded-full" />
-            <div className="bms-shimmer h-3 w-8/12 rounded-full" />
-          </div>
+        <div className="panel w-full max-w-4xl overflow-hidden">
+          <PageSkeleton rows={6} />
         </div>
       </div>
     );
