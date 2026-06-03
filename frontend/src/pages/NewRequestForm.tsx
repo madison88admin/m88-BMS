@@ -36,13 +36,14 @@ interface CategoryBreakdownItem {
   category_id: string;
   category_name: string;
   original_amount: number;
-  items_in_category: string[];
+  item_label: string;
 }
 
 interface LiquidationCategoryItem {
   category_id: string;
   category_name: string;
   original_amount: number;
+  item_label: string;
   amount_spent: string;
   attachments: File[];
 }
@@ -180,39 +181,28 @@ const NewRequestForm = () => {
       const res = await api.get(`/api/requests/${advance.request_id}`);
       const request = res.data;
 
-      // Build category breakdown from request metadata items or request items
+      // Build itemized breakdown from request metadata items or request items
       const requestItems = Array.isArray(request.items)
         ? request.items
         : Array.isArray(request.metadata?.items)
           ? request.metadata.items
           : [];
 
-      const categoryMap = new Map<string, { category_id: string; category_name: string; original_amount: number; items_in_category: string[] }>();
+      const breakdown = requestItems.map((item: any) => ({
+        category_id: item.category_id || '',
+        category_name: item.category_name || item.category || item.main_category || 'Uncategorized',
+        original_amount: parseFloat(item.amount || 0) || 0,
+        item_label: item.item_name || item.item || item.description || 'Item'
+      }));
 
-      requestItems.forEach((item: any) => {
-        const catKey = item.category_id || item.category || item.main_category || 'uncategorized';
-        if (!categoryMap.has(catKey)) {
-          categoryMap.set(catKey, {
-            category_id: item.category_id || '',
-            category_name: item.category_name || item.category || item.main_category || 'Uncategorized',
-            original_amount: 0,
-            items_in_category: []
-          });
-        }
-        const cat = categoryMap.get(catKey)!;
-        cat.original_amount += parseFloat(item.amount || 0) || 0;
-        const itemLabel = item.item_name || item.item || item.description;
-        if (itemLabel) cat.items_in_category.push(itemLabel);
-      });
-
-      const breakdown = Array.from(categoryMap.values());
       setAdvanceCategoryBreakdown(breakdown);
 
-      // Initialize liquidation category items
-      const categoryItems: LiquidationCategoryItem[] = breakdown.map(cat => ({
-        category_id: cat.category_id,
-        category_name: cat.category_name,
-        original_amount: cat.original_amount,
+      // Initialize liquidation category items per original request item
+      const categoryItems: LiquidationCategoryItem[] = breakdown.map((entry) => ({
+        category_id: entry.category_id,
+        category_name: entry.category_name,
+        original_amount: entry.original_amount,
+        item_label: entry.item_label,
         amount_spent: '',
         attachments: []
       }));
@@ -1520,13 +1510,10 @@ const NewRequestForm = () => {
                     {liquidationForm.categoryItems.map((catItem, idx) => (
                       <div key={idx} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
                         <div className="mb-3">
-                          <h3 className="font-semibold text-[var(--role-text)]">{catItem.category_name}</h3>
-                          {advanceCategoryBreakdown[idx]?.items_in_category && advanceCategoryBreakdown[idx].items_in_category.length > 0 && (
-                            <p className="text-sm text-[var(--role-text)]/70 mt-1">
-                              Items: {advanceCategoryBreakdown[idx].items_in_category.join(', ')}
-                            </p>
-                          )}
-                          <p className="text-sm text-[var(--role-text)]/70 mt-1">
+                          <h3 className="font-semibold text-[var(--role-text)]">{catItem.item_label}</h3>
+                          <p className="text-xs uppercase tracking-[0.12em] text-[var(--role-text)]/50 mt-1">Category</p>
+                          <p className="text-sm text-[var(--role-text)]/70">{catItem.category_name}</p>
+                          <p className="text-sm text-[var(--role-text)]/70 mt-2">
                             Original Amount: <span className="font-semibold">{formatMoney(catItem.original_amount)}</span>
                           </p>
                         </div>
