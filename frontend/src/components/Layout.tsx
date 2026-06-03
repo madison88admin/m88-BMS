@@ -111,7 +111,9 @@ const Layout = ({ children }: LayoutProps) => {
         if (currentUser.role === 'supervisor' || currentUser.role === 'accounting' || currentUser.role === 'admin' || currentUser.role === 'vp' || currentUser.role === 'president') {
           const reqRes = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
           if (cancelled) return;
-          const pendingCount = reqRes.data.filter((r: any) => {
+          const requests = Array.isArray(reqRes.data) ? reqRes.data : [];
+          if (!Array.isArray(reqRes.data)) console.warn('bootstrap: unexpected /api/requests response', reqRes.data);
+          const pendingCount = requests.filter((r: any) => {
             if (currentUser.role === 'supervisor') return r.status === 'pending_supervisor';
             if (currentUser.role === 'accounting') return r.status === 'pending_accounting';
             if (currentUser.role === 'admin') return r.status === 'pending_supervisor' || r.status === 'pending_accounting' || r.status === 'pending_vp' || r.status === 'pending_president';
@@ -121,7 +123,7 @@ const Layout = ({ children }: LayoutProps) => {
           }).length;
           // Also count submitted liquidations for accounting/admin
           const liquidationCount = (currentUser.role === 'accounting' || currentUser.role === 'admin')
-            ? reqRes.data.filter((r: any) => 
+            ? requests.filter((r: any) => 
                 r.latest_liquidation?.status === 'submitted' || 
                 r.liquidations?.some((l: any) => l.status === 'submitted')
               ).length
