@@ -86,13 +86,13 @@
   status = 200
 
 [[redirects]]
-  from = "/api/budget/categories/:id/unlock"
-  to = "/.netlify/functions/budget-categories/api/budget/categories/:id/unlock"
+  from = "/api/budget/categories/*/unlock"
+  to = "/.netlify/functions/budget-categories/api/budget/categories/:splat/unlock"
   status = 200
 
 [[redirects]]
-  from = "/api/budget/categories/:id/lock"
-  to = "/.netlify/functions/budget-categories/api/budget/categories/:id/lock"
+  from = "/api/budget/categories/*/lock"
+  to = "/.netlify/functions/budget-categories/api/budget/categories/:splat/lock"
   status = 200
 
 [[redirects]]
