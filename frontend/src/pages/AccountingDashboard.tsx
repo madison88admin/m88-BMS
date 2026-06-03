@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
+import PageSkeleton from '../components/Skeleton';
 import { formatMoney, formatDateTime, toNumber, formatActionLabel , getErrorMessage } from '../utils/format';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -142,7 +143,7 @@ const AccountingDashboard = () => {
         fetchAuditLogs(),
         fetchDocumentUploads(),
       ]);
-      computeStats(pending, depts, uploads);
+      computeStats(pending, depts, uploads, allReqs);
       computeNotifications(uploads || [], allReqs || []);
     } catch (err) {
       toast.error('Failed to load accounting data');
@@ -211,14 +212,14 @@ const AccountingDashboard = () => {
     return data;
   };
 
-  const computeStats = (pending: any[], depts: any[], uploads: any[] = []) => {
+  const computeStats = (pending: any[], depts: any[], uploads: any[] = [], allReqs: any[] = []) => {
     const today = new Date().toISOString().slice(0, 10);
     const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
     const alerts = depts.filter(d => toNumber(d.petty_cash_balance) < pettyCashThreshold * 0.5).length;
     setStats({
       total_pending: pending.length,
-      total_released_today: allRequests.filter(r => r.status === 'released' && r.released_at?.startsWith(today)).length,
-      total_released_this_month: allRequests.filter(r => r.status === 'released' && r.released_at >= firstDayOfMonth).length,
+      total_released_today: allReqs.filter(r => r.status === 'released' && r.released_at?.startsWith(today)).length,
+      total_released_this_month: allReqs.filter(r => r.status === 'released' && r.released_at >= firstDayOfMonth).length,
       petty_cash_alerts: alerts,
       on_hold_count: pending.filter(r => r.status === 'on_hold').length,
       pending_document_uploads: uploads.filter((row) => row.status === 'submitted' || row.status === 'pending_review').length,
@@ -466,11 +467,7 @@ const AccountingDashboard = () => {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="bms-spinner"></div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   return (
