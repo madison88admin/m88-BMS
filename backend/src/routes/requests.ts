@@ -1290,12 +1290,12 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
 
     if (items && items.length > 0) {
       for (const item of items) {
-        const validation = validateExpense(item.item_name, departmentName, request_type, budgetOnlyItems, req.user.role);
+        const validation = validateExpense(item.item_name, departmentName, request_type, budgetOnlyItems, req.user.role, true);
         const rejected = rejectValidation(item.item_name, validation);
         if (rejected) return rejected;
       }
     } else {
-      const validation = validateExpense(item_name, departmentName, request_type, budgetOnlyItems, req.user.role);
+      const validation = validateExpense(item_name, departmentName, request_type, budgetOnlyItems, req.user.role, true);
       const rejected = rejectValidation(item_name, validation);
       if (rejected) return rejected;
     }

@@ -191,7 +191,8 @@ export function validateExpense(
   departmentName: string,
   requestType: 'cash_advance' | 'reimbursement' | 'liquidation',
   extraItems: ExpenseItem[] = [],
-  userRole?: string
+  userRole?: string,
+  allowUnlistedItems = false
 ): ExpenseEligibility {
   // Liquidations don't need validation against official expense list
   if (requestType === 'liquidation') {
@@ -213,6 +214,18 @@ export function validateExpense(
   );
 
   if (!item) {
+    if (allowUnlistedItems) {
+      return {
+        allowed: true,
+        code: 'CUSTOM',
+        category: 'Freehand',
+        department: departmentName,
+        canCA: requestType === 'cash_advance',
+        canRE: requestType === 'reimbursement',
+        reason: ''
+      };
+    }
+
     return {
       allowed: false,
       code: 'N/A',

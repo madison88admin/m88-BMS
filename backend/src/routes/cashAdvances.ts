@@ -276,9 +276,9 @@ router.post('/:id/liquidate', authenticate, authorize('employee', 'manager', 'ac
     const { data: deptData } = await supabase.from('departments').select('name').eq('id', cashAdvance.department_id).single();
     const departmentName = deptData?.name || 'Unknown';
 
-    // Validate all items against the official list
+    // Validate all items against the official list (allow freehand descriptions)
     for (const item of items) {
-      const validation = validateExpense(item.description, departmentName, 'reimbursement');
+      const validation = validateExpense(item.description, departmentName, 'reimbursement', [], req.user.role, true);
       if (!validation.allowed) {
         return res.status(400).json({ 
           error: `Item "${item.description}" is not allowed: ${validation.reason}`,
