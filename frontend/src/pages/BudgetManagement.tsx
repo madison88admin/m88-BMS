@@ -135,6 +135,7 @@ const BudgetManagement = () => {
   const [revisionDrafts, setRevisionDrafts] = useState<Record<string, string>>({});
   const [revisionHistory, setRevisionHistory] = useState<Record<string, any[]>>({});
   const [submittingProposal, setSubmittingProposal] = useState(false);
+  const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
 
   // Only accounting and admin may edit/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin'].includes(String(user?.role || '').toLowerCase());
@@ -231,6 +232,11 @@ const BudgetManagement = () => {
       return enrichedCategories;
     }
   }, [enrichedCategories, user, selectedDepartment]);
+
+  const lockedCategories = useMemo(
+    () => enrichedCategories.filter((category) => category.is_locked),
+    [enrichedCategories]
+  );
 
   const orderedCategories = useMemo(
     () => buildOrderedCategories(enrichedCategories, categorySearch),
@@ -784,65 +790,89 @@ const BudgetManagement = () => {
               </div>
 
               {/* Unlock Budget Matrix — prominent banner, accounting/admin only */}
-              {canEditMatrix && enrichedCategories.some(c => c.is_locked) && (
+              {canEditMatrix && lockedCategories.length > 0 && (
                 <div className="rounded-[24px] border-2 border-amber-400/50 bg-amber-50/60 p-5">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 border border-amber-400/30">
-                        <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/20 border border-amber-400/30">
+                        <svg className="h-6 w-6 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                         </svg>
                       </div>
                       <div>
-                        <p className="font-bold text-amber-800">
-                          {enrichedCategories.filter(c => c.is_locked).length} Locked Categor{enrichedCategories.filter(c => c.is_locked).length !== 1 ? 'ies' : 'y'}
+                        <p className="text-lg font-semibold text-amber-900">
+                          {lockedCategories.length} Locked Categor{lockedCategories.length !== 1 ? 'ies' : 'y'}
                         </p>
-                        <p className="text-xs text-amber-700/70 mt-0.5">
-                          Budget matrix is locked after approval. Unlock to allow new proposals or edits.
+                        <p className="max-w-xl text-sm text-amber-700/85">
+                          The budget matrix is locked after approval. Unlock categories to allow new proposals, edits, and mid-period revisions.
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 shrink-0">
+
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={async () => {
-                          const locked = enrichedCategories.filter(c => c.is_locked);
+                          const locked = lockedCategories;
                           const token = localStorage.getItem('token');
                           let ok = 0;
-                          for (const cat of locked) {
-                            try {
-                              await api.patch(`/api/budget/categories/${cat.id}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } });
-                              ok++;
-                            } catch { /* skip */ }
-                          }
+                          await Promise.all(
+                            locked.map(async (cat) => {
+                              try {
+                                await api.patch(`/api/budget/categories/${cat.id}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                                ok++;
+                              } catch {
+                                /* skip */
+                              }
+                            })
+                          );
                           if (ok > 0) toast.success(`Unlocked ${ok} categor${ok !== 1 ? 'ies' : 'y'}`);
                           if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
                         }}
-                        className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 transition flex items-center gap-2 whitespace-nowrap"
+                        className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 transition"
                       >
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
                         </svg>
-                        Unlock All ({enrichedCategories.filter(c => c.is_locked).length})
+                        Unlock All
+                      </button>
+                      <button
+                        onClick={() => setShowAllLockedCategories((prev) => !prev)}
+                        className="text-sm text-amber-900/90 underline underline-offset-2"
+                      >
+                        {showAllLockedCategories ? 'Hide locked list' : `View all ${lockedCategories.length}`}
                       </button>
                     </div>
                   </div>
-                  {/* Locked category chips */}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {enrichedCategories.filter(c => c.is_locked).map(cat => (
-                      <div key={cat.id} className="flex items-center gap-1.5 rounded-full border border-amber-300/50 bg-white/70 pl-2.5 pr-1.5 py-1">
-                        <span className="font-mono text-[10px] text-amber-700 font-bold">{cat.category_code}</span>
-                        <span className="text-xs text-[var(--role-text)]/70 max-w-[120px] truncate">{cat.category_name}</span>
-                        <button
-                          onClick={() => unlockCategory(cat.id)}
-                          className="ml-1 rounded-full bg-amber-100 hover:bg-amber-200 p-0.5 transition"
-                          title={`Unlock ${cat.category_name}`}
-                        >
-                          <svg className="h-3 w-3 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
+
+                  <div className="mt-4 space-y-3">
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                      {(showAllLockedCategories ? lockedCategories : lockedCategories.slice(0, 8)).map((cat) => (
+                        <div key={cat.id} className="flex items-center justify-between gap-3 rounded-2xl border border-amber-300/60 bg-white/90 px-3 py-3 shadow-sm">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm text-[var(--role-text)] truncate">{cat.category_name}</p>
+                            <p className="mt-1 text-[11px] text-amber-700/80">{cat.category_code}</p>
+                          </div>
+                          <button
+                            onClick={() => unlockCategory(cat.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
+                            aria-label={`Unlock ${cat.category_name}`}
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {!showAllLockedCategories && lockedCategories.length > 8 && (
+                      <button
+                        onClick={() => setShowAllLockedCategories(true)}
+                        className="text-sm text-amber-900/90 underline underline-offset-2"
+                      >
+                        Show all {lockedCategories.length} locked categories
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
