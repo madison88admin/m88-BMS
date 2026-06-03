@@ -105,6 +105,18 @@ const getErrorMessage = (err: any, fallback: string) => {
   return fallback;
 };
 
+const formatSafe = (value: any, fallback = '') => {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
 const Admin = () => {
   const navigate = useNavigate();
   const [departments, setDepartments] = useState<any[]>([]);
@@ -914,7 +926,7 @@ const Admin = () => {
                 <h3 className="mt-3 text-2xl font-bold text-[var(--role-text)]" style={{ color: systemHealth?.supabase?.status === 'healthy' ? '#10B981' : '#EF4444' }}>
                   {systemHealth?.supabase?.status === 'healthy' ? 'Connected' : 'Error'}
                 </h3>
-                <p className="mt-1 text-xs text-[var(--role-text)]/70">{systemHealth?.supabase?.error || 'All systems operational'}</p>
+                <p className="mt-1 text-xs text-[var(--role-text)]/70">{formatSafe(systemHealth?.supabase?.error, 'All systems operational')}</p>
               </div>
               <div className="panel !p-5">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--role-text)]/60">Total Users</p>
@@ -1081,32 +1093,32 @@ const Admin = () => {
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <p className="font-semibold text-[var(--role-text)] capitalize">
-                          {log.log_type} • {log.action} • {log.request_code || 'No request code'}
+                          {formatSafe(log.log_type)} • {formatSafe(log.action)} • {formatSafe(log.request_code, 'No request code')}
                         </p>
                         <p className="mt-1 text-sm text-[var(--role-text)]/70">
-                          {log.item_name || 'No item name'} • {log.request_status || 'No status'}
+                          {formatSafe(log.item_name, 'No item name')} • {formatSafe(log.request_status, 'No status')}
                         </p>
                         {log.old_value || log.new_value ? (
                           <div className="mt-2 flex flex-wrap gap-2 items-center text-xs">
                             {log.old_value && (
                               <span className="px-2 py-0.5 rounded bg-red-500/10 text-red-600 line-through decoration-red-400">
-                                {log.old_value}
+                                {formatSafe(log.old_value)}
                               </span>
                             )}
                             <svg className="w-3 h-3 text-[var(--role-text)]/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                             </svg>
                             <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 font-bold">
-                              {log.new_value}
+                              {formatSafe(log.new_value)}
                             </span>
                           </div>
                         ) : (
-                          <p className="mt-2 text-sm text-[var(--role-text)]/80">{log.note || 'No note provided.'}</p>
+                          <p className="mt-2 text-sm text-[var(--role-text)]/80">{formatSafe(log.note, 'No note provided.')}</p>
                         )}
                       </div>
                       <div className="text-sm text-[var(--role-text)]/60 lg:text-right">
-                        <p>{log.actor_name || 'System'}</p>
-                        <p className="capitalize">{log.actor_role || 'system'}</p>
+                        <p>{formatSafe(log.actor_name, 'System')}</p>
+                        <p className="capitalize">{formatSafe(log.actor_role, 'system')}</p>
                         <p>{formatDateTime(log.event_time || log.created_at || log.timestamp)}</p>
                       </div>
                     </div>
