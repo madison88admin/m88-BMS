@@ -98,7 +98,8 @@ exports.handler = async (event, context) => {
     const secondLast = pathParts[pathParts.length - 2];
 
     if (event.httpMethod === 'PATCH' && lastSegment === 'unlock') {
-      authorize(['accounting', 'admin'])(user);
+      // Allow super_admin to unlock via functions too
+      authorize(['accounting', 'admin', 'super_admin'])(user);
       validateUUID(secondLast);
 
       const { data: current, error: fetchError } = await supabase
