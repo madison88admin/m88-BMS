@@ -69,7 +69,20 @@ const RequestForm = () => {
           
           const dept = deptRes.data.find((d: any) => d.id === targetDeptId);
           setDepartment(dept);
-          setCategories(catRes.data || []);
+          // Apply client-side display filter for non-accounting roles (no DB changes)
+          try {
+            const expenseCacheRaw = localStorage.getItem('prefetch_expense_categories');
+            const expenseCache = expenseCacheRaw ? JSON.parse(expenseCacheRaw).data : null;
+            if (expenseCache && userRes.data) {
+              const { filterCategoriesForUser } = await import('../utils/budgetVisibility');
+              const deptName = dept?.name || '';
+              setCategories(filterCategoriesForUser(catRes.data || [], userRes.data, deptName));
+            } else {
+              setCategories(catRes.data || []);
+            }
+          } catch (err) {
+            setCategories(catRes.data || []);
+          }
           
           // If we have a category in the form, find its budget details
           if (form.category || (id && catRes.data)) {

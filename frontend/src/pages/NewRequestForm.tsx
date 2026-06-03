@@ -273,7 +273,19 @@ const NewRequestForm = () => {
 
         setDepartments(departmentsRes.data || []);
         // Only show categories that belong to the user's department
-        setCategories(categoriesRes.data || []);
+        try {
+          const expenseCacheRaw = localStorage.getItem('prefetch_expense_categories');
+          const expenseCache = expenseCacheRaw ? JSON.parse(expenseCacheRaw).data : null;
+          if (expenseCache && userData) {
+            const { filterCategoriesForUser } = await import('../utils/budgetVisibility');
+            const deptName = departmentsRes.data?.find((d: any) => d.id === userData.department_id)?.name || '';
+            setCategories(filterCategoriesForUser(categoriesRes.data || [], userData, deptName));
+          } else {
+            setCategories(categoriesRes.data || []);
+          }
+        } catch (err) {
+          setCategories(categoriesRes.data || []);
+        }
         setCostCenters(costCentersRes.data || []);
 
         // Load cash advances for liquidation
@@ -375,7 +387,19 @@ const NewRequestForm = () => {
         const categoriesData = categoriesRes.data || [];
         const costCentersData = costCentersRes.data || [];
 
-        setCategories(categoriesData);
+        try {
+          const expenseCacheRaw = localStorage.getItem('prefetch_expense_categories');
+          const expenseCache = expenseCacheRaw ? JSON.parse(expenseCacheRaw).data : null;
+          if (expenseCache && user) {
+            const { filterCategoriesForUser } = await import('../utils/budgetVisibility');
+            const deptName = departmentsRes.data?.find((d: any) => d.id === targetDeptId)?.name || '';
+            setCategories(filterCategoriesForUser(categoriesData || [], user, deptName));
+          } else {
+            setCategories(categoriesData);
+          }
+        } catch (err) {
+          setCategories(categoriesData);
+        }
         setCostCenters(costCentersData);
 
         // Automatically select the first cost center if available and not yet set

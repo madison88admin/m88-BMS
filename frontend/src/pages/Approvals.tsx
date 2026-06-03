@@ -375,7 +375,20 @@ const Approvals = () => {
       ]);
 
       setDepartments(deptRes.data);
-      setBudgetCategories(catRes.data || []);
+      try {
+        const expenseCacheRaw = localStorage.getItem('prefetch_expense_categories');
+        const expenseCache = expenseCacheRaw ? JSON.parse(expenseCacheRaw).data : null;
+        if (expenseCache && user) {
+          const { filterCategoriesForUser } = await import('../utils/budgetVisibility');
+          // try to find user's department name
+          const deptName = deptRes.data?.find((d: any) => d.id === user.department_id)?.name || '';
+          setBudgetCategories(filterCategoriesForUser(catRes.data || [], user, deptName));
+        } else {
+          setBudgetCategories(catRes.data || []);
+        }
+      } catch (err) {
+        setBudgetCategories(catRes.data || []);
+      }
 
     } catch {
 

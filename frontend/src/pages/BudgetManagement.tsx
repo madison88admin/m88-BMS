@@ -212,6 +212,25 @@ const BudgetManagement = () => {
     [selectedBreakdown?.categories]
   );
 
+  // Apply client-side visibility filter for non-accounting viewers when listing main categories
+  const visibleEnrichedCategories = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('prefetch_expense_categories');
+      const expenseCache = raw ? JSON.parse(raw).data : null;
+      if (!expenseCache || !user) return enrichedCategories;
+      // find department name if selectedDepartment exists
+      const deptName = selectedDepartment?.name || '';
+      const { filterCategoriesForUser } = require('../utils/budgetVisibility');
+      // filter returns only main categories per rules — we need full enriched list, so filter then expand
+      const filteredMain = filterCategoriesForUser(enrichedCategories || [], user, deptName);
+      // keep only categories whose id is in filteredMain (main categories) or their children if user should see sub-categories
+      const mainIds = new Set(filteredMain.map((c: any) => c.id));
+      return enrichedCategories.filter(c => !c.parent_category_id ? mainIds.has(c.id) : mainIds.has(c.parent_category_id));
+    } catch (err) {
+      return enrichedCategories;
+    }
+  }, [enrichedCategories, user, selectedDepartment]);
+
   const orderedCategories = useMemo(
     () => buildOrderedCategories(enrichedCategories, categorySearch),
     [enrichedCategories, categorySearch]
@@ -225,8 +244,8 @@ const BudgetManagement = () => {
   const isNewMainCategory = MAIN_CATEGORY_CODES.has(newCategory.category_code.trim().toUpperCase());
 
   const parentCategoryOptions = useMemo(
-    () => enrichedCategories.filter((category) => !category.parent_category_id),
-    [enrichedCategories]
+    () => visibleEnrichedCategories.filter((category) => !category.parent_category_id),
+    [visibleEnrichedCategories]
   );
 
   const categoryAllocatedTotal = useMemo(() => {
