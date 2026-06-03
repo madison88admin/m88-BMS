@@ -10,7 +10,10 @@ interface FilePreviewerProps {
 const FilePreviewer: React.FC<FilePreviewerProps> = ({ isOpen, onClose, fileUrl, fileName }) => {
   if (!isOpen) return null;
 
-  const isPDF = fileUrl.toLowerCase().endsWith('.pdf') || fileUrl.includes('pdf');
+  const normalizedFileName = fileName.toLowerCase();
+  const normalizedUrl = fileUrl.toLowerCase();
+  const isPDF = normalizedFileName.endsWith('.pdf') || normalizedUrl.split('?')[0].endsWith('.pdf');
+  const isImage = /\.(jpe?g|png|gif|bmp|webp|svg)$/i.test(normalizedFileName);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -26,6 +29,18 @@ const FilePreviewer: React.FC<FilePreviewerProps> = ({ isOpen, onClose, fileUrl,
         <div className="flex items-center justify-between border-b border-white/10 bg-black/40 p-4 text-white">
           <h3 className="text-lg font-semibold truncate px-4">{fileName}</h3>
           <div className="flex items-center gap-3">
+            <a 
+              href={fileUrl} 
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full bg-white/10 p-2 transition hover:bg-white/20"
+              title="Open in new tab"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
             <a 
               href={fileUrl} 
               download={fileName}
@@ -56,12 +71,17 @@ const FilePreviewer: React.FC<FilePreviewerProps> = ({ isOpen, onClose, fileUrl,
               className="h-full w-full rounded-xl"
               title={fileName}
             />
-          ) : (
+          ) : isImage ? (
             <img
               src={fileUrl}
               alt={fileName}
               className="max-h-full max-w-full object-contain shadow-2xl rounded-xl"
             />
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center rounded-xl border border-dashed border-white/20 bg-black/10 p-8 text-center text-white/80">
+              <p className="mb-3 text-base font-semibold">Preview not available for this file type.</p>
+              <p className="text-sm text-white/70">Use the Open or Download controls above to view the file.</p>
+            </div>
           )}
         </div>
       </div>

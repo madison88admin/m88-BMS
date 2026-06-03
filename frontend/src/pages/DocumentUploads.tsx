@@ -62,6 +62,7 @@ const DocumentUploads = () => {
   const [selectedCode, setSelectedCode] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploads, setUploads] = useState<DocumentUpload[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -102,6 +103,36 @@ const DocumentUploads = () => {
     return status;
   };
 
+  const uploadSupportingFile = async (file: File) => {
+    const token = localStorage.getItem('token');
+    if (!token) throw new Error('Not authenticated');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post('/api/upload', formData, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    return response.data;
+  };
+
+  const uploadFiles = async (files: File[]) => {
+    const uploadedAttachments: any[] = [];
+    for (const file of files) {
+      const uploaded = await uploadSupportingFile(file);
+      uploadedAttachments.push({
+        file_name: uploaded.file_name,
+        file_url: uploaded.file_url,
+        file_type: uploaded.file_type || uploaded.attachment_type || file.type,
+        file_size: uploaded.file_size != null ? uploaded.file_size : file.size,
+      });
+    }
+    return uploadedAttachments;
+  };
+
   const fetchHistory = async (showError = true) => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -135,18 +166,23 @@ const DocumentUploads = () => {
       toast.error('Please enter a budget amount to set/override');
       return;
     }
+    if (attachments.length === 0) {
+      toast.error('Please attach at least one document');
+      return;
+    }
 
     setSubmitting(true);
     const token = localStorage.getItem('token');
     try {
+      const uploadedAttachments = await uploadFiles(attachments);
       await api.post(
         '/api/document-uploads',
         {
           category_code: selectedCode,
           description,
-          budget_override: Number.parseFloat(amount),
+          amount: Number.parseFloat(amount),
           fiscal_year: fiscalYear,
-          attachments: [],
+          attachments: uploadedAttachments,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -156,6 +192,7 @@ const DocumentUploads = () => {
       setSelectedCode('');
       setDescription('');
       setAmount('');
+      setAttachments([]);
       setActiveTab('history');
       await fetchHistory(false);
     } catch (err: any) {
@@ -362,6 +399,46 @@ const DocumentUploads = () => {
               className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] min-h-[100px]"
               placeholder="Add notes explaining the budget adjustment..."
             />
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Attachments *</label>
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.multiple = true;
+                  input.accept = 'image/*,.pdf';
+                  input.onchange = (e: any) => {
+                    if (e.target.files) {
+                      setAttachments((prev) => [...prev, ...Array.from(e.target.files as FileList)]);
+                    }
+                  };
+                  input.click();
+                }}
+                className="btn-secondary px-6 py-3 w-full text-left"
+              >
+                {attachments.length === 0 ? 'Select documents to upload' : `${attachments.length} file(s) selected`}
+              </button>
+              {attachments.length > 0 && (
+                <div className="space-y-2 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                  {attachments.map((file, fileIdx) => (
+                    <div key={fileIdx} className="flex items-center justify-between gap-3 rounded-lg bg-[var(--role-surface)] px-3 py-2">
+                      <span className="truncate text-sm text-[var(--role-text)]/80">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== fileIdx))}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-3">
