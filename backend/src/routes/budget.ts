@@ -346,6 +346,59 @@ router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'ad
   }
 });
 
+// PATCH /api/budget/categories/:id/lock - Lock budget category (accounting/supervisor/admin)
+router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admin', 'supervisor'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: current } = await supabase
+      .from('budget_categories')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (!current) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    const { data, error } = await supabase
+      .from('budget_categories')
+      .update({ is_locked: true, locked_at: new Date() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error });
+
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.BUDGET_LOCKED,
+      recordType: 'budget',
+      recordId: id,
+      recordLabel: current.category_name,
+      oldValue: { is_locked: false },
+      newValue: { is_locked: true },
+      remarks: req.body?.reason || 'Locked by accounting',
+    });
+
+    await notifyDepartmentSupervisor(
+      current.department_id,
+      `Budget category "${current.category_name}" was locked by accounting. No further edits are allowed until unlocked.`
+    );
+
+    // Sync department budget after lock
+    await syncDepartmentBudget(current.department_id, current.fiscal_year);
+
+    // Invalidate cache
+    invalidateCache('/api/budget/categories');
+    invalidateCache('/api/departments');
+
+    res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // PUT /api/budget/categories/:id - Update budget category
 router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   try {
