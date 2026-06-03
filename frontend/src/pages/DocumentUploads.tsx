@@ -285,6 +285,27 @@ const DocumentUploads = () => {
     return <PageSkeleton />;
   }
 
+  // Restrict access to accounting personnel only
+  if (user?.role !== 'accounting' && user?.role !== 'admin' && user?.role !== 'super_admin') {
+    return (
+      <div className="text-[var(--role-text)] page-transition">
+        <div className="page-header">
+          <h1 className="page-title">Access Denied</h1>
+          <p className="page-subtitle">Document uploads are only available to accounting personnel</p>
+        </div>
+        <div className="rounded-xl border border-red-300 bg-red-50 p-6 max-w-2xl">
+          <p className="text-red-700 mb-4">You do not have permission to access this page.</p>
+          <button
+            onClick={() => navigate('/overview')}
+            className="btn-primary"
+          >
+            Back to Overview
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="text-[var(--role-text)] page-transition">
       <div className="page-header">

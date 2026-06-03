@@ -245,7 +245,6 @@ const Layout = ({ children }: LayoutProps) => {
         <>
           <Link to="/employee" className={getNavClassName('/employee')}>Overview</Link>
           <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>New Expense</Link>
-          <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Document Uploads</Link>
           <Link to="/tracker" className={getNavClassName('/tracker')}>My History</Link>
         </>
       ) : (
@@ -262,7 +261,9 @@ const Layout = ({ children }: LayoutProps) => {
           {(user.role !== 'super_admin' && user.role !== 'admin') && (
             <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>New Expense</Link>
           )}
-          <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Document Uploads</Link>
+          {(user.role === 'accounting' || user.role === 'admin' || user.role === 'super_admin') && (
+            <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Document Uploads</Link>
+          )}
           {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'accounting') && (
             <Link to="/tracker" className={getNavClassName('/tracker')}>My History</Link>
           )}
