@@ -364,72 +364,109 @@ const RequestTracker = () => {
   const downloadVoucher = (req: any) => {
     try {
       const doc = new jsPDF();
-      
-      // Add Logo or Header
+
+      // Header bar
       doc.setFillColor(30, 43, 74);
-      doc.rect(0, 0, 210, 40, 'F');
+      doc.rect(0, 0, 210, 45, 'F');
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(22);
-      doc.text('BUDGET REQUEST VOUCHER', 105, 25, { align: 'center' });
-      
-      // Add Content
-      doc.setTextColor(20, 20, 20);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('REQUEST VOUCHER', 105, 20, { align: 'center' });
       doc.setFontSize(10);
-      doc.text(`Voucher Date: ${new Date().toLocaleDateString()}`, 14, 50);
-      doc.text(`Expense No: ${req.request_code}`, 14, 55);
-      
-      doc.setDrawColor(200, 200, 200);
-      doc.line(14, 62, 196, 62);
-      
+      doc.setFont('helvetica', 'normal');
+      doc.text('Expense / Budget Request Summary', 105, 30, { align: 'center' });
+
+      // Content start
+      let y = 48;
+      doc.setTextColor(45, 45, 45);
+      doc.setFontSize(9);
+      doc.text(`Voucher Date: ${new Date().toLocaleDateString()}`, 14, y);
+      doc.text(`Voucher No: ${req.request_code || '—'}`, 140, y);
+
+      y += 8;
+      doc.setDrawColor(220);
+      doc.line(14, y, 196, y);
+      y += 8;
+
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('REQUEST DETAILS', 14, 72);
-      
+      doc.text('Request Details', 14, y);
+      y += 7;
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
-      doc.text('Item Name:', 14, 82);
-      doc.text(req.item_name, 60, 82);
-      
-      doc.text('Amount:', 14, 88);
-      doc.text(`PHP ${Number(req.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 60, 88);
-      
-      doc.text('Department:', 14, 94);
-      doc.text(req.department_name || 'N/A', 60, 100);
-      
-      doc.text('Priority:', 14, 106);
-      doc.text(req.priority.toUpperCase(), 60, 106);
-      
-      doc.text('Purpose:', 14, 112);
-      const splitPurpose = doc.splitTextToSize(req.purpose || 'No purpose provided.', 130);
-      doc.text(splitPurpose, 60, 112);
-      
-      // Approval Section
-      const approvalY = 112 + (splitPurpose.length * 5) + 15;
-      doc.setFont('helvetica', 'bold');
-      doc.text('APPROVAL STATUS', 14, approvalY);
-      
-      doc.setFont('helvetica', 'normal');
-      doc.text('Current Status:', 14, approvalY + 10);
-      doc.setTextColor(16, 185, 129); // Emerald color
-      doc.text(getStatusLabel(req.status).toUpperCase(), 60, approvalY + 10);
-      
+
+      // Use category as the primary item name when available
+      const categoryLabel = String(req.category || req.main_category_name || req.metadata?.main_category || req.item_name || '—');
+      doc.setTextColor(80, 80, 80);
+      doc.text('Category:', 14, y);
       doc.setTextColor(20, 20, 20);
-      doc.text('Approval Date:', 14, approvalY + 16);
-      doc.text(req.updated_at ? formatDateTime(req.updated_at) : 'N/A', 60, approvalY + 16);
-      
+      doc.text(categoryLabel, 50, y);
+
+      doc.setTextColor(80, 80, 80);
+      doc.text('Amount:', 140, y);
+      doc.setTextColor(20, 20, 20);
+      doc.text(formatMoney(Number(req.amount || 0), req.currency || 'PHP'), 170, y, { align: 'right' });
+
+      y += 8;
+      doc.setTextColor(80, 80, 80);
+      doc.text('Department:', 14, y);
+      doc.setTextColor(20, 20, 20);
+      doc.text(req.department_name || 'N/A', 50, y);
+
+      doc.setTextColor(80, 80, 80);
+      doc.text('Priority:', 140, y);
+      doc.setTextColor(20, 20, 20);
+      doc.text((req.priority || 'normal').toString().toUpperCase(), 170, y, { align: 'right' });
+
+      y += 10;
+      doc.setTextColor(80, 80, 80);
+      doc.text('Purpose:', 14, y);
+      doc.setTextColor(20, 20, 20);
+      const purposeText = req.purpose || 'No purpose provided.';
+      const splitPurpose = doc.splitTextToSize(purposeText, 150);
+      doc.text(splitPurpose, 14, y + 6);
+
+      // Approval Section
+      const approvalY = y + 6 + (splitPurpose.length * 5) + 12;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('Approval Status', 14, approvalY);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const statusLabel = getStatusLabel(req.status).toUpperCase();
+      doc.setTextColor(80, 80, 80);
+      doc.text('Current Status:', 14, approvalY + 8);
+      // status color (green for approved/disbursed, amber for pending, red for rejected)
+      if (['approved', 'released', 'disbursed', 'disbursed'].includes((req.status || '').toLowerCase())) {
+        doc.setTextColor(16, 185, 129);
+      } else if (['rejected'].includes((req.status || '').toLowerCase())) {
+        doc.setTextColor(239, 68, 68);
+      } else {
+        doc.setTextColor(234, 179, 8);
+      }
+      doc.text(statusLabel, 60, approvalY + 8);
+
+      doc.setTextColor(80, 80, 80);
+      doc.text('Approval Date:', 14, approvalY + 14);
+      doc.setTextColor(20, 20, 20);
+      doc.text(req.updated_at ? formatDateTime(req.updated_at) : 'N/A', 60, approvalY + 14);
+
       // Footer / Signatures
-      doc.setDrawColor(200, 200, 200);
-      doc.line(14, 250, 80, 250);
-      doc.line(130, 250, 196, 250);
-      doc.setFontSize(8);
-      doc.text('Requested By', 47, 255, { align: 'center' });
-      doc.text('Approved By (System Verified)', 163, 255, { align: 'center' });
-      
+      doc.setDrawColor(200);
+      doc.line(30, 250, 90, 250);
+      doc.line(120, 250, 180, 250);
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      doc.text('Requested By', 60, 255, { align: 'center' });
+      doc.text('Approved By (System Verified)', 150, 255, { align: 'center' });
+
       doc.setFontSize(7);
       doc.setTextColor(150, 150, 150);
       doc.text('This is a system-generated document. No signature required if status is APPROVED/DISBURSED.', 105, 285, { align: 'center' });
-      
-      doc.save(`Voucher_${req.request_code}.pdf`);
+
+      doc.save(`Voucher_${req.request_code || Date.now()}.pdf`);
       toast.success('Voucher downloaded successfully!');
     } catch (err: any) {
       console.error('Voucher download error:', err);
