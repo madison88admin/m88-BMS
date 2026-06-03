@@ -1006,7 +1006,6 @@ const NewRequestForm = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Main Category *</label>
             <select
