@@ -137,8 +137,8 @@ const BudgetManagement = () => {
   const [submittingProposal, setSubmittingProposal] = useState(false);
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
 
-  // Only accounting and admin may edit/unlock budget matrix
-  const canEditMatrix = ['accounting', 'admin'].includes(String(user?.role || '').toLowerCase());
+  // Accounting, admin, and supervisor may lock/unlock budget matrix
+  const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
   const isViewOnlyMatrix = user?.role === 'supervisor' || user?.role === 'vp' || user?.role === 'president';
 
   const visibleDepartments = useMemo(() => {
@@ -642,7 +642,7 @@ const BudgetManagement = () => {
             <h1 className="page-title">{isViewOnlyMatrix && !canEditMatrix ? 'Budget Matrix (View Only)' : 'Budget Matrix'}</h1>
             <p className="page-subtitle">
               {user?.role === 'supervisor'
-                ? 'Propose budgets for your department. Locked matrices cannot be edited — contact accounting to unlock.'
+                ? 'Propose budgets and manage category locks for your department. Audit trail is tracked for super_admin.'
                 : user?.role === 'vp' || user?.role === 'president'
                   ? 'View-only access to department budget proposals and approved matrices.'
                   : 'Live FX conversion, department budgets, category management, and fiscal year planning.'}
@@ -806,7 +806,7 @@ const BudgetManagement = () => {
                 ))}
               </div>
 
-              {/* Unlock Budget Matrix — prominent banner, accounting/admin only */}
+              {/* Unlock Budget Matrix — accounting/admin/supervisor can manage locks */}
               {canEditMatrix && lockedCategories.length > 0 && (
                 <div className="rounded-[24px] border-2 border-amber-400/50 bg-amber-50/60 p-5">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

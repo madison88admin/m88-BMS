@@ -98,7 +98,7 @@ exports.handler = async (event, context) => {
     const secondLast = pathParts[pathParts.length - 2];
 
     if (event.httpMethod === 'PATCH' && lastSegment === 'unlock') {
-      authorize(['accounting', 'admin'])(user);
+      authorize(['accounting', 'admin', 'supervisor'])(user);
       validateUUID(secondLast);
 
       const { data: current, error: fetchError } = await supabase
@@ -152,7 +152,7 @@ exports.handler = async (event, context) => {
     }
 
     if (event.httpMethod === 'PATCH' && lastSegment === 'lock') {
-      authorize(['accounting', 'admin'])(user);
+      authorize(['accounting', 'admin', 'supervisor'])(user);
       validateUUID(secondLast);
 
       const { data: current, error: fetchError } = await supabase
