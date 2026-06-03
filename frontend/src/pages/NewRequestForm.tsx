@@ -1508,12 +1508,12 @@ const NewRequestForm = () => {
                 </div>
               </div>
 
-              {/* Category Breakdown with Amount Spent and Receipts */}
+              {/* Estimated Breakdown with Amount Spent and Receipts */}
               <div className="mb-6">
-                <label className="block text-sm font-medium mb-3">Category Breakdown</label>
+                <label className="block text-sm font-medium mb-3">Estimated Breakdown</label>
                 {liquidationForm.categoryItems.length === 0 ? (
                   <div className="rounded-xl border border-amber-300/40 bg-amber-50/50 px-4 py-3 text-sm text-amber-700">
-                    Select a cash advance to see category breakdown
+                    Select a cash advance to see the estimated breakdown
                   </div>
                 ) : (
                   <div className="space-y-4">
