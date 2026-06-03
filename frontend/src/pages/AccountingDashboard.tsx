@@ -56,6 +56,7 @@ const AccountingDashboard = () => {
   });
 
   const [documentUploads, setDocumentUploads] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   // Petty Cash data
   const [pettyCashAlerts, setPettyCashAlerts] = useState<PettyCashAlert[]>([]);
@@ -133,7 +134,7 @@ const AccountingDashboard = () => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [depts, pending, , , , uploads] = await Promise.all([
+      const [depts, pending, allReqs, , , uploads] = await Promise.all([
         fetchDepartments(),
         fetchPendingReleases(),
         fetchAllRequests(),
@@ -142,11 +143,38 @@ const AccountingDashboard = () => {
         fetchDocumentUploads(),
       ]);
       computeStats(pending, depts, uploads);
+      computeNotifications(uploads || [], allReqs || []);
     } catch (err) {
       toast.error('Failed to load accounting data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const computeNotifications = (uploads: any[], allReqs: any[]) => {
+    // Document uploads awaiting accounting
+    const newDocUploads = (uploads || []).filter(u => ['submitted', 'pending_review', 'submitted_to_accounting'].includes(u.status));
+
+    // Reimbursements and cash advances pending accounting
+    const reimbursements = (allReqs || []).filter((r: any) => String(r.request_type) === 'reimbursement' && r.status === 'pending_accounting');
+    const cashAdvances = (allReqs || []).filter((r: any) => String(r.request_type) === 'cash_advance' && r.status === 'pending_accounting');
+
+    // Liquidations: check latest_liquidation or nested liquidations
+    const liquidations = (allReqs || []).filter((r: any) => {
+      const latest = r.latest_liquidation || null;
+      if (latest && latest.status === 'submitted') return true;
+      const anySubmitted = Array.isArray(r.liquidations) && r.liquidations.some((l: any) => l.status === 'submitted');
+      return Boolean(anySubmitted);
+    });
+
+    const toItems = (rows: any[], type: string) => rows.slice(0, 5).map((r: any) => ({ id: r.id || r.upload_id || r.request_code, title: r.category_name || r.request_code || r.category_code || r.title || (r.description && String(r.description).slice(0, 40)), amount: r.amount || r.amount_issued || r.actual_amount || null, type }));
+
+    setNotifications([
+      { key: 'document_uploads', label: 'Document Uploads', count: newDocUploads.length, items: toItems(newDocUploads, 'document_upload') },
+      { key: 'reimbursements', label: 'Reimbursements', count: reimbursements.length, items: toItems(reimbursements, 'reimbursement') },
+      { key: 'cash_advances', label: 'Cash Advances', count: cashAdvances.length, items: toItems(cashAdvances, 'cash_advance') },
+      { key: 'liquidations', label: 'Liquidations', count: liquidations.length, items: toItems(liquidations, 'liquidation') },
+    ]);
   };
 
   const fetchAllRequests = async () => {
@@ -517,6 +545,39 @@ const AccountingDashboard = () => {
               <p className={`mt-2 text-3xl font-bold ${stats.on_hold_count > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{stats.on_hold_count}</p>
               <p className="mt-1 text-xs text-[var(--role-text)]/50">Temporarily held</p>
             </div>
+          </div>
+
+          {/* Notifications Panel */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            {notifications.map((n) => {
+              const to = n.key === 'document_uploads' ? '/document-uploads' : n.key === 'liquidations' ? '/approvals?view=liquidations' : `/requests?type=${n.key === 'reimbursements' ? 'reimbursement' : 'cash_advance'}`;
+              return (
+                <div key={n.key} className="panel">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/60">{n.label}</p>
+                      <p className="mt-2 text-2xl font-bold text-[var(--role-text)]">{n.count}</p>
+                    </div>
+                    <Link to={to} className="text-sm text-[var(--role-primary)] hover:underline">View All</Link>
+                  </div>
+
+                  <div className="mt-3 space-y-2">
+                    {n.items.length === 0 ? (
+                      <p className="text-sm text-[var(--role-text)]/60">No new items</p>
+                    ) : (
+                      n.items.map((it: any) => (
+                        <div key={it.id} className="rounded-lg border border-[var(--role-border)] p-2 bg-[var(--role-accent)] text-sm">
+                          <Link to={to} className="flex items-center justify-between">
+                            <span className="truncate mr-2">{String(it.title || it.id).slice(0, 48)}</span>
+                            <span className="font-semibold">{it.amount != null ? formatMoney(toNumber(it.amount)) : ''}</span>
+                          </Link>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
 

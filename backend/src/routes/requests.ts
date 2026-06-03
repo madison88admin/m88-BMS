@@ -178,10 +178,8 @@ const validateCategoryBudgetsForSubmission = async (
         return `Category "${category.category_name || id}" does not belong to the selected department and fiscal year.`;
       }
 
-      if (toNumber(category.remaining_amount) < requestedAmount) {
-        const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
-        return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${requestedAmount.toFixed(2)}`;
-      }
+      // Note: allow submission even when remaining budget is insufficient.
+      // Supervisors/accounting will see the remaining_amount on the ticket to decide.
     }
   }
 
@@ -200,10 +198,8 @@ const validateCategoryBudgetsForSubmission = async (
         return `Requested category "${name}" was not found for the selected department and fiscal year.`;
       }
 
-      if (toNumber(category.remaining_amount) < requestedAmount) {
-        const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
-        return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${requestedAmount.toFixed(2)}`;
-      }
+      // Note: allow submission even when remaining budget is insufficient.
+      // Supervisors/accounting will see the remaining_amount on the ticket to decide.
     }
   }
 
@@ -248,10 +244,7 @@ const validateCategoryBudgetsForSubmission = async (
     return `Category "${normalizedCategoryName || normalizedCategoryId}" was not found for the selected department and fiscal year.`;
   }
 
-  if (toNumber(category.remaining_amount) < totalAmount) {
-    const categoryType = category.parent_category_id ? 'Sub-category' : 'Category';
-    return `Insufficient budget in ${categoryType.toLowerCase()} "${category.category_name}". Remaining: ${toNumber(category.remaining_amount).toFixed(2)}, Requested: ${totalAmount.toFixed(2)}`;
-  }
+  // Allow submission even if remaining budget is insufficient; supervisors will review remaining_amount on the ticket.
 
   return null;
 };

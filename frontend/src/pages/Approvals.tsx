@@ -1961,6 +1961,13 @@ const Approvals = () => {
                           const sla = calculateSLA(req);
                           const requestCurrency = getSupportedCurrency(req.metadata?.currency || req.currency);
                           const isSelected = selectedRequests.has(req.id);
+                          const requestAmount = toNumber(req.amount);
+                          const budgetSummary = req.budget_summary || {};
+                          const projectedAfter = budgetSummary?.projected_remaining_after_approval;
+                          const categoryRemaining = req.remaining_amount ?? budgetSummary?.remaining_budget ?? null;
+                          const isInsufficientBudget = (typeof projectedAfter === 'number')
+                            ? Number(projectedAfter) < 0
+                            : (categoryRemaining != null ? Number(categoryRemaining) < Number(requestAmount) : false);
                           return (
                             <tr
                               key={req.id}
@@ -1984,6 +1991,12 @@ const Approvals = () => {
                                 <p className="font-semibold text-[var(--role-text)] truncate" title={req.item_name}>{req.item_name}</p>
                                 {req.category && (
                                   <p className="text-xs text-[var(--role-text)]/55 truncate" title={req.category}>{formatCategoryWithCodes(req.category)}</p>
+                                )}
+                                {isInsufficientBudget && (
+                                  <div className="mt-2">
+                                    <span className="inline-flex items-center rounded-full bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 text-xs font-semibold">Insufficient Budget</span>
+                                    <span className="ml-2 text-xs text-[var(--role-text)]/60">{categoryRemaining != null ? `Remaining ${displayMoney(Number(categoryRemaining), req.currency)}` : 'No category budget'}</span>
+                                  </div>
                                 )}
                                 {req.purpose && (
                                   <p className="text-xs text-[var(--role-text)]/40 truncate mt-0.5" title={req.purpose}>{req.purpose}</p>
@@ -2247,6 +2260,19 @@ const Approvals = () => {
                             <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-3 py-1 text-sm font-medium text-[var(--role-text)]">
                               {view === 'vp_approval' && req.status === 'pending_accounting' ? 'For Executive Review' : getStatusLabel(req.status)}
                             </span>
+                            {(() => {
+                              const reqAmt = toNumber(req.amount);
+                              const bsum = req.budget_summary || {};
+                              const proj = bsum?.projected_remaining_after_approval;
+                              const catRem = req.remaining_amount ?? bsum?.remaining_budget ?? null;
+                              const over = (typeof proj === 'number') ? Number(proj) < 0 : (catRem != null ? Number(catRem) < Number(reqAmt) : false);
+                              if (!over) return null;
+                              return (
+                                <span className="rounded-full px-3 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200 ml-2">
+                                  Insufficient Budget
+                                </span>
+                              );
+                            })()}
                           </div>
                           <h2 className="text-2xl font-bold text-[var(--role-text)]">{req.item_name}</h2>
                         </div>

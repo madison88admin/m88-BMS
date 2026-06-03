@@ -52,9 +52,8 @@ router.post('/', authenticate, authorize('supervisor'), async (req: any, res) =>
     return res.status(400).json({ error: `Category not found for department in fiscal year ${targetFiscalYear}.` });
   }
 
-  if (toNumber(categoryBudget.remaining_amount) < toNumber(amount)) {
-    return res.status(400).json({ error: `Insufficient budget in category "${categoryBudget.category_name}". Remaining: ${toNumber(categoryBudget.remaining_amount).toFixed(2)}` });
-  }
+  // Allow logging expenses even if the remaining budget is insufficient.
+  // The supervisor/accounting can review the updated remaining_amount on the category.
 
   const { data, error } = await supabase
     .from('direct_expenses')
