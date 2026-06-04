@@ -1574,7 +1574,7 @@ const Approvals = () => {
                   onChange={(e) => setDepartmentFilter(e.target.value)}
                 >
                   <option value="all">All Departments</option>
-                  {[...new Map(departments.map(d => [d.name, d])).values()].map((dept: any) => (
+                  {[...new Map(departments.map(d => [d.id, d])).values()].map((dept: any) => (
                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                   ))}
                 </select>
@@ -2442,6 +2442,35 @@ const Approvals = () => {
                 <div className={`approval-card-details ${isExpanded ? 'approval-card-details-open' : 'approval-card-details-closed'}`}>
 
                   <div className="pt-5">
+
+                    {view === 'cash_returns' && req.latest_liquidation?.cash_return_amount > 0 && (
+                      <div className="mb-6 rounded-[24px] border border-yellow-300 bg-yellow-50/75 p-5">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <h3 className="text-lg font-semibold text-[var(--role-text)]">Cash Return Confirmation</h3>
+                            <p className="mt-1 text-sm text-[var(--role-text)]/70">
+                              This request requires a cash return before it can be completed. Confirm the returned amount and close the request.
+                            </p>
+                          </div>
+                          <div className="grid gap-1 text-sm text-[var(--role-text)]/80">
+                            <div className="font-semibold">Amount to return: {displayMoney(toNumber(req.latest_liquidation.cash_return_amount), requestCurrency)}</div>
+                            <div>Status: {req.latest_liquidation.cash_return_status || 'pending_return'}</div>
+                          </div>
+                        </div>
+
+                        {req.latest_liquidation.cash_return_status === 'pending_return' && (
+                          <div className="mt-4">
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => void handleConfirmCashReturn(req.id)}
+                            >
+                              Confirm Cash Return
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {view === 'liquidations' && req.latest_liquidation && (
 

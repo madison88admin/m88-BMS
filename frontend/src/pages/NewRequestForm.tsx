@@ -461,7 +461,7 @@ const NewRequestForm = () => {
           const expenseCache = expenseCacheRaw ? JSON.parse(expenseCacheRaw).data : null;
           if (expenseCache && user) {
             const { filterCategoriesForUser } = await import('../utils/budgetVisibility');
-            const deptName = departmentsRes.data?.find((d: any) => d.id === targetDeptId)?.name || '';
+            const deptName = departments.find((d: any) => d.id === targetDeptId)?.name || '';
             setCategories(filterCategoriesForUser(categoriesData || [], user, deptName));
           } else {
             setCategories(categoriesData);
