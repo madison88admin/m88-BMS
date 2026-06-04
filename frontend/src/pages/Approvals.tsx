@@ -439,7 +439,8 @@ const Approvals = () => {
     }
 
     try {
-      if (request.within_budget === false) {
+      const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
+      if (request.within_budget === false && !isBudgetFlow) {
         throw new Error('Cannot approve request: outside approved budget.');
       }
 
@@ -449,7 +450,6 @@ const Approvals = () => {
 
       if (role === 'accounting' || role === 'admin' || role === 'super_admin') {
         if (requestStatus === 'pending_accounting' && !request.co_approved_by) {
-          const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
           await api.patch(
             `/api/requests/${requestId}/approve-accounting`,
             { note }

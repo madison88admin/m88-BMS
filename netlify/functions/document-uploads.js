@@ -217,9 +217,7 @@ exports.handler = async (event) => {
       if (!categoryCode) {
         return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Sub-category is required' }) };
       }
-      if (!amount || amount <= 0) {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'New budget amount is required' }) };
-      }
+      // No amount validation for budget override - allow any amount
 
       const { data: categoryRow, error: categoryError } = await supabase
         .from('expense_categories')
@@ -228,8 +226,9 @@ exports.handler = async (event) => {
         .maybeSingle();
       if (categoryError) throw categoryError;
 
-      if (!categoryRow || String(categoryRow.manner_of_submission) !== 'for_upload') {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Selected sub-category is not eligible for budget allocation' }) };
+      // No category eligibility restriction for budget override
+      if (!categoryRow) {
+        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Category not found' }) };
       }
 
       const { data: department, error: deptError } = await supabase

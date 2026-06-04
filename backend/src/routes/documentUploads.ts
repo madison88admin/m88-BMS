@@ -195,14 +195,10 @@ router.post('/', authenticate, async (req: any, res) => {
     }
 
     const normalizedDescription = String(description || '').trim();
-    if (!normalizedDescription && !isFinanceRole) {
-      return res.status(400).json({ error: 'Description / remarks is required' });
-    }
+    // No description requirement for budget override
 
     const uploadAttachments = Array.isArray(attachments) ? attachments : [];
-    if (!uploadAttachments.length && !isFinanceRole) {
-      return res.status(400).json({ error: 'At least one attachment is required' });
-    }
+    // No attachment requirement for budget override
 
     const { data: categoryRow, error: categoryError } = await supabase
       .from('expense_categories')
@@ -211,8 +207,9 @@ router.post('/', authenticate, async (req: any, res) => {
       .maybeSingle();
     if (categoryError) throw categoryError;
 
-    if (!categoryRow || String(categoryRow.manner_of_submission) !== 'for_upload') {
-      return res.status(400).json({ error: 'Selected sub-category is not eligible for document upload' });
+    // No category eligibility restriction for budget override
+    if (!categoryRow) {
+      return res.status(400).json({ error: 'Category not found' });
     }
 
     const userDepartment = await loadUserDepartment(effectiveDepartmentId);
@@ -220,33 +217,12 @@ router.post('/', authenticate, async (req: any, res) => {
       return res.status(400).json({ error: 'Unable to resolve user department' });
     }
 
-    const canCA = Boolean(categoryRow.cash_advance_allowed);
-    const canRE = Boolean(categoryRow.reimbursement_allowed);
-    const requiresAmount = canCA || canRE;
     const amountValue = toNumber(amount);
-    if ((requiresAmount || isFinanceRole) && amountValue <= 0) {
-      return res.status(400).json({ error: 'Amount is required for this category' });
+    if (isFinanceRole && amountValue <= 0) {
+      return res.status(400).json({ error: 'Amount is required for budget override' });
     }
 
-    const resolvedExpenseDepartment = resolveExpenseCategoryDepartmentName(String(categoryRow.department || ''));
-    const isFinanceOrAdminDept =
-      userDepartment.name === 'Finance Department'
-      || userDepartment.name === 'Admin Department';
-
-    if (!isFinanceRole) {
-      if (!canCA && !canRE) {
-        if (!isFinanceOrAdminDept) {
-          return res.status(403).json({ error: 'Only Finance and Admin departments can upload documents for this category' });
-        }
-        if (resolvedExpenseDepartment && resolvedExpenseDepartment !== userDepartment.name) {
-          return res.status(403).json({ error: 'Category is not available for your department' });
-        }
-      } else if (!(canCA && canRE)) {
-        if (resolvedExpenseDepartment && resolvedExpenseDepartment !== userDepartment.name) {
-          return res.status(403).json({ error: 'Category is not available for your department' });
-        }
-      }
-    }
+    // No department restrictions for budget override
 
     const targetFiscalYear = fiscal_year ? Number.parseInt(String(fiscal_year), 10) : 2026;
     const status = isFinanceRole ? 'acknowledged' : 'submitted_to_accounting';
@@ -263,7 +239,7 @@ router.post('/', authenticate, async (req: any, res) => {
         uploaded_by: user.id,
         uploaded_by_role: role,
         description: normalizedDescription || 'Budget override',
-        amount: (requiresAmount || isFinanceRole) ? amountValue : amountValue || null,
+        amount: isFinanceRole ? amountValue : amountValue || null,
         fiscal_year: Number.isInteger(targetFiscalYear) && targetFiscalYear > 0 ? targetFiscalYear : null,
         adjustment_type: adjustment_type ? String(adjustment_type).trim() : null,
         status,
