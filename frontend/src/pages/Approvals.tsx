@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
 import api from '../api';
 
@@ -34,7 +35,7 @@ const Approvals = () => {
 
   const [user, setUser] = useState<any>(null);
 
-  const [view, setView] = useState<'pending' | 'vp_approval' | 'approved' | 'liquidations'>('vp_approval');
+  const [view, setView] = useState<'pending' | 'vp_approval' | 'approved' | 'liquidations' | 'cash_returns'>('vp_approval');
 
   const [departments, setDepartments] = useState<any[]>([]);
 
@@ -111,6 +112,8 @@ const Approvals = () => {
 
   const pageSize = 10;
 
+  const location = useLocation();
+
 
 
   // Action Modal state (Return/Reject/Hold)
@@ -158,10 +161,7 @@ const Approvals = () => {
 
 
   useEffect(() => {
-
-    const token = localStorage.getItem('token');
-
-    api.get('/api/config/auth-thresholds', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/api/config/auth-thresholds')
 
       .then((res) => {
 
@@ -179,15 +179,20 @@ const Approvals = () => {
 
 
 
-    api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/api/auth/me')
 
       .then((res) => {
 
         setUser(res.data);
 
-        // Set role-appropriate default view and pass it directly to avoid React state lag
+        // Read query string view override if present
+        const requestedView = new URLSearchParams(location.search).get('view');
         let initialView: string = view;
-        if (res.data.role === 'accounting' || res.data.role === 'admin' || res.data.role === 'supervisor') {
+
+        if (requestedView && ['pending', 'vp_approval', 'approved', 'liquidations', 'cash_returns'].includes(requestedView)) {
+          initialView = requestedView;
+          setView(requestedView as any);
+        } else if (res.data.role === 'accounting' || res.data.role === 'admin' || res.data.role === 'supervisor') {
           initialView = 'pending';
           setView('pending');
         } else if (res.data.role === 'vp' || res.data.role === 'president') {
@@ -321,14 +326,11 @@ const Approvals = () => {
 
 
   const fetchDepartments = async () => {
-
-    const token = localStorage.getItem('token');
-
     try {
 
       const [deptRes, catRes] = await Promise.all([
-        api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } }),
-        api.get('/api/budget/categories?all_years=true', { headers: { Authorization: `Bearer ${token}` } })
+        api.get('/api/departments'),
+        api.get('/api/budget/categories?all_years=true')
       ]);
 
       setDepartments(deptRes.data);
@@ -422,8 +424,6 @@ const Approvals = () => {
   // Execute actions directly without signature
 
   const executeApprove = async (request: any, note?: string) => {
-
-    const token = localStorage.getItem('token');
     const requestId = request.id;
     const requestStatus = request.status;
     const requestType = request.request_type;
@@ -452,8 +452,7 @@ const Approvals = () => {
           const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
           await api.patch(
             `/api/requests/${requestId}/approve-accounting`,
-            { note },
-            { headers: { Authorization: `Bearer ${token}` } }
+            { note }
           );
           if (isBudgetFlow) {
             toast.success(
@@ -473,8 +472,7 @@ const Approvals = () => {
               release_reference_no: draft.disbursement_reference_no || '',
               release_note: draft.disbursement_note || '',
               liquidation_due_at: draft.liquidation_due_at || ''
-            },
-            { headers: { Authorization: `Bearer ${token}` } }
+            }
           );
           toast.success('Request released successfully!');
         } else {
@@ -486,15 +484,13 @@ const Approvals = () => {
           // VP always just marks budget proposals as viewed — President always does final approval
           await api.patch(
             `/api/requests/${requestId}/mark-viewed`,
-            { note },
-            { headers: { Authorization: `Bearer ${token}` } }
+            { note }
           );
           toast.success('Budget marked as viewed — forwarded to President.');
         } else {
           await api.patch(
             `/api/requests/${requestId}/approve-vp`,
-            { note },
-            { headers: { Authorization: `Bearer ${token}` } }
+            { note }
           );
           toast.success(
             amount > vpThreshold
@@ -505,8 +501,7 @@ const Approvals = () => {
       } else if (role === 'president' && requestStatus === 'pending_president') {
         await api.patch(
           `/api/requests/${requestId}/approve-president`,
-          { note },
-          { headers: { Authorization: `Bearer ${token}` } }
+          { note }
         );
         toast.success(
           requestType === 'budget_request' || requestType === 'budget_revision'
@@ -516,8 +511,7 @@ const Approvals = () => {
       } else if (role === 'supervisor' && requestStatus === 'pending_supervisor') {
         await api.patch(
           `/api/requests/${requestId}/approve`,
-          { note },
-          { headers: { Authorization: `Bearer ${token}` } }
+          { note }
         );
         toast.success('Request approved successfully!');
       } else {
@@ -538,18 +532,13 @@ const Approvals = () => {
 
 
   const executeReject = async (requestId: string, reason: string) => {
-
-    const token = localStorage.getItem('token');
-
     try {
 
       await api.patch(
 
         `/api/requests/${requestId}/reject`,
 
-        { reason },
-
-        { headers: { Authorization: `Bearer ${token}` } }
+        { reason }
 
       );
 
@@ -569,9 +558,6 @@ const Approvals = () => {
 
 
   const fetchRequests = async (role = user?.role, viewOverride?: string) => {
-
-    const token = localStorage.getItem('token');
-
     const effectiveView = viewOverride ?? view;
 
     try {
@@ -580,26 +566,32 @@ const Approvals = () => {
 
 
 
-      if (effectiveView === 'liquidations' && (role === 'accounting' || role === 'admin')) {
-        // Fetch expense requests with submitted liquidations
-        const res = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
+      if ((effectiveView === 'liquidations' || effectiveView === 'cash_returns') && (role === 'accounting' || role === 'admin')) {
+        // Fetch expense requests with pending liquidation or cash return workflow
+        const res = await api.get('/api/requests');
         
         filtered = (res.data || []).filter((request: any) => {
-          // Check if request has a liquidation with 'submitted' status
-          return request.latest_liquidation?.status === 'submitted' ||
-                 request.liquidations?.some((l: any) => l.status === 'submitted');
+          if (effectiveView === 'liquidations') {
+            return request.latest_liquidation?.status === 'submitted' ||
+                   request.liquidations?.some((l: any) => l.status === 'submitted');
+          }
+
+          const latest = request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+          return latest?.cash_return_status === 'pending_return';
         }).map((request: any) => {
-          // Normalize the data structure for display
-          const liquidation = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
+          const liquidation = effectiveView === 'liquidations'
+            ? request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted')
+            : request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+
           return {
             ...request,
-            status: 'pending_liquidation_review',
+            status: effectiveView === 'liquidations' ? 'pending_liquidation_review' : 'pending_cash_return',
             latest_liquidation: liquidation
           };
         });
       } else {
 
-        const res = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await api.get('/api/requests');
 
         filtered = (res.data || []).filter((request: any) => {
           if (role === 'supervisor') {
@@ -627,6 +619,11 @@ const Approvals = () => {
             // Show requests with submitted liquidations
             return request.latest_liquidation?.status === 'submitted' ||
                    request.liquidations?.some((l: any) => l.status === 'submitted');
+          }
+
+          if (effectiveView === 'cash_returns') {
+            const latest = request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+            return latest?.cash_return_status === 'pending_return';
           }
 
           return false;
@@ -840,18 +837,13 @@ const Approvals = () => {
 
 
   const handleLiquidationReview = async (requestId: string, status: 'verified' | 'returned', remarks?: string) => {
-
-    const token = localStorage.getItem('token');
-
     try {
 
       await api.patch(
 
         `/api/requests/${requestId}/liquidation/review`,
 
-        { status: status === 'verified' ? 'verified' : 'returned', remarks: remarks || '' },
-
-        { headers: { Authorization: `Bearer ${token}` } }
+        { status: status === 'verified' ? 'verified' : 'returned', remarks: remarks || '' }
 
       );
 
@@ -870,6 +862,22 @@ const Approvals = () => {
 
   };
 
+  const handleConfirmCashReturn = async (requestId: string) => {
+    try {
+      await api.patch(
+        `/api/requests/${requestId}/liquidation/confirm-return`,
+        {}
+      );
+
+      toast.success('Cash return confirmed.');
+      await fetchRequests();
+    } catch (err: any) {
+      const errorMsg = typeof err.response?.data?.error === 'string'
+        ? err.response.data.error
+        : (err.response?.data?.error?.message || err.message || 'Failed to confirm cash return');
+      toast.error(errorMsg);
+    }
+  };
 
 
   const handleApprove = async (request: any) => {
@@ -899,18 +907,13 @@ const Approvals = () => {
     }
 
     // Skip digital signature for return - just use reason
-
-    const token = localStorage.getItem('token');
-
     try {
 
       await api.patch(
 
         `/api/requests/${requestId}/return`,
 
-        { reason },
-
-        { headers: { Authorization: `Bearer ${token}` } }
+        { reason }
 
       );
 
@@ -932,12 +935,10 @@ const Approvals = () => {
 
 
   const handleBulkApproveExecutiveDepartment = async (departmentId: string) => {
-    const token = localStorage.getItem('token');
     const stage = user?.role === 'president' ? 'president' : 'vp';
     try {
       const res = await api.post('/api/requests/bulk-approve-executive',
-        { department_id: departmentId, note: `Bulk ${stage === 'president' ? 'approved' : 'processed'} by ${user?.role}`, stage: user?.role === 'admin' ? stage : undefined },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { department_id: departmentId, note: `Bulk ${stage === 'president' ? 'approved' : 'processed'} by ${user?.role}`, stage: user?.role === 'admin' ? stage : undefined }
       );
       toast.success(res.data.message || `Processed ${res.data.approved} budget proposals`);
       setSelectedRequests(new Set());
@@ -950,11 +951,9 @@ const Approvals = () => {
   };
 
   const handleBulkApproveDepartment = async (departmentId: string) => {
-    const token = localStorage.getItem('token');
     try {
       const res = await api.post('/api/requests/bulk-approve-accounting', 
-        { department_id: departmentId, note: 'Bulk approved by accounting' },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { department_id: departmentId, note: 'Bulk approved by accounting' }
       );
       toast.success(res.data.message || `Bulk approved ${res.data.approved} budget proposals`);
       await fetchRequests();
@@ -966,12 +965,9 @@ const Approvals = () => {
   };
 
   const handleCoApprove = async (request: any) => {
-
-    const token = localStorage.getItem('token');
-
     try {
 
-      await api.post(`/api/requests/${request.id}/co-approve`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post(`/api/requests/${request.id}/co-approve`, {});
 
       toast.success('Co-approved! Request can now be released.');
 
@@ -1084,16 +1080,9 @@ const Approvals = () => {
 
 
   const handleOnHold = async (requestId: string, reason: string) => {
-
-    const token = localStorage.getItem('token');
-
     try {
 
-      const res = await api.patch(`/api/requests/${requestId}/hold`, { reason }, {
-
-        headers: { Authorization: `Bearer ${token}` }
-
-      });
+      const res = await api.patch(`/api/requests/${requestId}/hold`, { reason });
 
       const newStatus = res.data.status;
 
@@ -1217,9 +1206,6 @@ const Approvals = () => {
 
 
   const savePriority = async (requestId: string) => {
-
-    const token = localStorage.getItem('token');
-
     const priority = priorityDrafts[requestId] || 'normal';
 
 
@@ -1230,9 +1216,7 @@ const Approvals = () => {
 
         `/api/requests/${requestId}/priority`,
 
-        { priority },
-
-        { headers: { Authorization: `Bearer ${token}` } }
+        { priority }
 
       );
 
@@ -1264,9 +1248,6 @@ const Approvals = () => {
 
 
   const saveAllocations = async (requestId: string, silent = false) => {
-
-    const token = localStorage.getItem('token');
-
     const draft = allocationDrafts[requestId] || [];
 
     setSavingRequestId(requestId);
@@ -1287,9 +1268,7 @@ const Approvals = () => {
 
           }))
 
-        },
-
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
 
       );
 
@@ -1514,6 +1493,12 @@ const Approvals = () => {
                   >
                     Liquidations
                   </button>
+                  <button
+                    onClick={() => { setView('cash_returns'); setSelectedRequests(new Set()); }}
+                    className={`btn-secondary !rounded-full !px-6 ${view === 'cash_returns' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
+                  >
+                    Cash Returns
+                  </button>
                 </>
               )}
             </div>
@@ -1647,7 +1632,6 @@ const Approvals = () => {
                 {(user?.role === 'accounting' || user?.role === 'admin') && view === 'pending' && selectedRequests.size > 0 && (
                   <button
                     onClick={async () => {
-                      const token = localStorage.getItem('token');
                       let successCount = 0;
                       let failCount = 0;
                       const budgetIds = Array.from(selectedRequests).filter(id => {
@@ -1656,7 +1640,7 @@ const Approvals = () => {
                       });
                       await Promise.all(budgetIds.map(async (requestId) => {
                         try {
-                          await api.patch(`/api/requests/${requestId}/approve-accounting`, { note: 'Bulk approved by accounting' }, { headers: { Authorization: `Bearer ${token}` } });
+                          await api.patch(`/api/requests/${requestId}/approve-accounting`, { note: 'Bulk approved by accounting' });
                           successCount++;
                         } catch { failCount++; }
                       }));
@@ -1825,7 +1809,6 @@ const Approvals = () => {
                 {selectedRequests.size > 0 && (
                   <button
                     onClick={async () => {
-                      const token = localStorage.getItem('token');
                       let ok = 0; let fail = 0;
                       const ids = Array.from(selectedRequests).filter(id => budgetProposals.some(r => r.id === id));
                       if (isExecutiveView) {
@@ -1841,8 +1824,7 @@ const Approvals = () => {
                           if (deptId === 'unknown') continue;
                           try {
                             const res = await api.post('/api/requests/bulk-approve-executive',
-                              { department_id: deptId, note: `Bulk ${stage === 'president' ? 'approved' : 'processed'} by ${user?.role}`, stage: user?.role === 'admin' ? stage : undefined },
-                              { headers: { Authorization: `Bearer ${token}` } }
+                              { department_id: deptId, note: `Bulk ${stage === 'president' ? 'approved' : 'processed'} by ${user?.role}`, stage: user?.role === 'admin' ? stage : undefined }
                             );
                             ok += res.data.approved || 0;
                             fail += res.data.failed || 0;
@@ -1854,9 +1836,9 @@ const Approvals = () => {
                         await Promise.all(ids.map(async id => {
                           try {
                             if (isSupervisor) {
-                              await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved' }, { headers: { Authorization: `Bearer ${token}` } });
+                              await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved' });
                             } else {
-                              await api.patch(`/api/requests/${id}/approve-accounting`, { note: 'Bulk approved by accounting' }, { headers: { Authorization: `Bearer ${token}` } });
+                              await api.patch(`/api/requests/${id}/approve-accounting`, { note: 'Bulk approved by accounting' });
                             }
                             ok++;
                           } catch { fail++; }
@@ -1948,11 +1930,10 @@ const Approvals = () => {
                       {isSupervisor && (
                         <button
                           onClick={async () => {
-                            const token = localStorage.getItem('token');
                             let ok = 0; let fail = 0;
                             await Promise.all(groupIds.map(async id => {
                               try {
-                                await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved by supervisor' }, { headers: { Authorization: `Bearer ${token}` } });
+                                await api.patch(`/api/requests/${id}/approve`, { note: 'Bulk approved by supervisor' });
                                 ok++;
                               } catch { fail++; }
                             }));
@@ -2186,19 +2167,26 @@ const Approvals = () => {
             const isSplitExpanded = Boolean(expandedSplits[req.id]);
 
             const budgetSummary = req.budget_summary;
+            const categoryBudgetSummary = req.category_budget_summary;
 
             const requestingDepartmentBudget = toNumber(budgetSummary?.annual_budget);
-
             const requestingDepartmentRemaining = toNumber(budgetSummary?.remaining_budget);
-
             const projectedRemainingAfterApproval = toNumber(budgetSummary?.projected_remaining_after_approval);
 
-            const topBudgetLabel = 'Requesting Dept Total Budget';
-            const topBudgetAmount = requestingDepartmentBudget;
-            const topBudgetDescription = `${req.department_name || 'Department'} total annual budget`;
-            const remainingAmountBeforeApproval = requestingDepartmentRemaining;
-            const projectedAfterApprovalAmount = projectedRemainingAfterApproval;
-            const remainingCardLabel = 'Dept Remaining After Approval';
+            // Use category budget summary for supervisors if available
+            const useCategoryBudget = (user?.role === 'supervisor' || user?.role === 'manager') && categoryBudgetSummary;
+            const categoryRemaining = toNumber(categoryBudgetSummary?.remaining_amount);
+            const categoryProjectedAfterApproval = toNumber(categoryBudgetSummary?.projected_remaining_after_approval);
+            const categoryName = categoryBudgetSummary?.category_name || '';
+
+            const topBudgetLabel = useCategoryBudget ? 'Category Budget' : 'Requesting Dept Total Budget';
+            const topBudgetAmount = useCategoryBudget ? toNumber(categoryBudgetSummary?.budget_amount) : requestingDepartmentBudget;
+            const topBudgetDescription = useCategoryBudget 
+              ? `${categoryName} budget for ${req.department_name || 'Department'}` 
+              : `${req.department_name || 'Department'} total annual budget`;
+            const remainingAmountBeforeApproval = useCategoryBudget ? categoryRemaining : requestingDepartmentRemaining;
+            const projectedAfterApprovalAmount = useCategoryBudget ? categoryProjectedAfterApproval : projectedRemainingAfterApproval;
+            const remainingCardLabel = useCategoryBudget ? 'Category Remaining After Approval' : 'Dept Remaining After Approval';
 
 
             return (
@@ -2495,6 +2483,32 @@ const Approvals = () => {
 
                               </div>
 
+                              {req.latest_liquidation.items?.length > 0 && (
+                                <div className="mt-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+                                  <p className="text-sm font-semibold mb-3">Liquidation Breakdown</p>
+                                  <div className="overflow-hidden rounded-xl border border-[var(--role-border)]/10 bg-[var(--role-accent)]">
+                                    <table className="w-full text-left text-sm">
+                                      <thead className="bg-[var(--role-border)]/5 text-[var(--role-text)]/70">
+                                        <tr>
+                                          <th className="px-4 py-2 font-semibold">Date</th>
+                                          <th className="px-4 py-2 font-semibold">Description</th>
+                                          <th className="px-4 py-2 text-right font-semibold">Amount</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {req.latest_liquidation.items.map((item: any, index: number) => (
+                                          <tr key={index} className="border-b border-[var(--role-border)]/10 last:border-0">
+                                            <td className="px-4 py-2 text-[var(--role-text)]/80">{item.expense_date ? formatDateTime(item.expense_date) : '-'}</td>
+                                            <td className="px-4 py-2 text-[var(--role-text)]/80">{item.description || item.item_name || item.category_id || 'Item'}</td>
+                                            <td className="px-4 py-2 text-right font-semibold">{displayMoney(toNumber(item.amount), requestCurrency)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+
                             </div>
 
                           </div>
@@ -2573,6 +2587,27 @@ const Approvals = () => {
                                   <div className="mt-2">
                                     <span className="text-[var(--role-text)]/60">Remarks:</span>
                                     <p className="mt-1 italic">{req.latest_liquidation.remarks}</p>
+                                  </div>
+                                )}
+
+                                {req.latest_liquidation.cash_return_amount > 0 && (
+                                  <div className="mt-3 rounded-2xl border border-yellow-300 bg-yellow-50/70 p-3 text-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div>
+                                        <p className="font-semibold text-[var(--role-text)]">Cash Return Required</p>
+                                        <p className="text-[var(--role-text)]/70">Amount to return: {displayMoney(toNumber(req.latest_liquidation.cash_return_amount), requestCurrency)}</p>
+                                        <p className="text-[var(--role-text)]/70">Status: {req.latest_liquidation.cash_return_status || 'pending_return'}</p>
+                                      </div>
+                                      {req.latest_liquidation.cash_return_status === 'pending_return' && (
+                                        <button
+                                          type="button"
+                                          className="btn-primary"
+                                          onClick={() => void handleConfirmCashReturn(req.id)}
+                                        >
+                                          Confirm Cash Return
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                               </div>
@@ -2731,7 +2766,10 @@ const Approvals = () => {
                             {/* For supervisors, show category-level remaining instead of department annual budget */}
                             {budgetSummary && (
                               <p className="mt-1 text-xs font-normal opacity-80">
-                                Dept remaining: {displayMoney(requestingDepartmentRemaining, 'PHP')} · After approval: {displayMoney(projectedRemainingAfterApproval, 'PHP')}
+                                {useCategoryBudget 
+                                  ? `${categoryName} remaining: ${displayMoney(remainingAmountBeforeApproval, 'PHP')} · After approval: ${displayMoney(projectedAfterApprovalAmount, 'PHP')}`
+                                  : `Dept remaining: ${displayMoney(requestingDepartmentRemaining, 'PHP')} · After approval: ${displayMoney(projectedRemainingAfterApproval, 'PHP')}`
+                                }
                               </p>
                             )}
                           </div>

@@ -45,6 +45,8 @@ interface ExpenseRequestRow {
   amount: number | string;
   status?: string;
   request_type?: string;
+  released_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface DepartmentBudgetSummary {
@@ -62,7 +64,16 @@ interface DepartmentBudgetSummary {
   projected_committed_total: number;
   remaining_budget: number;
   projected_remaining_budget: number;
+  monthly_spent: number;
 }
+
+export const isDateInCurrentMonth = (value: unknown) => {
+  if (!value) return false;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+};
 
 export const fetchRequestAllocationsByRequestId = async (requestIds: string[]) => {
   if (!requestIds.length) {
@@ -148,21 +159,24 @@ const getRequestBudgetImpacts = (
 };
 
 export const buildDepartmentBudgetSummaryMap = async () => {
-  const [departmentsResult, requestsResult, directExpensesResult] = await Promise.all([
+  const [departmentsResult, requestsResult, directExpensesResult, pettyCashResult] = await Promise.all([
     supabase
       .from('departments')
       .select('id, name, fiscal_year, annual_budget, used_budget, petty_cash_balance, updated_at, created_at'),
-    supabase.from('expense_requests').select('id, department_id, amount, status, request_type'),
-    supabase.from('direct_expenses').select('department_id, amount')
+    supabase.from('expense_requests').select('id, department_id, amount, status, request_type, released_at, updated_at'),
+    supabase.from('direct_expenses').select('department_id, amount, expense_date'),
+    supabase.from('petty_cash_transactions').select('department_id, amount, type, transaction_date')
   ]);
 
   if (departmentsResult.error) throw departmentsResult.error;
   if (requestsResult.error) throw requestsResult.error;
   if (directExpensesResult.error) throw directExpensesResult.error;
+  if (pettyCashResult.error) throw pettyCashResult.error;
 
   const departments = departmentsResult.data || [];
   const requests = (requestsResult.data || []) as ExpenseRequestRow[];
   const directExpenses = directExpensesResult.data || [];
+  const pettyCashTransactions = pettyCashResult.data || [];
   const allocationsByRequestId = await fetchRequestAllocationsByRequestId(requests.map((request) => request.id));
 
   const groupedDepartmentIds = new Map<string, string[]>();
@@ -223,13 +237,31 @@ export const buildDepartmentBudgetSummaryMap = async () => {
     const directExpensesTotal = directExpenses
       .filter((expense: any) => ids.includes(expense.department_id))
       .reduce((sum: number, expense: any) => sum + toNumber(expense.amount), 0);
+    const directExpensesMonthly = directExpenses
+      .filter((expense: any) => ids.includes(expense.department_id) && isDateInCurrentMonth(expense.expense_date))
+      .reduce((sum: number, expense: any) => sum + toNumber(expense.amount), 0);
+    const pettyCashDisbursedTotal = pettyCashTransactions
+      .filter((txn: any) => ids.includes(txn.department_id) && txn.type === 'disbursement')
+      .reduce((sum: number, txn: any) => sum + toNumber(txn.amount), 0);
+    const pettyCashMonthly = pettyCashTransactions
+      .filter((txn: any) => ids.includes(txn.department_id) && txn.type === 'disbursement' && isDateInCurrentMonth(txn.transaction_date))
+      .reduce((sum: number, txn: any) => sum + toNumber(txn.amount), 0);
     const releasedRequestsTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.released || 0), 0);
+    const releasedRequestsMonthly = requests
+      .filter((request) => isActualExpenseCommittedStatus(request.status, request.request_type) && ids.includes(request.department_id) && isDateInCurrentMonth(request.released_at || request.updated_at))
+      .reduce((sum, request) => {
+        const allocations = allocationsByRequestId.get(request.id) || [];
+        return sum + allocations
+          .filter((allocation) => ids.includes(allocation.department_id))
+          .reduce((allocationSum, allocation) => allocationSum + toNumber(allocation.amount), 0);
+      }, 0);
     const pendingSupervisorTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingSupervisor || 0), 0);
     const pendingAccountingTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingAccounting || 0), 0);
     const pendingVpTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingVp || 0), 0);
     const pendingPresidentTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingPresident || 0), 0);
     const onHoldTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.onHold || 0), 0);
     const usedBudget = releasedRequestsTotal + directExpensesTotal;
+    const monthlySpent = releasedRequestsMonthly + directExpensesMonthly + pettyCashMonthly;
     const projectedCommittedTotal = usedBudget + pendingSupervisorTotal + pendingAccountingTotal + pendingVpTotal + pendingPresidentTotal;
     const currentDepartment =
       groupedDepartments.sort((left, right) => {
@@ -250,6 +282,7 @@ export const buildDepartmentBudgetSummaryMap = async () => {
       pending_vp_total: pendingVpTotal,
       pending_president_total: pendingPresidentTotal,
       on_hold_total: onHoldTotal,
+      monthly_spent: monthlySpent,
       projected_committed_total: projectedCommittedTotal,
       remaining_budget: annualBudget - usedBudget,
       projected_remaining_budget: annualBudget - projectedCommittedTotal
@@ -358,6 +391,33 @@ export const enrichRequests = async (
 
     const totalProjectedAfterApproval = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
     const categoryAllocations = requestCategoryAllocationsByRequestId.get(row.id) || [];
+    
+    // Calculate category-level budget summary
+    let categoryBudgetSummary = null;
+    if (categoryAllocations.length > 0) {
+      // Use the first category allocation for summary (assuming single category per request for now)
+      const firstAllocation = categoryAllocations[0];
+      const category = firstAllocation.category_id
+        ? categoriesById.get(String(firstAllocation.category_id))
+        : categoriesByNameKey.get(getCategoryMapKey(firstAllocation.department_id, firstAllocation.fiscal_year, firstAllocation.category_name || ''));
+      
+      if (category) {
+        const categoryRemaining = toNumber(category.remaining_amount);
+        const categoryAllocatedTotal = categoryAllocations.reduce((sum, alloc) => sum + toNumber(alloc.amount), 0);
+        categoryBudgetSummary = {
+          category_id: category.id,
+          category_name: category.category_name,
+          department_id: category.department_id,
+          fiscal_year: category.fiscal_year,
+          budget_amount: toNumber(category.budget_amount || 0),
+          used_amount: toNumber(category.used_amount || 0),
+          remaining_amount: categoryRemaining,
+          request_amount: categoryAllocatedTotal,
+          projected_remaining_after_approval: categoryRemaining - categoryAllocatedTotal
+        };
+      }
+    }
+    
     const withinBudget = categoryAllocations.length > 0
       ? categoryAllocations.every((allocation) => {
           const category = allocation.category_id
@@ -375,6 +435,7 @@ export const enrichRequests = async (
       requester_name: row.users?.name || 'Unknown requester',
       department_name: requestFallbackSummary?.department_name || row.departments?.name || 'Unknown department',
       allocations,
+      category_budget_summary: categoryBudgetSummary,
       budget_summary: requestFallbackSummary
         ? {
             ...requestFallbackSummary,
