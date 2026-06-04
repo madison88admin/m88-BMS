@@ -2051,8 +2051,8 @@ const Approvals = () => {
                                   <button
                                     onClick={() => void executeApprove(req)}
                                     className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 transition whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                                    disabled={req.status === 'on_hold' || req.within_budget === false}
-                                    title={req.status === 'on_hold' ? 'Cannot approve - request is On Hold' : req.within_budget === false ? 'Cannot approve - request is outside approved budget' : 'Approve'}
+                                    disabled={req.status === 'on_hold' || (req.within_budget === false && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision')}
+                                    title={req.status === 'on_hold' ? 'Cannot approve - request is On Hold' : (req.within_budget === false && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision') ? 'Cannot approve - request is outside approved budget' : 'Approve'}
                                   >
                                     Approve
                                   </button>
