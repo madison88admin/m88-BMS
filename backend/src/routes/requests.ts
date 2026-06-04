@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, authorize, authorizeOrDelegate, hasFullAccountingAccess } from '../middleware/auth';
+import { authenticate, authorize, hasFullAccountingAccess } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
 import { sendEmail } from '../utils/email';
 import {
@@ -2139,7 +2139,7 @@ router.patch('/:id/priority', authenticate, authorize('supervisor', 'admin'), as
 });
 
 // PATCH /api/requests/:id/approve - Supervisor/admin only; VP/President uses /co-approve
-router.patch('/:id/approve', authenticate, authorizeOrDelegate('supervisor', 'admin'), async (req: any, res) => {
+router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
@@ -2220,7 +2220,7 @@ router.patch('/:id/approve', authenticate, authorizeOrDelegate('supervisor', 'ad
 });
 
 // POST /api/requests/:id/co-approve - VP/President dual authorization
-router.post('/:id/co-approve', authenticate, authorizeOrDelegate('vp', 'president', 'admin'), async (req: any, res) => {
+router.post('/:id/co-approve', authenticate, authorize('vp', 'president', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -2377,7 +2377,7 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
 });
 
 // PATCH /api/requests/:id/approve-vp - VP viewing / approval routing
-router.patch('/:id/approve-vp', authenticate, authorizeOrDelegate('vp', 'admin'), async (req: any, res) => {
+router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -2475,7 +2475,7 @@ router.patch('/:id/approve-vp', authenticate, authorizeOrDelegate('vp', 'admin')
 });
 
 // PATCH /api/requests/:id/mark-viewed - VP explicit viewing for budget proposals/revisions
-router.patch('/:id/mark-viewed', authenticate, authorizeOrDelegate('vp', 'admin'), async (req: any, res) => {
+router.patch('/:id/mark-viewed', authenticate, authorize('vp', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -2528,7 +2528,7 @@ router.patch('/:id/mark-viewed', authenticate, authorizeOrDelegate('vp', 'admin'
 });
 
 // PATCH /api/requests/:id/approve-president - President final approval
-router.patch('/:id/approve-president', authenticate, authorizeOrDelegate('president', 'admin'), async (req: any, res) => {
+router.patch('/:id/approve-president', authenticate, authorize('president', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
