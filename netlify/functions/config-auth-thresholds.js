@@ -1,5 +1,5 @@
 const { authenticate } = require('./utils/auth');
-const { PRESIDENT_THRESHOLD } = require('./utils/approval');
+const { PRESIDENT_THRESHOLD, BUDGET_PRESIDENT_THRESHOLD } = require('./utils/approval');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,10 +24,11 @@ exports.handler = async (event) => {
       headers: corsHeaders,
       body: JSON.stringify({
         president_threshold: PRESIDENT_THRESHOLD,
+        budget_president_threshold: BUDGET_PRESIDENT_THRESHOLD,
         thresholds: {
-          PHP: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD },
-          USD: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD },
-          IDR: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD },
+          PHP: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD, budget_vp: BUDGET_PRESIDENT_THRESHOLD, budget_president: BUDGET_PRESIDENT_THRESHOLD },
+          USD: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD, budget_vp: BUDGET_PRESIDENT_THRESHOLD, budget_president: BUDGET_PRESIDENT_THRESHOLD },
+          IDR: { vp: PRESIDENT_THRESHOLD, president: PRESIDENT_THRESHOLD, budget_vp: BUDGET_PRESIDENT_THRESHOLD, budget_president: BUDGET_PRESIDENT_THRESHOLD },
         },
         exchange_rates: {
           PHP: 1,
