@@ -15,7 +15,12 @@ const adjustBudgetForDocumentUpload = async (upload: any, deduct: boolean) => {
     return;
   }
 
-  const { data: categoryBudget, error: categoryError } = await supabase
+  // Try to match by category_code first, then by category_name
+  let categoryBudget = null;
+  let categoryError = null;
+
+  // First try: match by category_code
+  const { data: categoryByCode, error: codeError } = await supabase
     .from('budget_categories')
     .select('id, used_amount, remaining_amount')
     .eq('department_id', upload.department_id)
@@ -23,10 +28,49 @@ const adjustBudgetForDocumentUpload = async (upload: any, deduct: boolean) => {
     .eq('category_code', upload.category_code)
     .maybeSingle();
 
-  if (categoryError) {
-    throw categoryError;
+  if (!codeError && categoryByCode) {
+    categoryBudget = categoryByCode;
+  } else {
+    // Second try: match by category_name (for sub-categories)
+    if (upload.category_name) {
+      const { data: categoryByName, error: nameError } = await supabase
+        .from('budget_categories')
+        .select('id, used_amount, remaining_amount')
+        .eq('department_id', upload.department_id)
+        .eq('fiscal_year', upload.fiscal_year)
+        .eq('category_name', upload.category_name)
+        .maybeSingle();
+      
+      if (!nameError && categoryByName) {
+        categoryBudget = categoryByName;
+      }
+    }
   }
+
   if (!categoryBudget) {
+    // Create new budget category if it doesn't exist
+    if (!upload.category_name) {
+      return;
+    }
+
+    const { data: insertedBudget, error: insertBudgetError } = await supabase
+      .from('budget_categories')
+      .insert({
+        department_id: upload.department_id,
+        fiscal_year: upload.fiscal_year,
+        category_code: upload.category_code,
+        category_name: upload.category_name,
+        budget_amount: amount,
+        used_amount: deduct ? amount : 0,
+        remaining_amount: deduct ? 0 : amount,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('*')
+      .single();
+    if (insertBudgetError) {
+      throw insertBudgetError;
+    }
     return;
   }
 
@@ -366,9 +410,40 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
 
     if (nextStatus === 'acknowledged' && current.status !== 'acknowledged') {
       await adjustBudgetForDocumentUpload(current, true);
+      await logAuditEvent({
+        user,
+        actionType: 'budget_updated',
+        recordType: 'document_upload',
+        recordId: uploadId,
+        recordLabel: `${current.category_code} ${current.category_name}`,
+        oldValue: { status: current.status },
+        newValue: {
+          status: nextStatus,
+          amount: current.amount,
+          fiscal_year: current.fiscal_year,
+          department_id: current.department_id,
+          category_code: current.category_code,
+        },
+      });
     }
     if (nextStatus === 'returned' && current.status === 'acknowledged') {
       await adjustBudgetForDocumentUpload(current, false);
+      await logAuditEvent({
+        user,
+        actionType: 'budget_updated',
+        recordType: 'document_upload',
+        recordId: uploadId,
+        recordLabel: `${current.category_code} ${current.category_name}`,
+        oldValue: { status: current.status },
+        newValue: {
+          status: nextStatus,
+          amount: current.amount,
+          fiscal_year: current.fiscal_year,
+          department_id: current.department_id,
+          category_code: current.category_code,
+        },
+        remarks: 'Reverted budget adjustment after return',
+      });
     }
 
     const { data: updated, error: updateError } = await supabase
