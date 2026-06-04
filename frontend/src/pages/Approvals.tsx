@@ -2781,7 +2781,7 @@ const Approvals = () => {
 
 
 
-                    {(user.role === 'accounting' || user.role === 'admin') && (
+                    {(user.role === 'accounting' || user.role === 'admin') && effectiveView !== 'cash_returns' && (
 
                       <div className="mb-5 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
 
