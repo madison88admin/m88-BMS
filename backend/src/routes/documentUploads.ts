@@ -394,7 +394,7 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
       return res.status(400).json({ error: 'Invalid upload id' });
     }
 
-    const { status, remarks } = req.body || {};
+    const { status, remarks, target_department_id } = req.body || {};
     const nextStatus = String(status || '').trim();
     if (!['acknowledged', 'returned'].includes(nextStatus)) {
       return res.status(400).json({ error: 'Invalid review status' });
@@ -408,8 +408,11 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
     const current = await loadUploadWithAttachments(uploadId);
     if (!current) return res.status(404).json({ error: 'Upload not found' });
 
+    // Use target_department_id if provided (Accounting override), otherwise use upload's department_id
+    const effectiveDepartmentId = target_department_id || current.department_id;
+
     if (nextStatus === 'acknowledged' && current.status !== 'acknowledged') {
-      await adjustBudgetForDocumentUpload(current, true);
+      await adjustBudgetForDocumentUpload({ ...current, department_id: effectiveDepartmentId }, true);
       await logAuditEvent({
         user,
         actionType: 'budget_updated',
@@ -421,13 +424,13 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
           status: nextStatus,
           amount: current.amount,
           fiscal_year: current.fiscal_year,
-          department_id: current.department_id,
+          department_id: effectiveDepartmentId,
           category_code: current.category_code,
         },
       });
     }
     if (nextStatus === 'returned' && current.status === 'acknowledged') {
-      await adjustBudgetForDocumentUpload(current, false);
+      await adjustBudgetForDocumentUpload({ ...current, department_id: effectiveDepartmentId }, false);
       await logAuditEvent({
         user,
         actionType: 'budget_updated',
@@ -439,7 +442,7 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
           status: nextStatus,
           amount: current.amount,
           fiscal_year: current.fiscal_year,
-          department_id: current.department_id,
+          department_id: effectiveDepartmentId,
           category_code: current.category_code,
         },
         remarks: 'Reverted budget adjustment after return',

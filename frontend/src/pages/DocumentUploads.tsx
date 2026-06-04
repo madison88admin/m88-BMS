@@ -71,9 +71,10 @@ const DocumentUploads = () => {
   const [selectedUpload, setSelectedUpload] = useState<DocumentUpload | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ status: 'acknowledged' | 'returned'; uploadId: string } | null>(null);
+  const [targetDepartmentId, setTargetDepartmentId] = useState<string>('');
 
   const fiscalYear = 2026;
-  const isReviewRole = user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'super_admin';
+  const isReviewRole = user?.role === 'accounting';
 
   const uniqueMainCategories = useMemo(() => {
     const categories = new Set<string>();
@@ -104,18 +105,10 @@ const DocumentUploads = () => {
   };
 
   const uploadSupportingFile = async (file: File) => {
-    const token = localStorage.getItem('token');
-    if (!token) throw new Error('Not authenticated');
-
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await api.post('/api/upload', formData, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
+    const response = await api.post('/api/upload', formData);
     return response.data;
   };
 
@@ -134,19 +127,16 @@ const DocumentUploads = () => {
   };
 
   const fetchHistory = async (showError = true) => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
     setHistoryLoading(true);
     try {
       const params = new URLSearchParams();
       params.set('fiscal_year', String(fiscalYear));
       if (statusFilter !== 'all') params.set('status', statusFilter);
       const res = await api.get(`/api/document-uploads?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+        });
       setUploads(Array.isArray(res.data) ? res.data : []);
     } catch (err: any) {
-      if (showError) toast.error(getErrorMessage(err, 'Failed to load document uploads'));
+      if (showError) toast.error(getErrorMessage(err, 'Failed to load budget override data'));
     } finally {
       setHistoryLoading(false);
     }
@@ -172,7 +162,6 @@ const DocumentUploads = () => {
     }
 
     setSubmitting(true);
-    const token = localStorage.getItem('token');
     try {
       const uploadedAttachments = await uploadFiles(attachments);
       await api.post(
@@ -183,8 +172,7 @@ const DocumentUploads = () => {
           amount: Number.parseFloat(amount),
           fiscal_year: fiscalYear,
           attachments: uploadedAttachments,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       toast.success('Budget updated successfully');
@@ -202,14 +190,15 @@ const DocumentUploads = () => {
     }
   };
 
-  const submitReview = async (payload: { uploadId: string; status: 'acknowledged' | 'returned'; remarks?: string }) => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+  const submitReview = async (payload: { uploadId: string; status: 'acknowledged' | 'returned'; remarks?: string; target_department_id?: string }) => {
     try {
       const res = await api.patch(
         `/api/document-uploads/${payload.uploadId}/review`,
-        { status: payload.status, remarks: payload.remarks || '' },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { 
+          status: payload.status, 
+          remarks: payload.remarks || '',
+          target_department_id: payload.target_department_id
+        }
       );
       const updated = res.data as DocumentUpload;
       setUploads((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
@@ -221,8 +210,7 @@ const DocumentUploads = () => {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
+    if (!localStorage.getItem('token')) {
       navigate('/login');
       return;
     }
@@ -230,15 +218,15 @@ const DocumentUploads = () => {
     const bootstrap = async () => {
       try {
         const [meRes, departmentsRes, officialRes] = await Promise.all([
-          api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/api/requests/official-list?manner_of_submission=for_upload', { headers: { Authorization: `Bearer ${token}` } }),
+          api.get('/api/auth/me'),
+          api.get('/api/departments'),
+          api.get('/api/requests/official-list?manner_of_submission=for_upload'),
         ]);
         setUser(meRes.data);
         setDepartments(Array.isArray(departmentsRes.data) ? departmentsRes.data : []);
         setOfficialList(Array.isArray(officialRes.data) ? officialRes.data : []);
       } catch (err: any) {
-        toast.error(getErrorMessage(err, 'Failed to load document upload form'));
+        toast.error(getErrorMessage(err, 'Failed to load budget override form'));
       } finally {
         setLoading(false);
       }
@@ -257,12 +245,12 @@ const DocumentUploads = () => {
   }
 
   // Restrict access to accounting personnel only
-  if (user?.role !== 'accounting' && user?.role !== 'admin' && user?.role !== 'super_admin') {
+  if (user?.role !== 'accounting') {
     return (
       <div className="text-[var(--role-text)] page-transition">
         <div className="page-header">
           <h1 className="page-title">Access Denied</h1>
-          <p className="page-subtitle">Document uploads are only available to accounting personnel</p>
+          <p className="page-subtitle">Budget override is only available to accounting personnel</p>
         </div>
         <div className="rounded-xl border border-red-300 bg-red-50 p-6 max-w-2xl">
           <p className="text-red-700 mb-4">You do not have permission to access this page.</p>
@@ -280,7 +268,7 @@ const DocumentUploads = () => {
   return (
     <div className="text-[var(--role-text)] page-transition">
       <div className="page-header">
-        <h1 className="page-title">Budget Management</h1>
+        <h1 className="page-title">Budget Override</h1>
         <p className="page-subtitle">Set and override category budgets</p>
       </div>
 
@@ -485,7 +473,7 @@ const DocumentUploads = () => {
             </div>
           ) : uploads.length === 0 ? (
             <div className="panel text-center py-14">
-              <p className="text-sm text-[var(--role-text)]/70">No document uploads found for fiscal year {fiscalYear}.</p>
+              <p className="text-sm text-[var(--role-text)]/70">No budget override records found for fiscal year {fiscalYear}.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -620,7 +608,10 @@ const DocumentUploads = () => {
                   <button
                     type="button"
                     disabled={selectedUpload.status === 'acknowledged'}
-                    onClick={() => setConfirmAction({ status: 'acknowledged', uploadId: selectedUpload.id })}
+                    onClick={() => {
+                      setTargetDepartmentId('');
+                      setConfirmAction({ status: 'acknowledged', uploadId: selectedUpload.id });
+                    }}
                     className="btn-success flex-1"
                   >
                     Acknowledge
@@ -654,11 +645,38 @@ const DocumentUploads = () => {
           isOpen={true}
           onClose={() => setConfirmAction(null)}
           onConfirm={async () => {
-            await submitReview({ uploadId: confirmAction.uploadId, status: 'acknowledged' });
+            await submitReview({ 
+              uploadId: confirmAction.uploadId, 
+              status: 'acknowledged',
+              target_department_id: targetDepartmentId || undefined
+            });
             setConfirmAction(null);
+            setTargetDepartmentId('');
           }}
           title="Acknowledge Upload"
-          message="Mark this upload as acknowledged?"
+          message={
+            <div className="space-y-4">
+              <p>Mark this upload as acknowledged?</p>
+              <div>
+                <label className="block text-sm font-medium mb-2">Override Department (optional)</label>
+                <select
+                  value={targetDepartmentId}
+                  onChange={(e) => setTargetDepartmentId(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]"
+                >
+                  <option value="">Use original department</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-[var(--role-text)]/60 mt-1">
+                  Leave empty to deduct from the original department's budget
+                </p>
+              </div>
+            </div>
+          }
           confirmLabel="Acknowledge"
           type="confirm"
         />
