@@ -76,8 +76,8 @@ const AuditTrail = () => {
       try {
         if (requestId) {
           const [requestRes, logsRes] = await Promise.all([
-            api.get(`/api/requests/${requestId}`, { headers: { Authorization: `Bearer ${token}` } }),
-            api.get(`/api/requests/${requestId}/timeline`, { headers: { Authorization: `Bearer ${token}` } })
+            api.get(`/api/requests/${requestId}`),
+            api.get(`/api/requests/${requestId}/timeline`)
           ]);
           
           const request = requestRes.data;
@@ -92,9 +92,7 @@ const AuditTrail = () => {
           
           setLogs(logsRes.data || []);
         } else {
-          const res = await api.get('/api/audit-logs', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          const res = await api.get('/api/audit-logs');
           setLogs(
             (res.data || []).map((log: any) => ({
               ...log,
@@ -212,7 +210,6 @@ const AuditTrail = () => {
     const token = localStorage.getItem('token');
     try {
       const res = await api.get(`/api/audit-logs/export.${format}`, {
-        headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(res.data);

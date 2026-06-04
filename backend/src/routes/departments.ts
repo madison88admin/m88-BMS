@@ -1,7 +1,7 @@
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
-import { buildDepartmentBudgetSummaryMap, fetchRequestAllocationsByRequestId, isBudgetCommittedStatus, normalizeAllocations } from '../utils/budget';
+import { buildDepartmentBudgetSummaryMap, fetchRequestAllocationsByRequestId, isBudgetCommittedStatus, normalizeAllocations, isDateInCurrentMonth } from '../utils/budget';
 import { ensureDepartmentsForFiscalYear, toCanonicalDepartmentName, getAccessibleDepartmentIdsForUser, getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { loadBudgetCategoriesForBreakdown } from '../utils/restoreBudgetCategories';
 import { filterBudgetCategoriesForUser } from '../utils/budgetCategoryVisibility';
@@ -41,6 +41,7 @@ router.get('/', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (req: any, 
         return {
           ...department,
           used_budget: summary?.used_budget ?? toNumber(department.used_budget),
+          monthly_spent: summary?.monthly_spent ?? 0,
           pending_supervisor_total: summary?.pending_supervisor_total ?? 0,
           pending_accounting_total: summary?.pending_accounting_total ?? 0,
           projected_committed_total: summary?.projected_committed_total ?? toNumber(department.used_budget),
@@ -230,7 +231,21 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
       .reduce((sum, transaction) => sum + toNumber(transaction.amount), 0),
     petty_cash_replenished_total: pettyCashTransactions
       .filter(transaction => transaction.type === 'replenishment')
-      .reduce((sum, transaction) => sum + toNumber(transaction.amount), 0)
+      .reduce((sum, transaction) => sum + toNumber(transaction.amount), 0),
+    monthly_spent: requests
+      .filter(request => isActualExpenseCommittedStatus(request) && isDateInCurrentMonth(request.updated_at))
+      .reduce((sum, request) => {
+        const allocations = normalizeAllocations(request, allocationsByRequestId.get(request.id) || []);
+        return sum + allocations
+          .filter((allocation) => relatedDepartmentIds.includes(allocation.department_id))
+          .reduce((allocationSum, allocation) => allocationSum + toNumber(allocation.amount), 0);
+      }, 0) +
+      directExpenses
+        .filter(expense => isDateInCurrentMonth(expense.expense_date))
+        .reduce((sum, expense) => sum + toNumber(expense.amount), 0) +
+      pettyCashTransactions
+        .filter(transaction => transaction.type === 'disbursement' && isDateInCurrentMonth(transaction.transaction_date))
+        .reduce((sum, transaction) => sum + toNumber(transaction.amount), 0)
   };
 
   let categories: any[] = [];

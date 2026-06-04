@@ -170,8 +170,13 @@ const loadUploadBudgetInfo = async (uploads: any[]) => {
 router.post('/', authenticate, async (req: any, res) => {
   try {
     const user = req.user;
-    const departmentId = String(user?.department_id || '').trim();
-    if (!user?.id || !departmentId) {
+    const role = normalizeRole(user?.role);
+    const isFinanceRole = role === 'accounting' || role === 'admin' || role === 'super_admin';
+
+    const bodyDepartmentId = String(req.body?.department_id || '').trim();
+    const effectiveDepartmentId = isFinanceRole && bodyDepartmentId ? bodyDepartmentId : String(user?.department_id || '').trim();
+
+    if (!user?.id || !effectiveDepartmentId) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -181,6 +186,7 @@ router.post('/', authenticate, async (req: any, res) => {
       amount,
       fiscal_year,
       attachments,
+      adjustment_type,
     } = req.body || {};
 
     const normalizedCode = String(category_code || '').trim();
@@ -189,12 +195,12 @@ router.post('/', authenticate, async (req: any, res) => {
     }
 
     const normalizedDescription = String(description || '').trim();
-    if (!normalizedDescription) {
+    if (!normalizedDescription && !isFinanceRole) {
       return res.status(400).json({ error: 'Description / remarks is required' });
     }
 
     const uploadAttachments = Array.isArray(attachments) ? attachments : [];
-    if (!uploadAttachments.length) {
+    if (!uploadAttachments.length && !isFinanceRole) {
       return res.status(400).json({ error: 'At least one attachment is required' });
     }
 
@@ -209,7 +215,7 @@ router.post('/', authenticate, async (req: any, res) => {
       return res.status(400).json({ error: 'Selected sub-category is not eligible for document upload' });
     }
 
-    const userDepartment = await loadUserDepartment(departmentId);
+    const userDepartment = await loadUserDepartment(effectiveDepartmentId);
     if (!userDepartment?.name) {
       return res.status(400).json({ error: 'Unable to resolve user department' });
     }
@@ -218,30 +224,33 @@ router.post('/', authenticate, async (req: any, res) => {
     const canRE = Boolean(categoryRow.reimbursement_allowed);
     const requiresAmount = canCA || canRE;
     const amountValue = toNumber(amount);
-    if (requiresAmount && amountValue <= 0) {
+    if ((requiresAmount || isFinanceRole) && amountValue <= 0) {
       return res.status(400).json({ error: 'Amount is required for this category' });
     }
 
     const resolvedExpenseDepartment = resolveExpenseCategoryDepartmentName(String(categoryRow.department || ''));
-    const role = normalizeRole(user.role);
     const isFinanceOrAdminDept =
       userDepartment.name === 'Finance Department'
       || userDepartment.name === 'Admin Department';
 
-    if (!canCA && !canRE) {
-      if (!isFinanceOrAdminDept) {
-        return res.status(403).json({ error: 'Only Finance and Admin departments can upload documents for this category' });
-      }
-      if (resolvedExpenseDepartment && resolvedExpenseDepartment !== userDepartment.name) {
-        return res.status(403).json({ error: 'Category is not available for your department' });
-      }
-    } else if (!(canCA && canRE)) {
-      if (resolvedExpenseDepartment && resolvedExpenseDepartment !== userDepartment.name) {
-        return res.status(403).json({ error: 'Category is not available for your department' });
+    if (!isFinanceRole) {
+      if (!canCA && !canRE) {
+        if (!isFinanceOrAdminDept) {
+          return res.status(403).json({ error: 'Only Finance and Admin departments can upload documents for this category' });
+        }
+        if (resolvedExpenseDepartment && resolvedExpenseDepartment !== userDepartment.name) {
+          return res.status(403).json({ error: 'Category is not available for your department' });
+        }
+      } else if (!(canCA && canRE)) {
+        if (resolvedExpenseDepartment && resolvedExpenseDepartment !== userDepartment.name) {
+          return res.status(403).json({ error: 'Category is not available for your department' });
+        }
       }
     }
 
     const targetFiscalYear = fiscal_year ? Number.parseInt(String(fiscal_year), 10) : 2026;
+    const status = isFinanceRole ? 'acknowledged' : 'submitted_to_accounting';
+    const nowIso = new Date().toISOString();
 
     const { data: inserted, error: insertError } = await supabase
       .from('document_uploads')
@@ -250,44 +259,51 @@ router.post('/', authenticate, async (req: any, res) => {
         category_name: categoryRow.description,
         main_category_code: categoryRow.main_category_code,
         main_category_name: categoryRow.main_category_name,
-        department_id: departmentId,
+        department_id: effectiveDepartmentId,
         uploaded_by: user.id,
         uploaded_by_role: role,
-        description: normalizedDescription,
-        amount: requiresAmount ? amountValue : amountValue || null,
+        description: normalizedDescription || 'Budget override',
+        amount: (requiresAmount || isFinanceRole) ? amountValue : amountValue || null,
         fiscal_year: Number.isInteger(targetFiscalYear) && targetFiscalYear > 0 ? targetFiscalYear : null,
-        status: 'submitted_to_accounting',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        adjustment_type: adjustment_type ? String(adjustment_type).trim() : null,
+        status,
+        reviewed_by: isFinanceRole ? user.id : null,
+        reviewed_at: isFinanceRole ? nowIso : null,
+        created_at: nowIso,
+        updated_at: nowIso,
       })
       .select('*')
       .single();
     if (insertError) throw insertError;
 
-    const attachmentPayload = uploadAttachments.map((file: any) => ({
-      document_upload_id: inserted.id,
-      file_name: String(file.file_name || '').trim(),
-      file_url: String(file.file_url || '').trim(),
-      file_type: assertAllowedFileType(String(file.file_type || file.attachment_type || '')),
-      file_size: file.file_size !== undefined && file.file_size !== null ? Number(file.file_size) : null,
-      created_at: new Date().toISOString(),
-    }));
+    if (uploadAttachments.length) {
+      const attachmentPayload = uploadAttachments.map((file: any) => ({
+        document_upload_id: inserted.id,
+        file_name: String(file.file_name || '').trim(),
+        file_url: String(file.file_url || '').trim(),
+        file_type: assertAllowedFileType(String(file.file_type || file.attachment_type || '')),
+        file_size: file.file_size !== undefined && file.file_size !== null ? Number(file.file_size) : null,
+        created_at: new Date().toISOString(),
+      }));
 
-    if (attachmentPayload.some((entry: any) => !entry.file_name || !entry.file_url)) {
-      return res.status(400).json({ error: 'Invalid attachment payload' });
+      if (attachmentPayload.some((entry: any) => !entry.file_name || !entry.file_url)) {
+        return res.status(400).json({ error: 'Invalid attachment payload' });
+      }
+
+      const { error: attachmentInsertError } = await supabase
+        .from('document_upload_attachments')
+        .insert(attachmentPayload);
+      if (attachmentInsertError) throw attachmentInsertError;
     }
 
-    const { error: attachmentInsertError } = await supabase
-      .from('document_upload_attachments')
-      .insert(attachmentPayload);
-    if (attachmentInsertError) throw attachmentInsertError;
-
-    await notifyAccounting(
-      `New document upload submitted: ${inserted.category_code} ${inserted.category_name} (${userDepartment.name}).`
-    );
+    if (!isFinanceRole) {
+      await notifyAccounting(
+        `New document upload submitted: ${inserted.category_code} ${inserted.category_name} (${userDepartment.name}).`
+      );
+    }
     await logAuditEvent({
       user,
-      actionType: 'document_uploaded',
+      actionType: isFinanceRole ? 'budget_override_logged' : 'document_uploaded',
       recordType: 'document_upload',
       recordId: inserted.id,
       recordLabel: `${inserted.category_code} ${inserted.category_name}`,
@@ -296,6 +312,8 @@ router.post('/', authenticate, async (req: any, res) => {
         category_code: inserted.category_code,
         department_id: inserted.department_id,
         fiscal_year: inserted.fiscal_year,
+        amount: inserted.amount,
+        adjustment_type: inserted.adjustment_type || null,
       },
     });
 

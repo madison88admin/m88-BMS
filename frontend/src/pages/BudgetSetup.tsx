@@ -42,9 +42,7 @@ const BudgetSetup = () => {
 
     const loadDepartments = async () => {
       try {
-        const res = await api.get('/api/departments', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get('/api/departments');
         setDepartments(res.data || []);
         if (res.data?.length > 0) {
           setSelectedDept(res.data[0].id);
@@ -66,9 +64,7 @@ const BudgetSetup = () => {
     const loadExistingCategories = async () => {
       const token = localStorage.getItem('token');
       try {
-        const res = await api.get(`/api/budget/categories?department_id=${selectedDept}&fiscal_year=${fiscalYear}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get(`/api/budget/categories?department_id=${selectedDept}&fiscal_year=${fiscalYear}`);
         if (res.data?.length > 0) {
           // Use existing categories
           setCategories(res.data.map((cat: any) => ({
@@ -183,8 +179,6 @@ const BudgetSetup = () => {
           return api.put(`/api/budget/categories/${cat.id}`, {
             budget_amount: cat.budget_amount,
             category_name: cat.category_name
-          }, {
-            headers: { Authorization: `Bearer ${token}` }
           });
         } else {
           // Create new
@@ -194,17 +188,13 @@ const BudgetSetup = () => {
             category_code: cat.category_code,
             category_name: cat.category_name,
             budget_amount: cat.budget_amount
-          }, {
-            headers: { Authorization: `Bearer ${token}` }
           });
         }
       });
 
       // Handle deletions
       const deletePromises = deletedCategoryIds.map(id =>
-        api.delete(`/api/budget/categories/${id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        api.delete(`/api/budget/categories/${id}`)
       );
 
       await Promise.all([...savePromises, ...deletePromises]);
@@ -212,9 +202,7 @@ const BudgetSetup = () => {
       toast.success('Budget setup saved successfully!');
 
       // Reload categories
-      const res = await api.get(`/api/budget/categories?department_id=${selectedDept}&fiscal_year=${fiscalYear}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get(`/api/budget/categories?department_id=${selectedDept}&fiscal_year=${fiscalYear}`);
       setCategories(res.data.map((cat: any) => ({
         id: cat.id,
         category_code: cat.category_code,

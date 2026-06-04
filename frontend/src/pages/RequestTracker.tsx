@@ -225,9 +225,8 @@ const RequestTracker = () => {
   };
 
   const fetchRequests = async (showError = true, selectedId?: string) => {
-    const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/requests/my', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/requests/my');
       setRequests(res.data);
       
       const targetId = selectedId || selectedRequest?.id;
@@ -245,10 +244,8 @@ const RequestTracker = () => {
   };
 
   const fetchCashAdvances = async () => {
-    const token = localStorage.getItem('token');
     try {
       const res = await api.get('/api/cash-advances', { 
-        headers: { Authorization: `Bearer ${token}` },
         params: { status_in: 'outstanding,partially_liquidated' }
       });
       setCashAdvances(res.data || []);
@@ -294,7 +291,6 @@ const RequestTracker = () => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const token = localStorage.getItem('token');
     const newAttachments = [...liquidationDraft.attachments];
 
     for (const file of Array.from(files)) {
@@ -303,11 +299,7 @@ const RequestTracker = () => {
 
       try {
         const loadingToast = toast.loading(`Uploading ${file.name}...`);
-        const res = await api.post('/api/upload', formData, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        const res = await api.post('/api/upload', formData);
         toast.dismiss(loadingToast);
         newAttachments.push({
           file_name: res.data.file_name,
@@ -337,7 +329,6 @@ const RequestTracker = () => {
     if (!liquidationDraft.amount_spent || Number(liquidationDraft.amount_spent) <= 0) {
       return toast.error('Please enter a valid amount spent');
     }
-    const token = localStorage.getItem('token');
     const loadingToast = toast.loading('Submitting liquidation...');
     try {
       await api.patch(
@@ -348,7 +339,7 @@ const RequestTracker = () => {
           remarks: liquidationDraft.remarks,
           attachments: liquidationDraft.attachments
         },
-        { headers: { Authorization: `Bearer ${token}` }, suppressErrorToast: true }
+        { suppressErrorToast: true }
       );
       toast.dismiss(loadingToast);
       toast.success('Liquidation submitted!');
@@ -477,11 +468,8 @@ const RequestTracker = () => {
   // Fetch audit logs for selected request
   const fetchAuditLogs = async (requestId: string) => {
     setAuditLoading(true);
-    const token = localStorage.getItem('token');
     try {
-      const res = await api.get(`/api/requests/${requestId}/audit-logs`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get(`/api/requests/${requestId}/audit-logs`);
       setAuditLogs(res.data || []);
     } catch (err: any) {
       toast.error('Failed to load audit trail');
@@ -867,6 +855,32 @@ const RequestTracker = () => {
                 {selectedRequest.latest_liquidation.remarks && (
                   <p className="mt-1 text-sm text-[var(--role-text)]/70 italic">"{selectedRequest.latest_liquidation.remarks}"</p>
                 )}
+
+                {selectedRequest.latest_liquidation.items?.length > 0 && (
+                  <div className="mt-4 rounded-2xl border border-[var(--role-border)] bg-white/40 p-4">
+                    <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--role-text)]/60">Liquidation Breakdown</p>
+                    <div className="mt-3 overflow-hidden rounded-xl border border-[var(--role-border)]/10 bg-[var(--role-accent)]">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-[var(--role-border)]/5 text-[var(--role-text)]/70">
+                          <tr>
+                            <th className="px-4 py-2 font-semibold">Date</th>
+                            <th className="px-4 py-2 font-semibold">Description</th>
+                            <th className="px-4 py-2 text-right font-semibold">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedRequest.latest_liquidation.items.map((item: any, index: number) => (
+                            <tr key={index} className="border-b border-[var(--role-border)]/10 last:border-0">
+                              <td className="px-4 py-2 text-[var(--role-text)]/80">{item.expense_date ? formatDateTime(item.expense_date) : '-'}</td>
+                              <td className="px-4 py-2 text-[var(--role-text)]/80">{item.description || item.item_name || item.category_id || 'Item'}</td>
+                              <td className="px-4 py-2 text-right font-semibold">{formatMoney(toNumber(item.amount))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1109,14 +1123,13 @@ const RequestTracker = () => {
                           return;
                         }
                         setBudgetResubmitting(true);
-                        const token = localStorage.getItem('token');
                         try {
                           await api.patch(`/api/requests/${selectedRequest.id}/resubmit`, {
                             item_name: `${selectedRequest.request_type === 'budget_revision' ? 'Budget Revision' : 'Budget Proposal'}: ${selectedRequest.item_name}`,
                             amount: toNumber(budgetResubmit.amount),
                             purpose: budgetResubmit.purpose.trim(),
                             priority: selectedRequest.priority || 'normal'
-                          }, { headers: { Authorization: `Bearer ${token}` } });
+                          });
                           toast.success('Budget proposal resubmitted successfully!');
                           setBudgetResubmit({ amount: '', purpose: '' });
                           await fetchRequests(true, selectedRequest.id);

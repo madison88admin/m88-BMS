@@ -124,6 +124,14 @@ const Admin = () => {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 5;
+  const [delegations, setDelegations] = useState<any[]>([]);
+  const [newDelegation, setNewDelegation] = useState({
+    approver_id: '',
+    delegate_id: '',
+    delegated_role: 'supervisor',
+    starts_at: new Date().toISOString().slice(0, 10),
+    ends_at: ''
+  });
 
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [auditLogSearchQuery, setAuditLogSearchQuery] = useState('');
@@ -336,17 +344,18 @@ const Admin = () => {
   }, [selectedDepartmentId]);
 
   useEffect(() => {
-    if (user?.role === 'super_admin') {
+    if (user?.role === 'super_admin' || user?.role === 'admin') {
       void fetchManagedUsers();
       void fetchAuditLogs();
       void fetchSystemHealth();
+      void fetchDelegations();
     }
   }, [user?.role]);
 
   const fetchSystemHealth = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/system/health', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/system/health');
       setSystemHealth(res.data);
     } catch {
       setSystemHealth(null);
@@ -372,7 +381,7 @@ const Admin = () => {
   const fetchUser = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/auth/me');
       setUser(res.data);
       if (res.data?.role === 'accounting') {
         navigate('/budget-management', { replace: true });
@@ -412,7 +421,7 @@ const Admin = () => {
   const fetchDepartments = async (showError = true) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/departments');
       const depts = Array.isArray(res.data) ? res.data : [];
       if (!Array.isArray(res.data)) console.warn('Admin.fetchDepartments: unexpected response shape', res.data);
       setDepartments(depts);
@@ -459,9 +468,7 @@ const Admin = () => {
     setDetailError('');
 
     try {
-      const res = await api.get(`/api/departments/${departmentId}/budget-breakdown`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get(`/api/departments/${departmentId}/budget-breakdown`);
       setSelectedBreakdown(res.data);
       setRecentRequestsPage(1);
       setRecentPettyPage(1);
@@ -478,7 +485,7 @@ const Admin = () => {
   const updateCategoryBudget = async (categoryId: string, budget: number) => {
     const token = localStorage.getItem('token');
     try {
-      await api.put(`/api/budget/categories/${categoryId}`, { budget_amount: budget }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/api/budget/categories/${categoryId}`, { budget_amount: budget });
       toast.success('Category budget updated!');
       if (selectedDepartmentId) {
         await fetchDepartmentBreakdown(selectedDepartmentId, false, false);
@@ -502,7 +509,7 @@ const Admin = () => {
         category_code: newCategory.category_code.toUpperCase(),
         category_name: newCategory.category_name,
         budget_amount: parseFloat(newCategory.budget_amount) || 0
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       toast.success('Category added successfully!');
       setNewCategory({ category_code: '', category_name: '', budget_amount: '' });
       setShowAddCategory(false);
@@ -519,7 +526,7 @@ const Admin = () => {
     if (!confirm('Are you sure you want to delete this category?')) return;
     const token = localStorage.getItem('token');
     try {
-      await api.delete(`/api/budget/categories/${categoryId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await api.delete(`/api/budget/categories/${categoryId}`);
       toast.success('Category deleted successfully!');
       if (selectedDepartmentId) {
         await fetchDepartmentBreakdown(selectedDepartmentId, false, false);
@@ -612,14 +619,12 @@ const Admin = () => {
       toast.loading(`Resetting to ${defaultCategories.length} standard categories...`, { id: 'init-cats' });
       
       // 1. Get existing categories for this department
-      const existingRes = await api.get(`/api/budget/categories?department_id=${selectedDepartmentId}&fiscal_year=${selectedFiscalYear}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const existingRes = await api.get(`/api/budget/categories?department_id=${selectedDepartmentId}&fiscal_year=${selectedFiscalYear}`);
       
       // 2. Delete all existing
       if (existingRes.data && existingRes.data.length > 0) {
         const deletePromises = existingRes.data.map((cat: any) => 
-          api.delete(`/api/budget/categories/${cat.id}`, { headers: { Authorization: `Bearer ${token}` } })
+          api.delete(`/api/budget/categories/${cat.id}`)
         );
         await Promise.all(deletePromises);
       }
@@ -632,7 +637,7 @@ const Admin = () => {
           category_code: cat.category_code,
           category_name: cat.category_name,
           budget_amount: cat.budget_amount
-        }, { headers: { Authorization: `Bearer ${token}` } })
+        })
       );
       await Promise.all(createPromises);
       
@@ -652,8 +657,7 @@ const Admin = () => {
         {
           name: newDept.name,
           fiscal_year: newDept.fiscal_year
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       toast.success(
@@ -675,17 +679,26 @@ const Admin = () => {
   const fetchManagedUsers = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/auth/users', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/auth/users');
       setManagedUsers(res.data || []);
     } catch (err: any) {
       toast.error(getErrorMessage(err, 'Failed to fetch users'));
     }
   };
 
+  const fetchDelegations = async () => {
+    try {
+      const res = await api.get('/api/auth/delegations');
+      setDelegations(res.data || []);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to fetch delegations'));
+    }
+  };
+
   const fetchAuditLogs = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/requests/audit-logs', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/requests/audit-logs');
       setAuditLogs(res.data || []);
     } catch (err: any) {
       toast.error(getErrorMessage(err, 'Failed to fetch audit logs'));
@@ -693,9 +706,8 @@ const Admin = () => {
   };
 
   const updateManagedUser = async (userId: string, updates: { name: string; role: string; department_id: string }) => {
-    const token = localStorage.getItem('token');
     try {
-      await api.patch(`/api/auth/users/${userId}`, updates, { headers: { Authorization: `Bearer ${token}` } });
+      await api.patch(`/api/auth/users/${userId}`, updates);
       toast.success('User updated!');
       await fetchManagedUsers();
     } catch (err: any) {
@@ -710,9 +722,8 @@ const Admin = () => {
       message: `Are you sure you want to delete the account for ${email}? This action cannot be undone and all associated data will be removed.`,
       type: 'confirm',
       onConfirm: async () => {
-        const token = localStorage.getItem('token');
         try {
-          await api.delete(`/api/auth/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+          await api.delete(`/api/auth/users/${userId}`);
           toast.success('User deleted!');
           await fetchManagedUsers();
         } catch (err: any) {
@@ -721,6 +732,37 @@ const Admin = () => {
         setModalConfig(prev => ({ ...prev, isOpen: false }));
       }
     });
+  };
+
+  const createDelegation = async () => {
+    if (!newDelegation.approver_id || !newDelegation.delegate_id || !newDelegation.delegated_role || !newDelegation.starts_at) {
+      toast.error('Approver, delegate, role, and start date are required.');
+      return;
+    }
+    try {
+      await api.post('/api/auth/delegations', newDelegation);
+      toast.success('Delegation created.');
+      setNewDelegation({
+        approver_id: '',
+        delegate_id: '',
+        delegated_role: 'supervisor',
+        starts_at: new Date().toISOString().slice(0, 10),
+        ends_at: ''
+      });
+      await fetchDelegations();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to create delegation'));
+    }
+  };
+
+  const updateDelegation = async (delegationId: string, active: boolean) => {
+    try {
+      await api.patch(`/api/auth/delegations/${delegationId}`, { active });
+      toast.success('Delegation updated.');
+      await fetchDelegations();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to update delegation'));
+    }
   };
 
   const createNextFiscalYearDepartments = async () => {
@@ -735,8 +777,7 @@ const Admin = () => {
           name: baseDepartment?.name || 'Finance Department',
           annual_budget: toNumber(baseDepartment?.annual_budget),
           fiscal_year: nextFiscalYear
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       toast.success(`FY ${nextFiscalYear} is now active for all departments, new signups, and new tickets.`);
@@ -780,8 +821,7 @@ const Admin = () => {
           department_id: selectedDepartmentId,
           amount,
           purpose
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
+        }
       );
 
       toast.success(pettyCashForm.action === 'replenish' ? 'Petty cash added!' : 'Petty cash deducted!');
@@ -1042,6 +1082,109 @@ const Admin = () => {
                       Next
                     </button>
                   </div>
+                </div>
+              )}
+            </div>
+
+            <div className="panel">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-[var(--role-text)]">Approval Delegations</h2>
+                  <p className="mt-2 text-[var(--role-text)]/70">Delegate supervisor, VP, or President actions to another user for a fixed period.</p>
+                </div>
+                <button className="btn-secondary" onClick={() => void fetchDelegations()}>Refresh</button>
+              </div>
+
+              <div className="mt-5 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px]">
+                <select
+                  className="field-input"
+                  value={newDelegation.approver_id}
+                  onChange={(e) => setNewDelegation((current) => ({ ...current, approver_id: e.target.value }))}
+                >
+                  <option value="">Select Approver</option>
+                  {managedUsers
+                    .filter((u) => ['supervisor', 'vp', 'president'].includes(u.role))
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                    ))}
+                </select>
+                <select
+                  className="field-input"
+                  value={newDelegation.delegate_id}
+                  onChange={(e) => setNewDelegation((current) => ({ ...current, delegate_id: e.target.value }))}
+                >
+                  <option value="">Select Delegate</option>
+                  {managedUsers
+                    .filter((u) => u.id !== newDelegation.approver_id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                    ))}
+                </select>
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+                  <select
+                    className="field-input"
+                    value={newDelegation.delegated_role}
+                    onChange={(e) => setNewDelegation((current) => ({ ...current, delegated_role: e.target.value }))}
+                  >
+                    <option value="supervisor">Supervisor</option>
+                    <option value="vp">Vice President</option>
+                    <option value="president">President</option>
+                  </select>
+                  <input
+                    type="date"
+                    className="field-input"
+                    value={newDelegation.starts_at}
+                    onChange={(e) => setNewDelegation((current) => ({ ...current, starts_at: e.target.value }))}
+                  />
+                  <input
+                    type="date"
+                    className="field-input"
+                    value={newDelegation.ends_at}
+                    onChange={(e) => setNewDelegation((current) => ({ ...current, ends_at: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex items-center justify-end gap-3">
+                <button className="btn-primary" onClick={() => void createDelegation()}>Save Delegation</button>
+              </div>
+
+              {delegations.length > 0 ? (
+                <div className="mt-6 overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-[var(--role-border)] text-[var(--role-text)]/70 uppercase tracking-[0.12em] text-[10px]">
+                      <tr>
+                        <th className="pb-3">Approver</th>
+                        <th className="pb-3">Delegate</th>
+                        <th className="pb-3">Role</th>
+                        <th className="pb-3">Period</th>
+                        <th className="pb-3">Active</th>
+                        <th className="pb-3"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--role-border)]">
+                      {delegations.map((delegation) => (
+                        <tr key={delegation.id}>
+                          <td className="py-3">{delegation.approver_name || delegation.approver_id}</td>
+                          <td className="py-3">{delegation.delegate_name || delegation.delegate_id}</td>
+                          <td className="py-3">{delegation.delegated_role}</td>
+                          <td className="py-3">{delegation.starts_at}{delegation.ends_at ? ` → ${delegation.ends_at}` : ''}</td>
+                          <td className="py-3">{delegation.active ? 'Yes' : 'No'}</td>
+                          <td className="py-3">
+                            <button
+                              className="btn-secondary text-xs"
+                              onClick={() => void updateDelegation(delegation.id, !delegation.active)}
+                            >
+                              {delegation.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="panel-muted mt-6">
+                  <p className="text-[var(--role-text)]/70">No approval delegations available yet.</p>
                 </div>
               )}
             </div>
@@ -1755,7 +1898,7 @@ return (
                               try {
                                 toast.loading('Clearing categories...', { id: 'clear-cats' });
                                 const promises = selectedBreakdown.categories.map((cat: any) =>
-                                  api.delete(`/api/budget/categories/${cat.id}`, { headers: { Authorization: `Bearer ${token}` } })
+                                  api.delete(`/api/budget/categories/${cat.id}`)
                                 );
                                 await Promise.all(promises);
                                 toast.success('All categories cleared!', { id: 'clear-cats' });

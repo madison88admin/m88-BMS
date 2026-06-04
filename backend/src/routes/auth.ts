@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { supabase } from '../utils/supabase';
 import { authenticate } from '../middleware/auth';
 import { sendEmail } from '../utils/email';
+import { getDelegations } from '../utils/delegations';
 import {
   CANONICAL_DEPARTMENTS,
   COMPANY_EMAIL_DOMAIN,
@@ -219,12 +220,15 @@ router.post('/login', async (req, res) => {
     const { password } = req.body;
     const email = normalizeEmail(req.body?.email);
     console.log('Login attempt for email:', email);
+    console.log('Supabase URL:', process.env.SUPABASE_URL);
 
     const { data: user, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .maybeSingle();
+
+    console.log('Supabase query result:', { user, error });
 
     if (error || !user) {
       console.log('Login failed: User not found:', email);
@@ -682,6 +686,22 @@ router.get('/users', authenticate, async (req: any, res) => {
   );
 });
 
+// GET /api/auth/delegation-candidates
+router.get('/delegation-candidates', authenticate, async (req: any, res) => {
+  if (!['super_admin', 'admin', 'vp', 'president'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, name, role, department_id')
+    .neq('id', req.user.id)
+    .order('name', { ascending: true });
+
+  if (error) return res.status(400).json({ error });
+  res.json(data || []);
+});
+
 // PATCH /api/auth/users/:id
 router.patch('/users/:id', authenticate, async (req: any, res) => {
   if (req.user.role !== 'super_admin' && req.user.role !== 'admin') {
@@ -759,6 +779,73 @@ router.delete('/users/:id', authenticate, async (req: any, res) => {
     return res.status(400).json({ error: error.message || error });
   }
   res.json({ success: true });
+});
+
+// GET /api/auth/delegations
+router.get('/delegations', authenticate, async (req: any, res) => {
+  try {
+    const delegations = await getDelegations(req.user.id, req.user.role);
+    res.json(delegations);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to fetch delegations' });
+  }
+});
+
+// POST /api/auth/delegations
+router.post('/delegations', authenticate, async (req: any, res) => {
+  const { approver_id, delegate_id, delegated_role, starts_at, ends_at, note } = req.body || {};
+  if (!approver_id || !delegate_id || !delegated_role || !starts_at) {
+    return res.status(400).json({ error: 'Approver, delegate, delegated role, and start date are required.' });
+  }
+
+  if (req.user.role !== 'super_admin' && req.user.role !== 'admin' && req.user.id !== approver_id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const normalizedRole = String(delegated_role || '').trim();
+  if (!['supervisor', 'vp', 'president'].includes(normalizedRole)) {
+    return res.status(400).json({ error: 'Delegated role must be supervisor, vp, or president.' });
+  }
+
+  const { data, error } = await supabase
+    .from('approval_delegations')
+    .insert([{ approver_id, delegate_id, delegated_role: normalizedRole, starts_at, ends_at: ends_at || null, note: note || null, active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }])
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message || error });
+  res.status(201).json(data);
+});
+
+// PATCH /api/auth/delegations/:id
+router.patch('/delegations/:id', authenticate, async (req: any, res) => {
+  const { id } = req.params;
+  const { active, ends_at, note } = req.body || {};
+  const { data: existing, error: existingError } = await supabase
+    .from('approval_delegations')
+    .select('approver_id, delegate_id')
+    .eq('id', id)
+    .single();
+  if (existingError) return res.status(400).json({ error: existingError.message || existingError });
+  if (!existing) return res.status(404).json({ error: 'Delegation not found.' });
+
+  if (req.user.role !== 'super_admin' && req.user.role !== 'admin' && req.user.id !== existing.approver_id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const payload: any = { updated_at: new Date().toISOString() };
+  if (typeof active === 'boolean') payload.active = active;
+  if (ends_at !== undefined) payload.ends_at = ends_at || null;
+  if (note !== undefined) payload.note = note || null;
+
+  const { data, error } = await supabase
+    .from('approval_delegations')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message || error });
+  res.json(data);
 });
 
 // POST /api/auth/logout

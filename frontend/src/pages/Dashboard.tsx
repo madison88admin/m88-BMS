@@ -137,7 +137,7 @@ const Dashboard = () => {
 
     const fetchTimelineInternal = async (id: string) => {
       try {
-        const res = await api.get(`/api/requests/${id}/timeline`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await api.get(`/api/requests/${id}/timeline`);
         setTimeline(res.data);
       } catch {
         setTimeline([]);
@@ -146,7 +146,7 @@ const Dashboard = () => {
 
     const fetchSystemHealthInternal = async () => {
       try {
-        const res = await api.get('/api/system/health', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await api.get('/api/system/health');
         setSystemHealth(res.data);
       } catch {
         setSystemHealth(null);
@@ -155,7 +155,7 @@ const Dashboard = () => {
 
     const fetchDepartmentsInternal = async () => {
       try {
-        const res = await api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await api.get('/api/departments');
         setAllDepartments(res.data || []);
       } catch {
         setAllDepartments([]);
@@ -165,8 +165,8 @@ const Dashboard = () => {
     const refreshDashboard = async () => {
       try {
         const [userResponse, requestsResponse] = await Promise.all([
-          api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } })
+          api.get('/api/auth/me'),
+          api.get('/api/requests')
         ]);
         setUser(userResponse.data);
 
@@ -204,9 +204,7 @@ const Dashboard = () => {
         // Fetch department budget for supervisors and accounting
         if ((userResponse.data.role === 'supervisor' || userResponse.data.role === 'accounting') && userResponse.data.department_id) {
           try {
-            const budgetRes = await api.get(`/api/departments/${userResponse.data.department_id}/budget-breakdown`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
+            const budgetRes = await api.get(`/api/departments/${userResponse.data.department_id}/budget-breakdown`);
             setDepartmentBudget(budgetRes.data);
           } catch {
             setDepartmentBudget(null);
@@ -382,8 +380,7 @@ const Dashboard = () => {
     try {
       await api.patch(
         `/api/requests/${requestId}/archive`,
-        { archived },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { archived }
       );
       setRequests((current) => current.map((request: any) => (
         request.id === requestId ? { ...request, archived } : request

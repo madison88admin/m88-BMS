@@ -15,6 +15,7 @@ export const AUDIT_ACTIONS = {
   CASH_ADVANCE_APPROVED: 'cash_advance_approved',
   CASH_ADVANCE_REJECTED: 'cash_advance_rejected',
   CASH_ADVANCE_LIQUIDATED: 'cash_advance_liquidated',
+  CASH_RETURN_CONFIRMED: 'cash_return_confirmed',
   REIMBURSEMENT_SUBMITTED: 'reimbursement_submitted',
   REIMBURSEMENT_APPROVED: 'reimbursement_approved',
   REIMBURSEMENT_REJECTED: 'reimbursement_rejected',

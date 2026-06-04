@@ -144,11 +144,7 @@ const NewRequestForm = () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await api.post('/api/upload', formData, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
+    const response = await api.post('/api/upload', formData);
 
     return response.data;
   };
@@ -556,8 +552,6 @@ const NewRequestForm = () => {
           main_category: reimbursementForm.main_category || null,
         },
         attachments: reimbursementAttachments
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       toast.success('Expense request submitted!');
@@ -616,8 +610,6 @@ const NewRequestForm = () => {
           main_category: cashAdvanceForm.main_category || null,
         },
         attachments: cashAdvanceAttachments
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
 
       toast.success('Cash advance request submitted!');
@@ -702,7 +694,6 @@ const NewRequestForm = () => {
         total_amount_spent: totalSpent,
         remarks: liquidationForm.remarks
       }, {
-        headers: { Authorization: `Bearer ${token}` },
         suppressErrorToast: true
       });
 

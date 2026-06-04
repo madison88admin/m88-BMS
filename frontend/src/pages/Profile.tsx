@@ -19,15 +19,12 @@ const Profile = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(true);
 
-  const token = localStorage.getItem('token');
-  const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
-
   useEffect(() => {
     const loadProfile = async () => {
       try {
         const [meResponse, departmentsResponse] = await Promise.all([
-          api.get('/api/auth/me', { headers: authHeaders }),
-          api.get<DepartmentOption[]>('/api/departments', { headers: authHeaders })
+          api.get('/api/auth/me'),
+          api.get<DepartmentOption[]>('/api/departments')
         ]);
 
         setUser(meResponse.data);
@@ -69,8 +66,7 @@ const Profile = () => {
       
       const response = await api.patch(
         '/api/auth/profile',
-        payload,
-        { headers: authHeaders }
+        payload
       );
 
       localStorage.setItem('token', response.data.token);

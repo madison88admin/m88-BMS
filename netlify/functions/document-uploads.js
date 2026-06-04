@@ -6,6 +6,10 @@ const departmentNameMap = require('../../backend/src/constants/departmentNameMap
 
 const normalizeRole = (role) => String(role || '').trim().toLowerCase();
 const toNumber = (value) => Number.parseFloat(value ?? 0) || 0;
+const formatMoney = (value) => {
+  const num = toNumber(value);
+  return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
+};
 
 const resolveExpenseCategoryDepartmentName = (value) => {
   const key = String(value || '').trim();
@@ -53,23 +57,14 @@ const loadUserDepartment = async (departmentId) => {
   return data;
 };
 
-const loadUploadWithAttachments = async (uploadId) => {
+const loadUpload = async (uploadId) => {
   const { data: upload, error } = await supabase
     .from('document_uploads')
     .select('*')
     .eq('id', uploadId)
     .maybeSingle();
   if (error) throw error;
-  if (!upload) return null;
-
-  const { data: attachments, error: attachmentError } = await supabase
-    .from('document_upload_attachments')
-    .select('*')
-    .eq('document_upload_id', uploadId)
-    .order('created_at', { ascending: true });
-  if (attachmentError) throw attachmentError;
-
-  return { ...upload, attachments: attachments || [] };
+  return upload;
 };
 
 exports.handler = async (event) => {
@@ -106,24 +101,31 @@ exports.handler = async (event) => {
       }
 
       const remarks = String(body.remarks || '').trim();
+      const targetDepartmentId = String(body.target_department_id || '').trim();
       if (nextStatus === 'returned' && !remarks) {
         return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Remarks are required when returning an upload' }) };
       }
 
-      const current = await loadUploadWithAttachments(uploadId);
+      const current = await loadUpload(uploadId);
       if (!current) {
         return { statusCode: 404, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Upload not found' }) };
       }
 
+      const updateData = {
+        status: nextStatus,
+        accounting_remarks: remarks || null,
+        reviewed_by: user.id,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      if (targetDepartmentId && nextStatus === 'acknowledged') {
+        updateData.target_department_id = targetDepartmentId;
+      }
+
       const { data: updated, error: updateError } = await supabase
         .from('document_uploads')
-        .update({
-          status: nextStatus,
-          accounting_remarks: remarks || null,
-          reviewed_by: user.id,
-          reviewed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', uploadId)
         .select('*')
         .single();
@@ -147,7 +149,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(await loadUploadWithAttachments(uploadId)),
+        body: JSON.stringify(await loadUpload(uploadId)),
       };
     }
 
@@ -162,13 +164,22 @@ exports.handler = async (event) => {
 
       if (qs.category_code) query = query.eq('category_code', String(qs.category_code));
       if (qs.status) query = query.eq('status', String(qs.status));
+      if (qs.department_id) query = query.eq('department_id', String(qs.department_id));
       if (qs.fiscal_year) {
         const year = Number.parseInt(String(qs.fiscal_year), 10);
         if (Number.isInteger(year) && year > 0) query = query.eq('fiscal_year', year);
       }
+      if (qs.start_date) query = query.gte('created_at', String(qs.start_date));
+      if (qs.end_date) query = query.lte('created_at', String(qs.end_date));
 
       if (['accounting', 'admin', 'super_admin', 'vp', 'president'].includes(role)) {
-        if (qs.department_id) query = query.eq('department_id', String(qs.department_id));
+        // Accounting and admins can see all, or filter by department if specified
+        if (!qs.department_id && role === 'supervisor') {
+          if (!user.department_id) {
+            return { statusCode: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Forbidden' }) };
+          }
+          query = query.eq('department_id', String(user.department_id));
+        }
       } else if (role === 'supervisor') {
         if (!user.department_id) {
           return { statusCode: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Forbidden' }) };
@@ -180,56 +191,34 @@ exports.handler = async (event) => {
 
       const { data: uploads, error } = await query;
       if (error) throw error;
-      const uploadIds = (uploads || []).map((row) => row.id);
-      if (!uploadIds.length) {
-        return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify([]) };
-      }
-
-      const { data: attachments, error: attachmentError } = await supabase
-        .from('document_upload_attachments')
-        .select('*')
-        .in('document_upload_id', uploadIds)
-        .order('created_at', { ascending: true });
-      if (attachmentError) throw attachmentError;
-
-      const attachmentsByUploadId = new Map();
-      (attachments || []).forEach((entry) => {
-        const list = attachmentsByUploadId.get(entry.document_upload_id) || [];
-        list.push(entry);
-        attachmentsByUploadId.set(entry.document_upload_id, list);
-      });
 
       return {
         statusCode: 200,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(
-          (uploads || []).map((row) => ({
-            ...row,
-            attachments: attachmentsByUploadId.get(row.id) || [],
-          }))
-        ),
+        body: JSON.stringify(uploads || []),
       };
     }
 
     if (event.httpMethod === 'POST' && routeParts.length === 0) {
-      const departmentId = String(user.department_id || '').trim();
-      if (!user.id || !departmentId) {
-        return { statusCode: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Forbidden' }) };
-      }
-
       const body = (() => {
         try { return event.body ? JSON.parse(event.body) : {}; } catch { return {}; }
       })();
 
+      const departmentId = String(body.department_id || '').trim();
       const categoryCode = String(body.category_code || '').trim();
       const description = String(body.description || '').trim();
-      const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+      const amount = toNumber(body.amount);
+      const adjustmentType = String(body.adjustment_type || 'increase').trim();
+      const fiscalYear = body.fiscal_year ? Number.parseInt(String(body.fiscal_year), 10) : 2026;
 
+      if (!departmentId) {
+        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Department is required' }) };
+      }
       if (!categoryCode) {
         return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Sub-category is required' }) };
       }
-      if (!description) {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Description / remarks is required' }) };
+      if (!amount || amount <= 0) {
+        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'New budget amount is required' }) };
       }
 
       const { data: categoryRow, error: categoryError } = await supabase
@@ -240,36 +229,21 @@ exports.handler = async (event) => {
       if (categoryError) throw categoryError;
 
       if (!categoryRow || String(categoryRow.manner_of_submission) !== 'for_upload') {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Selected sub-category is not eligible for document upload' }) };
+        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Selected sub-category is not eligible for budget allocation' }) };
       }
 
-      const department = await loadUserDepartment(departmentId);
-      if (!department?.name) {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Unable to resolve user department' }) };
-      }
-
-      const canCA = Boolean(categoryRow.cash_advance_allowed);
-      const canRE = Boolean(categoryRow.reimbursement_allowed);
-      const budgetOverrideValue = toNumber(body.budget_override);
-      const targetFiscalYear = body.fiscal_year ? Number.parseInt(String(body.fiscal_year), 10) : 2026;
-
-      const resolvedExpenseDepartment = resolveExpenseCategoryDepartmentName(String(categoryRow.department || ''));
-      const isFinanceOrAdminDept = department.name === 'Finance Department' || department.name === 'Admin Department';
-
-      if (!canCA && !canRE) {
-        if (!isFinanceOrAdminDept) {
-          return { statusCode: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Only Finance and Admin departments can upload documents for this category' }) };
-        }
-        if (resolvedExpenseDepartment && resolvedExpenseDepartment !== department.name) {
-          return { statusCode: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Category is not available for your department' }) };
-        }
-      } else if (!(canCA && canRE)) {
-        if (resolvedExpenseDepartment && resolvedExpenseDepartment !== department.name) {
-          return { statusCode: 403, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Category is not available for your department' }) };
-        }
+      const { data: department, error: deptError } = await supabase
+        .from('departments')
+        .select('id, name')
+        .eq('id', departmentId)
+        .maybeSingle();
+      if (deptError || !department) {
+        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Department not found' }) };
       }
 
       const role = normalizeRole(user.role);
+      const isFinanceRole = role === 'accounting' || role === 'admin' || role === 'super_admin';
+      const nowIso = new Date().toISOString();
 
       const { data: inserted, error: insertError } = await supabase
         .from('document_uploads')
@@ -281,87 +255,28 @@ exports.handler = async (event) => {
           department_id: departmentId,
           uploaded_by: user.id,
           uploaded_by_role: role,
-          description,
-          amount: null,
-          budget_override: budgetOverrideValue > 0 ? budgetOverrideValue : null,
-          fiscal_year: Number.isInteger(targetFiscalYear) && targetFiscalYear > 0 ? targetFiscalYear : null,
-          status: 'submitted_to_accounting',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          description: description || 'Budget override',
+          amount,
+          adjustment_type: adjustmentType,
+          fiscal_year: Number.isInteger(fiscalYear) && fiscalYear > 0 ? fiscalYear : null,
+          status: isFinanceRole ? 'acknowledged' : 'submitted_to_accounting',
+          reviewed_by: isFinanceRole ? user.id : null,
+          reviewed_at: isFinanceRole ? nowIso : null,
+          created_at: nowIso,
+          updated_at: nowIso,
         })
         .select('*')
         .single();
       if (insertError) throw insertError;
 
-      // If budget override is provided, update the budget_categories table
-      if (budgetOverrideValue > 0) {
-        const { data: existingBudget, error: budgetCheckError } = await supabase
-          .from('budget_categories')
-          .select('id, budget_amount, allocated_amount, spent_amount')
-          .eq('department_id', departmentId)
-          .eq('fiscal_year', targetFiscalYear)
-          .eq('category_code', categoryCode)
-          .maybeSingle();
-        if (budgetCheckError) throw budgetCheckError;
-
-        if (existingBudget) {
-          // Update existing budget
-          const spentAmount = toNumber(existingBudget.spent_amount || 0);
-          const remainingAmount = budgetOverrideValue - spentAmount;
-          const { error: updateError } = await supabase
-            .from('budget_categories')
-            .update({
-              budget_amount: budgetOverrideValue,
-              allocated_amount: budgetOverrideValue,
-              remaining_amount: Math.max(0, remainingAmount),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingBudget.id);
-          if (updateError) throw updateError;
-        } else {
-          // Create new budget entry if it doesn't exist
-          const { error: createError } = await supabase
-            .from('budget_categories')
-            .insert({
-              department_id: departmentId,
-              category_code: categoryCode,
-              category_name: categoryRow.description,
-              fiscal_year: targetFiscalYear,
-              budget_amount: budgetOverrideValue,
-              allocated_amount: budgetOverrideValue,
-              spent_amount: 0,
-              remaining_amount: budgetOverrideValue,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            });
-          if (createError) throw createError;
-        }
+      if (!isFinanceRole) {
+        await notifyAccounting(
+          `New budget allocation submitted: ${inserted.category_code} ${inserted.category_name} (${formatMoney(amount)}).`
+        );
       }
-
-      const attachmentPayload = attachments.map((file) => ({
-        document_upload_id: inserted.id,
-        file_name: String(file.file_name || '').trim(),
-        file_url: String(file.file_url || '').trim(),
-        file_type: assertAllowedFileType(String(file.file_type || file.attachment_type || '')),
-        file_size: file.file_size !== undefined && file.file_size !== null ? Number(file.file_size) : null,
-        created_at: new Date().toISOString(),
-      }));
-
-      if (attachmentPayload.some((entry) => !entry.file_name || !entry.file_url)) {
-        return { statusCode: 400, headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ error: 'Invalid attachment payload' }) };
-      }
-
-      const { error: attachmentInsertError } = await supabase
-        .from('document_upload_attachments')
-        .insert(attachmentPayload);
-      if (attachmentInsertError) throw attachmentInsertError;
-
-      await notifyAccounting(
-        `New document upload submitted: ${inserted.category_code} ${inserted.category_name} (${department.name}).`
-      );
       await logAuditEvent({
         user,
-        actionType: 'document_uploaded',
+        actionType: isFinanceRole ? 'budget_override_logged' : 'budget_allocation_created',
         recordType: 'document_upload',
         recordId: inserted.id,
         recordLabel: `${inserted.category_code} ${inserted.category_name}`,
@@ -370,13 +285,15 @@ exports.handler = async (event) => {
           category_code: inserted.category_code,
           department_id: inserted.department_id,
           fiscal_year: inserted.fiscal_year,
+          amount: inserted.amount,
+          adjustment_type: inserted.adjustment_type,
         },
       });
 
       return {
         statusCode: 201,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify(await loadUploadWithAttachments(inserted.id)),
+        body: JSON.stringify(inserted),
       };
     }
 

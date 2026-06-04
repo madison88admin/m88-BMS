@@ -82,9 +82,7 @@ const ReimbursementForm = () => {
     setCheckingCA(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await api.get(`/api/requests/${form.cash_advance_ref}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get(`/api/requests/${form.cash_advance_ref}`);
 
       if (res.data) {
         setLinkedCA(res.data);
@@ -109,11 +107,7 @@ const ReimbursementForm = () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await api.post('/api/upload', formData, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
+    const response = await api.post('/api/upload', formData);
 
     return response.data;
   };
@@ -181,9 +175,7 @@ const ReimbursementForm = () => {
     };
 
     try {
-      await api.post('/api/requests', payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.post('/api/requests', payload);
 
       toast.success('Multi-item reimbursement claim submitted successfully!');
       setItems([{ payee_name: '', expense_date: '', expense_type: '', amount: '' }]);

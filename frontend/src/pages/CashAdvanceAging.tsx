@@ -55,9 +55,7 @@ const CashAdvanceAging = () => {
 
     const loadReport = async () => {
       try {
-        const res = await api.get('/api/cash-advances/aging', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get('/api/cash-advances/aging');
         setReport(res.data);
       } catch (err: any) {
         toast.error(getErrorMessage(err, 'Failed to load aging report'));
@@ -177,9 +175,29 @@ const CashAdvanceAging = () => {
             </svg>
             Outstanding Cash Advances
           </h2>
-          <span className="text-sm text-[var(--role-text)]/60">
-            Showing {filteredItems.length} of {report?.total_count || 0}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-[var(--role-text)]/60">Showing {filteredItems.length} of {report?.total_count || 0}</span>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await api.get('/api/cash-advances/aging?format=pdf', { responseType: 'blob' });
+                  const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', `cash_advance_aging_${new Date().toISOString().slice(0,10)}.pdf`);
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                  window.URL.revokeObjectURL(url);
+                } catch (err: any) {
+                  toast.error(getErrorMessage(err, 'Failed to export PDF'));
+                }
+              }}
+              className="btn-secondary text-sm"
+            >
+              Export PDF
+            </button>
+          </div>
         </div>
 
         {filteredItems.length === 0 ? (

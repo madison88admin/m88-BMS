@@ -44,7 +44,7 @@ const ManagementDashboard = () => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      api.get('/api/auth/me')
         .then(res => setUser(res.data))
         .catch(() => toast.error('Failed to load user data'));
     }
@@ -55,10 +55,10 @@ const ManagementDashboard = () => {
     const token = localStorage.getItem('token');
     try {
       const [deptRes, reqRes, caRes] = await Promise.all([
-        api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } }),
+        api.get('/api/departments'),
         // Only fetch reports if user is not super admin
-        ...(user?.role !== 'super_admin' ? [api.get('/api/reports/requests', { headers: { Authorization: `Bearer ${token}` } })] : []),
-        api.get('/api/cash-advances', { headers: { Authorization: `Bearer ${token}` } })
+        ...(user?.role !== 'super_admin' ? [api.get('/api/reports/requests')] : []),
+        api.get('/api/cash-advances')
       ]);
       setDepartments(deptRes.data || []);
       setRequests(reqRes.data || []);

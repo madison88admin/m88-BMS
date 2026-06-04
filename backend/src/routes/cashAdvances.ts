@@ -4,9 +4,43 @@ import path from 'path';
 import { supabase } from '../utils/supabase';
 import { authenticate, authorize } from '../middleware/auth';
 import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
+import { getCashAdvanceAgingConfig } from '../utils/config';
+import { notifyUser } from '../utils/workflowNotify';
 import { validateExpense } from '../utils/expenseValidator';
 
 const router = Router();
+
+const computeAgingBucket = (daysOverdue: number, thresholds: any) => {
+  if (daysOverdue <= 0) return 'Current';
+  if (daysOverdue <= thresholds.bucket_1_days) return `1-${thresholds.bucket_1_days} Days`;
+  if (daysOverdue <= thresholds.bucket_2_days) return `${thresholds.bucket_1_days + 1}-${thresholds.bucket_2_days} Days`;
+  if (daysOverdue <= thresholds.bucket_3_days) return `${thresholds.bucket_2_days + 1}-${thresholds.bucket_3_days} Days`;
+  return `${thresholds.bucket_3_days}+ Days`;
+};
+
+const markOverdueCashAdvances = async () => {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('cash_advances')
+    .select('id, status, liquidation_due_at, employee_id, advance_code')
+    .in('status', ['outstanding', 'partially_liquidated'])
+    .lt('liquidation_due_at', now);
+
+  if (error) {
+    console.error('Unable to refresh overdue cash advances:', error);
+    return [];
+  }
+
+  const overdueUpdates = (data || []).map((advance: any) => advance.id);
+  if (overdueUpdates.length > 0) {
+    await supabase
+      .from('cash_advances')
+      .update({ status: 'overdue', updated_at: new Date().toISOString() })
+      .in('id', overdueUpdates);
+  }
+
+  return data || [];
+};
 
 // GET /api/cash-advances - List cash advances
 router.get('/', authenticate, async (req: any, res) => {
@@ -55,6 +89,8 @@ router.get('/', authenticate, async (req: any, res) => {
 // GET /api/cash-advances/aging - Cash advance aging report
 router.get('/aging', authenticate, authorize('accounting', 'admin', 'super_admin', 'management'), async (req: any, res) => {
   try {
+    await markOverdueCashAdvances();
+    const thresholds = await getCashAdvanceAgingConfig();
     const { data: cashAdvances, error } = await supabase
       .from('cash_advances')
       .select(`
@@ -78,13 +114,7 @@ router.get('/aging', authenticate, authorize('accounting', 'admin', 'super_admin
         ? Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
         : 0;
 
-      let agingBucket = 'Current';
-      if (daysOverdue > 0) {
-        if (daysOverdue <= 7) agingBucket = '1-7 Days';
-        else if (daysOverdue <= 14) agingBucket = '8-14 Days';
-        else if (daysOverdue <= 30) agingBucket = '15-30 Days';
-        else agingBucket = '30+ Days';
-      }
+      const agingBucket = computeAgingBucket(daysOverdue, thresholds);
 
       return {
         id: ca.id,
@@ -106,19 +136,94 @@ router.get('/aging', authenticate, authorize('accounting', 'admin', 'super_admin
 
     // Group by aging bucket
     const summary = {
-      'Current': agingReport.filter((r: any) => r.aging_bucket === 'Current'),
-      '1-7 Days': agingReport.filter((r: any) => r.aging_bucket === '1-7 Days'),
-      '8-14 Days': agingReport.filter((r: any) => r.aging_bucket === '8-14 Days'),
-      '15-30 Days': agingReport.filter((r: any) => r.aging_bucket === '15-30 Days'),
-      '30+ Days': agingReport.filter((r: any) => r.aging_bucket === '30+ Days')
+      Current: agingReport.filter((r: any) => r.aging_bucket === 'Current'),
+      [`1-${thresholds.bucket_1_days} Days`]: agingReport.filter((r: any) => r.aging_bucket === `1-${thresholds.bucket_1_days} Days`),
+      [`${thresholds.bucket_1_days + 1}-${thresholds.bucket_2_days} Days`]: agingReport.filter((r: any) => r.aging_bucket === `${thresholds.bucket_1_days + 1}-${thresholds.bucket_2_days} Days`),
+      [`${thresholds.bucket_2_days + 1}-${thresholds.bucket_3_days} Days`]: agingReport.filter((r: any) => r.aging_bucket === `${thresholds.bucket_2_days + 1}-${thresholds.bucket_3_days} Days`),
+      [`${thresholds.bucket_3_days}+ Days`]: agingReport.filter((r: any) => r.aging_bucket === `${thresholds.bucket_3_days}+ Days`)
     };
 
+    const format = String(req.query.format || '').trim().toLowerCase();
+    if (format === 'pdf') {
+      const PDFDocument = (await import('pdfkit')).default;
+      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=cash_advance_aging_${new Date().toISOString().slice(0,10)}.pdf`);
+      doc.pipe(res);
+      doc.fontSize(16).text('Cash Advance Aging Report', { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(12).text(`Generated: ${new Date().toLocaleString()}`);
+      doc.moveDown();
+
+      // Table header
+      doc.fontSize(10).text('Employee', 40, doc.y, { width: 140 });
+      doc.text('Advance Code', 190, doc.y, { width: 90 });
+      doc.text('Department', 290, doc.y, { width: 90 });
+      doc.text('Balance', 390, doc.y, { width: 70, align: 'right' });
+      doc.text('Days Open', 470, doc.y, { width: 60, align: 'right' });
+      doc.text('Aging Bucket', 540, doc.y, { width: 60, align: 'right' });
+      doc.moveDown(0.6);
+
+      for (const row of agingReport) {
+        if (doc.y > 720) doc.addPage();
+        doc.fontSize(9).text(row.employee_name, 40, doc.y, { width: 140 });
+        doc.text(row.advance_code, 190, doc.y, { width: 90 });
+        doc.text(row.department_name, 290, doc.y, { width: 90 });
+        doc.text(Number(row.balance).toFixed(2), 390, doc.y, { width: 70, align: 'right' });
+        doc.text(String(row.days_open), 470, doc.y, { width: 60, align: 'right' });
+        doc.text(row.aging_bucket, 540, doc.y, { width: 60, align: 'right' });
+        doc.moveDown(0.4);
+      }
+      doc.end();
+    } else {
+      res.json({
+        total_outstanding: agingReport.reduce((sum: number, r: any) => sum + r.balance, 0),
+        total_count: agingReport.length,
+        overdue_count: agingReport.filter((r: any) => r.days_overdue > 0).length,
+        summary,
+        details: agingReport
+      });
+    }
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/cash-advances/aging/notify-overdue - mark overdue advances and notify employees
+router.post('/aging/notify-overdue', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  try {
+    const thresholds = await getCashAdvanceAgingConfig();
+    const now = new Date().toISOString();
+    const { data: cashAdvances, error } = await supabase
+      .from('cash_advances')
+      .select('id, employee_id, advance_code, liquidation_due_at, status')
+      .in('status', ['outstanding', 'partially_liquidated'])
+      .lt('liquidation_due_at', now);
+
+    if (error) throw error;
+
+    const updates = (cashAdvances || []).map((advance: any) => advance.id);
+    if (updates.length > 0) {
+      await supabase
+        .from('cash_advances')
+        .update({ status: 'overdue', updated_at: new Date().toISOString() })
+        .in('id', updates);
+
+      await Promise.all(
+        (cashAdvances || []).map(async (advance: any) => {
+          await notifyUser(
+            advance.employee_id,
+            'Cash Advance Overdue',
+            `Cash advance ${advance.advance_code} is now overdue. Please provide your liquidation documents as soon as possible.`
+          );
+        })
+      );
+    }
+
     res.json({
-      total_outstanding: agingReport.reduce((sum: number, r: any) => sum + r.balance, 0),
-      total_count: agingReport.length,
-      overdue_count: agingReport.filter((r: any) => r.days_overdue > 0).length,
-      summary,
-      details: agingReport
+      updated: updates.length,
+      overdue_threshold_days: thresholds.overdue_notification_days,
+      details: cashAdvances || []
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { hasActiveDelegationForRoles } from '../utils/delegations';
 
 interface AuthRequest extends Request {
   user?: any;
@@ -33,6 +34,29 @@ export const authorize = (...roles: string[]) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
     next();
+  };
+};
+
+export const authorizeOrDelegate = (...roles: string[]) => {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (roles.includes(req.user.role)) {
+      return next();
+    }
+
+    try {
+      const delegated = await hasActiveDelegationForRoles(req.user.id, roles);
+      if (delegated) {
+        return next();
+      }
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message || 'Delegation check failed' });
+    }
+
+    return res.status(403).json({ error: 'Forbidden' });
   };
 };
 

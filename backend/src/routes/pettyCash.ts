@@ -19,6 +19,21 @@ router.get('/:dept_id', authenticate, async (req: any, res) => {
   res.json(data);
 });
 
+// GET /api/petty-cash - list all transactions (accounting/admin)
+router.get('/', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  const { department_id, type, from, to } = req.query;
+  let query = supabase.from('petty_cash_transactions').select('*').order('transaction_date', { ascending: false });
+
+  if (department_id) query = query.eq('department_id', department_id);
+  if (type) query = query.eq('type', String(type));
+  if (from) query = query.gte('transaction_date', new Date(String(from)));
+  if (to) query = query.lte('transaction_date', new Date(String(to)));
+
+  const { data, error } = await query;
+  if (error) return res.status(400).json({ error });
+  res.json(data);
+});
+
 // POST /api/petty-cash/disburse
 router.post('/disburse', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
   const { department_id, amount, purpose, reference_request_id } = req.body;
@@ -92,6 +107,35 @@ router.post('/replenish', authenticate, authorize('accounting', 'admin'), async 
     .single();
   if (error) return res.status(400).json({ error });
   await supabase.from('departments').update({ petty_cash_balance: toNumber(dept.petty_cash_balance) + normalizedAmount }).eq('id', dept.id);
+  res.json(data);
+});
+
+// POST /api/petty-cash/adjust - adjust petty cash balance for a department (accounting/admin)
+router.post('/adjust', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  const { department_id, amount, purpose } = req.body;
+  const normalizedAmount = toNumber(amount);
+  const normalizedPurpose = String(purpose || '').trim();
+
+  if (!department_id) return res.status(400).json({ error: 'Department is required' });
+  if (!normalizedPurpose) return res.status(400).json({ error: 'Reason is required for adjustments' });
+  if (!normalizedAmount) return res.status(400).json({ error: 'Amount must be non-zero' });
+
+  const { data: dept } = await supabase.from('departments').select('*').eq('id', department_id).single();
+  if (!dept) return res.status(404).json({ error: 'Department not found' });
+
+  const { data, error } = await supabase.from('petty_cash_transactions').insert({
+    department_id,
+    managed_by: req.user.id,
+    type: 'adjustment',
+    amount: normalizedAmount,
+    purpose: normalizedPurpose,
+    transaction_date: new Date()
+  }).select().single();
+  if (error) return res.status(400).json({ error });
+
+  // apply to department petty_cash_balance
+  await supabase.from('departments').update({ petty_cash_balance: toNumber(dept.petty_cash_balance) + normalizedAmount }).eq('id', dept.id);
+
   res.json(data);
 });
 

@@ -111,14 +111,9 @@ const Reports = () => {
     archived: boolean;
   }>({ isOpen: false, requestId: '', archived: false });
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    return { Authorization: `Bearer ${token}` };
-  };
-
   const fetchUser = async () => {
     try {
-      const res = await api.get('/api/auth/me', { headers: getAuthHeaders() });
+      const res = await api.get('/api/auth/me');
       setUser(res.data);
     } catch {
       // User not authenticated
@@ -145,8 +140,8 @@ const Reports = () => {
 
   const fetchFallbackFilterOptions = async () => {
     const [departmentsRes, requestsRes] = await Promise.all([
-      api.get('/api/departments', { headers: getAuthHeaders() }),
-      api.get('/api/reports/requests', { headers: getAuthHeaders() })
+      api.get('/api/departments'),
+      api.get('/api/reports/requests')
     ]);
 
     const departments = (departmentsRes.data || []).map((department: any) => ({
@@ -179,9 +174,7 @@ const Reports = () => {
 
   const fetchFilterOptions = async () => {
     try {
-      const res = await api.get('/api/reports/filter-options', {
-        headers: getAuthHeaders()
-      });
+      const res = await api.get('/api/reports/filter-options');
 
       const normalized = normalizeFilterOptions(res.data);
       if (normalized.departments.length > 0 || normalized.categories.length > 0) {
@@ -204,7 +197,7 @@ const Reports = () => {
   const fetchSummary = async () => {
     try {
       const params = new URLSearchParams(filters as any);
-      const res = await api.get(`/api/reports/summary?${params}`, { headers: getAuthHeaders() });
+      const res = await api.get(`/api/reports/summary?${params}`);
       setSummary(res.data);
       setSummaryLoaded(true);
     } catch {
@@ -215,7 +208,7 @@ const Reports = () => {
   const fetchRequests = async () => {
     try {
       const params = new URLSearchParams(filters as any);
-      const res = await api.get(`/api/reports/requests?${params}`, { headers: getAuthHeaders() });
+      const res = await api.get(`/api/reports/requests?${params}`);
       setRequests(res.data);
       setRequestsLoaded(true);
     } catch {
@@ -225,7 +218,7 @@ const Reports = () => {
 
   const fetchCashAdvanceAging = async () => {
     try {
-      const res = await api.get('/api/sla/check-liquidations', { headers: getAuthHeaders() });
+      const res = await api.get('/api/sla/check-liquidations');
       setAgingSummary(res.data.summary);
       setCashAdvanceAging([
         ...(res.data.overdue || []).map((item: any) => ({ ...item, aging_status: 'overdue' })),
@@ -284,7 +277,6 @@ const Reports = () => {
     try {
       const params = new URLSearchParams({ ...filters, format });
       const res = await api.get(`/api/reports/summary?${params}`, {
-        headers: getAuthHeaders(),
         responseType: 'blob'
       });
       const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -387,7 +379,7 @@ const Reports = () => {
   const confirmArchive = async () => {
     const { requestId, archived } = archiveConfirm;
     try {
-      await api.patch(`/api/requests/${requestId}/archive`, { archived }, { headers: getAuthHeaders() });
+      await api.patch(`/api/requests/${requestId}/archive`, { archived });
       toast.success(`Request ${archived ? 'archived' : 'unarchived'} successfully!`);
       setArchiveConfirm({ isOpen: false, requestId: '', archived: false });
       void fetchRequests();

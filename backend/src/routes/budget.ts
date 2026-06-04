@@ -9,6 +9,7 @@ import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
 import { checkBudgetUtilizationWarning, notifyDepartmentSupervisor } from '../utils/workflowNotify';
 import { ensureDepartmentCostCenterCode } from '../utils/costCenters';
 import { isMainCategoryCode } from '../utils/budgetCategoryHierarchy';
+import PDFDocument from 'pdfkit';
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
@@ -708,7 +709,40 @@ router.get('/monitoring', authenticate, authorize('accounting', 'admin', 'super_
       };
     });
 
-    res.json(report);
+    const format = String(req.query.format || '').trim().toLowerCase();
+    if (format === 'pdf') {
+      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=budget_vs_actual_${targetFiscalYear}.pdf`);
+      doc.pipe(res);
+      doc.fontSize(18).text(`Budget vs Actual - Fiscal Year ${targetFiscalYear}`, { align: 'center' });
+      doc.moveDown();
+
+      const tableTop = doc.y;
+      const colWidths = [180, 120, 80, 80, 80, 80];
+      // Header
+      doc.fontSize(10).text('Category', 40, tableTop, { width: colWidths[0] });
+      doc.text('Department', 40 + colWidths[0], tableTop, { width: colWidths[1] });
+      doc.text('Budget', 40 + colWidths[0] + colWidths[1], tableTop, { width: colWidths[2], align: 'right' });
+      doc.text('Actual', 40 + colWidths[0] + colWidths[1] + colWidths[2], tableTop, { width: colWidths[3], align: 'right' });
+      doc.text('Committed', 40 + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3], tableTop, { width: colWidths[4], align: 'right' });
+      doc.text('Remaining', 40 + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4], tableTop, { width: colWidths[5], align: 'right' });
+      doc.moveDown(0.6);
+
+      for (const row of report) {
+        if (doc.y > 720) doc.addPage();
+        doc.fontSize(9).text(row.category_name, { width: colWidths[0] });
+        doc.text(row.department_name, 40 + colWidths[0], undefined, { width: colWidths[1] });
+        doc.text(Number(row.budget).toFixed(2), 40 + colWidths[0] + colWidths[1], undefined, { width: colWidths[2], align: 'right' });
+        doc.text(Number(row.actual).toFixed(2), 40 + colWidths[0] + colWidths[1] + colWidths[2], undefined, { width: colWidths[3], align: 'right' });
+        doc.text(Number(row.committed).toFixed(2), 40 + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3], undefined, { width: colWidths[4], align: 'right' });
+        doc.text(Number(row.remaining).toFixed(2), 40 + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4], undefined, { width: colWidths[5], align: 'right' });
+        doc.moveDown(0.4);
+      }
+      doc.end();
+    } else {
+      res.json(report);
+    }
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

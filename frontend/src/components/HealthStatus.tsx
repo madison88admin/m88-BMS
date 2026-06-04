@@ -33,9 +33,7 @@ const HealthStatus = () => {
   const checkHealth = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/system/health', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get('/api/system/health');
       setHealth(res.data);
       setLastCheckTime(new Date());
     } catch (err) {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 import { PRESIDENT_THRESHOLD } from '../constants/approval';
+import { getCashAdvanceAgingConfig, updateCashAdvanceAgingConfig } from '../utils/config';
 
 const router = Router();
 
@@ -23,5 +24,17 @@ router.get('/auth-thresholds', authenticate, (req, res) => {
     default_currency: 'PHP'
   });
 });
+
+  // GET /api/config/cash-advance-aging
+  router.get('/cash-advance-aging', authenticate, async (req, res) => {
+    const config = await getCashAdvanceAgingConfig();
+    res.json(config);
+  });
+
+  // POST /api/config/cash-advance-aging
+  router.post('/cash-advance-aging', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
+    const config = await updateCashAdvanceAgingConfig(req.body || {});
+    res.json(config);
+  });
 
 export default router;

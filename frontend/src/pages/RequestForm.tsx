@@ -28,7 +28,7 @@ const RequestForm = () => {
       if (!token) return;
 
       try {
-        const userRes = await api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        const userRes = await api.get('/api/auth/me');
         setUserRole(userRes.data.role || '');
 
         let targetDeptId = userRes.data.department_id;
@@ -37,7 +37,7 @@ const RequestForm = () => {
         let req: any = null;
         // If editing, fetch existing request first to know its department/year
         if (id) {
-          const reqRes = await api.get(`/api/requests/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+          const reqRes = await api.get(`/api/requests/${id}`);
           req = reqRes.data;
           
           if (req.status !== 'returned_for_revision' && userRes.data.role !== 'admin' && userRes.data.role !== 'accounting') {
@@ -63,8 +63,8 @@ const RequestForm = () => {
 
         if (targetDeptId) {
           const [deptRes, catRes] = await Promise.all([
-            api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } }),
-            api.get(`/api/budget/categories?department_id=${targetDeptId}&fiscal_year=${targetFiscalYear}`, { headers: { Authorization: `Bearer ${token}` } })
+            api.get('/api/departments'),
+            api.get(`/api/budget/categories?department_id=${targetDeptId}&fiscal_year=${targetFiscalYear}`)
           ]);
           
           const dept = deptRes.data.find((d: any) => d.id === targetDeptId);
@@ -190,7 +190,7 @@ const RequestForm = () => {
           category: form.category,
           priority: form.priority,
           purpose: `${form.purpose}\n\nItem Breakdown:\n${itemBreakdown}`
-        }, { headers: { Authorization: `Bearer ${token}` } });
+        });
 
         toast.success('Request resubmitted successfully!');
         navigate('/tracker');
@@ -198,8 +198,7 @@ const RequestForm = () => {
         // New Request mode
         await api.post(
           '/api/requests',
-          payload,
-          { headers: { Authorization: `Bearer ${token}` } }
+          payload
         );
         toast.success('Bulk request submitted successfully!');
         setItems([{ name: '', amount: '' }]);
@@ -524,7 +523,7 @@ const RequestForm = () => {
                         priority: form.priority
                       };
                       try {
-                        await api.post('/api/requests', payload, { headers: { Authorization: `Bearer ${token}` } });
+                        await api.post('/api/requests', payload);
                         toast.success('Request submitted for supervisor approval!');
                         setItems([{ name: '', amount: '' }]);
                         setForm({ category: '', purpose: '', priority: 'normal' });

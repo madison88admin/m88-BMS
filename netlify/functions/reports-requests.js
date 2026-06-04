@@ -1,6 +1,6 @@
 const { supabase } = require('./utils/supabase');
 const { authenticate } = require('./utils/auth');
-const PDFDocument = require('pdfkit');
+const PDFDocument = require('pdfkit').default;
 const ExcelJS = require('exceljs');
 
 exports.handler = async (event, context) => {

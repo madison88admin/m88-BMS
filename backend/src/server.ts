@@ -21,6 +21,7 @@ import uploadRoutes from './routes/upload';
 import configRoutes from './routes/config';
 import auditLogRoutes from './routes/auditLogs';
 import documentUploadRoutes from './routes/documentUploads';
+import fiscalYearRoutes from './routes/fiscalYear';
 
 dotenv.config();
 
@@ -54,6 +55,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/document-uploads', documentUploadRoutes);
+app.use('/api/fiscal-year', fiscalYearRoutes);
 
 // Health check endpoint
 app.get('/api/system/health', async (req, res) => {

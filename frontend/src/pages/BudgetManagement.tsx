@@ -188,7 +188,14 @@ const BudgetManagement = () => {
   const overview = useMemo(() => {
     const totalBudget = filteredDepts.reduce((s, d) => s + toNumber(d.annual_budget), 0);
     const usedBudget = filteredDepts.reduce((s, d) => s + toNumber(d.used_budget), 0);
-    return { totalDepartments: filteredDepts.length, totalBudget, usedBudget, utilization: totalBudget > 0 ? (usedBudget / totalBudget) * 100 : 0 };
+    const monthlySpent = filteredDepts.reduce((s, d) => s + toNumber(d.monthly_spent), 0);
+    return {
+      totalDepartments: filteredDepts.length,
+      totalBudget,
+      usedBudget,
+      monthlySpent,
+      utilization: totalBudget > 0 ? (usedBudget / totalBudget) * 100 : 0
+    };
   }, [filteredDepts]);
 
   const displayAmount = (v: number) => {
@@ -279,7 +286,7 @@ const BudgetManagement = () => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
-    api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+    api.get('/api/auth/me')
       .then((res) => setUser(res.data))
       .catch(() => {
         try {
@@ -324,7 +331,7 @@ const BudgetManagement = () => {
   const fetchDepartments = async (showError = true) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/departments');
       const depts = Array.isArray(res.data) ? res.data : [];
       if (!Array.isArray(res.data)) console.warn('fetchDepartments: unexpected response shape', res.data);
       setDepartments(depts);
@@ -344,7 +351,7 @@ const BudgetManagement = () => {
     if (showLoading) setDetailLoading(true);
     setDetailError('');
     try {
-      const res = await api.get(`/api/departments/${deptId}/budget-breakdown`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get(`/api/departments/${deptId}/budget-breakdown`);
       setSelectedBreakdown(res.data);
     } catch (err: any) {
       setSelectedBreakdown(null);
@@ -397,7 +404,7 @@ const BudgetManagement = () => {
     }
     
     try {
-      await api.put(`/api/budget/categories/${catId}`, { budget_amount: budget }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.put(`/api/budget/categories/${catId}`, { budget_amount: budget });
       toast.success('Category budget updated!');
       if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); }
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to update category')); }
@@ -415,7 +422,7 @@ const BudgetManagement = () => {
         category_name: newCategory.category_name,
         budget_amount: parseFloat(newCategory.budget_amount) || 0,
         parent_category_id: newCategory.parent_category_id || null,
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       toast.success('Category added!');
       setNewCategory({ category_code: '', category_name: '', budget_amount: '', parent_category_id: '' }); setShowAddCategory(false);
       if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); }
@@ -426,7 +433,7 @@ const BudgetManagement = () => {
     if (!confirm('Delete this category?')) return;
     const token = localStorage.getItem('token');
     try {
-      await api.delete(`/api/budget/categories/${catId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await api.delete(`/api/budget/categories/${catId}`);
       toast.success('Category deleted!');
       if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); }
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to delete category')); }
@@ -447,9 +454,9 @@ const BudgetManagement = () => {
     const token = localStorage.getItem('token');
     try {
       toast.loading(`Resetting to ${defaults.length} standard categories...`, { id: 'init-cats' });
-      const existing = await api.get(`/api/budget/categories?department_id=${selectedDepartmentId}&fiscal_year=${selectedFiscalYear}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (existing.data?.length) await Promise.all(existing.data.map((c: any) => api.delete(`/api/budget/categories/${c.id}`, { headers: { Authorization: `Bearer ${token}` } })));
-      await Promise.all(defaults.map(c => api.post('/api/budget/categories', { department_id: selectedDepartmentId, fiscal_year: selectedFiscalYear, ...c }, { headers: { Authorization: `Bearer ${token}` } })));
+      const existing = await api.get(`/api/budget/categories?department_id=${selectedDepartmentId}&fiscal_year=${selectedFiscalYear}`);
+      if (existing.data?.length) await Promise.all(existing.data.map((c: any) => api.delete(`/api/budget/categories/${c.id}`)));
+      await Promise.all(defaults.map(c => api.post('/api/budget/categories', { department_id: selectedDepartmentId, fiscal_year: selectedFiscalYear, ...c })));
       toast.success('Categories reset!', { id: 'init-cats' });
       await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false);
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to reset categories'), { id: 'init-cats' }); }
@@ -458,7 +465,7 @@ const BudgetManagement = () => {
   const createDepartment = async () => {
     const token = localStorage.getItem('token');
     try {
-      await api.post('/api/departments', { name: newDept.name, fiscal_year: newDept.fiscal_year }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post('/api/departments', { name: newDept.name, fiscal_year: newDept.fiscal_year });
       toast.success('Department created!');
       setNewDept({ name: '', fiscal_year: selectedFiscalYear || availableFiscalYears[0] || new Date().getFullYear() });
       await fetchDepartments(false);
@@ -470,7 +477,7 @@ const BudgetManagement = () => {
     const nextFY = (availableFiscalYears[0] || new Date().getFullYear()) + 1;
     const base = filteredDepts[0] || visibleDepartments[0];
     try {
-      await api.post('/api/departments', { name: base?.name || 'Finance Department', annual_budget: toNumber(base?.annual_budget), fiscal_year: nextFY }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post('/api/departments', { name: base?.name || 'Finance Department', annual_budget: toNumber(base?.annual_budget), fiscal_year: nextFY });
       toast.success(`FY ${nextFY} is now active!`);
       setSelectedFiscalYear(nextFY);
       await fetchDepartments(false);
@@ -485,7 +492,7 @@ const BudgetManagement = () => {
     const token = localStorage.getItem('token');
     try {
       const ep = pettyCashForm.action === 'replenish' ? '/api/petty-cash/replenish' : '/api/petty-cash/disburse';
-      await api.post(ep, { department_id: selectedDepartmentId, amount, purpose: pettyCashForm.purpose }, { headers: { Authorization: `Bearer ${token}` } });
+      await api.post(ep, { department_id: selectedDepartmentId, amount, purpose: pettyCashForm.purpose });
       toast.success(pettyCashForm.action === 'replenish' ? 'Petty cash added!' : 'Petty cash deducted!');
       setPettyCashForm(p => ({ ...p, amount: '', purpose: '' }));
       await fetchDepartments(false); await fetchBreakdown(selectedDepartmentId, false, false);
@@ -495,7 +502,7 @@ const BudgetManagement = () => {
   const unlockCategory = async (catId: string) => {
     const token = localStorage.getItem('token');
     try {
-      await api.patch(`/api/budget/categories/${catId}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await api.patch(`/api/budget/categories/${catId}/unlock`, {});
       toast.success('Category unlocked');
       if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to unlock category')); }
@@ -509,7 +516,7 @@ const BudgetManagement = () => {
       toast.loading('Locking all categories…', { id: 'lockAll' });
       await Promise.all(
         enrichedCategories.map(cat =>
-          api.patch(`/api/budget/categories/${cat.id}/lock`, {}, { headers: { Authorization: `Bearer ${token}` } })
+          api.patch(`/api/budget/categories/${cat.id}/lock`, {})
         )
       );
       toast.success('All categories locked', { id: 'lockAll' });
@@ -527,7 +534,7 @@ const BudgetManagement = () => {
       toast.loading('Unlocking all categories…', { id: 'unlockAll' });
       await Promise.all(
         enrichedCategories.map(cat =>
-          api.patch(`/api/budget/categories/${cat.id}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } })
+          api.patch(`/api/budget/categories/${cat.id}/unlock`, {})
         )
       );
       toast.success('All categories unlocked', { id: 'unlockAll' });
@@ -565,7 +572,7 @@ const BudgetManagement = () => {
           amount,
           purpose: `Proposed budget for ${category.category_name}`,
           priority: 'normal'
-        }, { headers: { Authorization: `Bearer ${token}` } });
+        });
       }
       toast.success(`Submitted ${proposals.length} budget proposal(s) for approval`);
       setProposalDrafts({});
@@ -604,7 +611,7 @@ const BudgetManagement = () => {
           amount,
           purpose: `Mid-period budget increase for ${category.category_name}`,
           priority: 'normal'
-        }, { headers: { Authorization: `Bearer ${token}` } });
+        });
       }
       toast.success(`Submitted ${revisions.length} budget revision request(s) for approval`);
       setRevisionDrafts({});
@@ -618,9 +625,7 @@ const BudgetManagement = () => {
   const loadRevisionHistory = async (categoryId: string) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get(`/api/audit-logs/budget-revisions/${categoryId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get(`/api/audit-logs/budget-revisions/${categoryId}`);
       setRevisionHistory((prev) => ({ ...prev, [categoryId]: res.data || [] }));
     } catch {
       toast.error('Failed to load revision history');
@@ -633,6 +638,7 @@ const BudgetManagement = () => {
     { label: 'Departments', value: overview.totalDepartments.toString(), helper: 'Active in view', glow: 'bg-[var(--role-primary)]' },
     { label: 'Budget Pool', value: displayMoney(overview.totalBudget), helper: secondaryMoney(overview.totalBudget), glow: 'bg-[var(--role-secondary)]' },
     { label: 'Used', value: displayMoney(overview.usedBudget), helper: `Remaining ${displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))}`, glow: 'bg-[var(--role-primary)]' },
+    { label: 'Spent This Month', value: displayMoney(overview.monthlySpent), helper: 'Current calendar month', glow: 'bg-[var(--role-secondary)]' },
     { label: 'Utilization', value: formatPercent(overview.utilization), helper: `${displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))} available`, glow: 'bg-[var(--role-secondary)]' },
   ];
 
@@ -746,6 +752,10 @@ const BudgetManagement = () => {
                         <p className="font-semibold text-[var(--role-text)]">{displayMoney(annual)}</p>
                       </div>
                       <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-2 text-center">
+                        <p className="text-[10px] uppercase text-[var(--role-text)]/50">Spent This Month</p>
+                        <p className="font-semibold text-[var(--role-text)]">{displayMoney(toNumber(dept.monthly_spent))}</p>
+                      </div>
+                      <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-2 text-center">
                         <p className="text-[10px] uppercase text-[var(--role-text)]/50">Remaining</p>
                         <p className="font-semibold text-[var(--role-text)]">{displayMoney(remaining)}</p>
                       </div>
@@ -799,6 +809,7 @@ const BudgetManagement = () => {
                   { label: 'Annual Budget', value: displayMoney(breakdownTotals.annual_budget), sub: secondaryMoney(breakdownTotals.annual_budget) },
                   { label: 'Utilized', value: displayMoney(breakdownTotals.used_budget), sub: secondaryMoney(breakdownTotals.used_budget) },
                   { label: 'Available', value: displayMoney(breakdownDept.remaining_budget), sub: secondaryMoney(breakdownDept.remaining_budget) },
+                  { label: 'Spent This Month', value: displayMoney(breakdownTotals.monthly_spent || 0), sub: 'Current calendar month actual spend' },
                   { label: 'Utilization', value: formatPercent(breakdownDept.utilization_percentage), sub: `Committed: ${displayMoney(breakdownDept.projected_committed_total)}` },
                 ].map(s => (
                   <div key={s.label} className="rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
@@ -838,7 +849,7 @@ const BudgetManagement = () => {
                           await Promise.all(
                             locked.map(async (cat) => {
                               try {
-                                await api.patch(`/api/budget/categories/${cat.id}/unlock`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                                await api.patch(`/api/budget/categories/${cat.id}/unlock`, {});
                                 ok++;
                               } catch {
                                 /* skip */
@@ -954,7 +965,7 @@ const BudgetManagement = () => {
 
                     {selectedBreakdown?.categories?.length > 0 && (
                       <div className="mb-3 flex gap-2">
-                        <button onClick={async () => { if (!confirm('Delete ALL categories?')) return; const t = localStorage.getItem('token'); try { toast.loading('Clearing…', { id: 'clr' }); await Promise.all(selectedBreakdown.categories.map((c: any) => api.delete(`/api/budget/categories/${c.id}`, { headers: { Authorization: `Bearer ${t}` } }))); toast.success('Cleared!', { id: 'clr' }); await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); } catch { toast.error('Failed', { id: 'clr' }); } }} className="text-xs bg-red-100 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-200 transition">🗑 Clear All</button>
+                        <button onClick={async () => { if (!confirm('Delete ALL categories?')) return; try { toast.loading('Clearing…', { id: 'clr' }); await Promise.all(selectedBreakdown.categories.map((c: any) => api.delete(`/api/budget/categories/${c.id}`))); toast.success('Cleared!', { id: 'clr' }); await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); } catch { toast.error('Failed', { id: 'clr' }); } }} className="text-xs bg-red-100 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-200 transition">🗑 Clear All</button>
                         <button onClick={initializeDefaultCategories} className="text-xs bg-blue-100 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-200 transition">↺ Reset to Default</button>
                       </div>
                     )}

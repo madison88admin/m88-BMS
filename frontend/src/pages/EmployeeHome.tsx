@@ -74,16 +74,14 @@ const EmployeeHome = () => {
     const loadData = async () => {
       try {
         const [userRes, requestsRes] = await Promise.all([
-          api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/api/requests/my', { headers: { Authorization: `Bearer ${token}` } }),
+          api.get('/api/auth/me'),
+          api.get('/api/requests/my'),
         ]);
 
         setUser(userRes.data);
         setMyRequests(requestsRes.data || []);
 
-        const advancesRes = await api.get(`/api/cash-advances/employee/${userRes.data.id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }).catch(() => ({ data: [] }));
+        const advancesRes = await api.get(`/api/cash-advances/employee/${userRes.data.id}`).catch(() => ({ data: [] }));
         setMyCashAdvances((advancesRes as any).data || []);
       } catch (err) {
         toast.error('Failed to load data');

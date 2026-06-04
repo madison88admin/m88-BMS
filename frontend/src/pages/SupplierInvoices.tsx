@@ -11,7 +11,7 @@ const SupplierInvoices = () => {
     if (!token) return;
     (async () => {
       try {
-        const res = await api.get('/api/supplier-invoices', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await api.get('/api/supplier-invoices');
         setInvoices(res.data || []);
       } catch (err) {
         toast.error('Failed to load supplier invoices');

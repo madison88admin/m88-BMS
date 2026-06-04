@@ -49,6 +49,7 @@ interface DocumentUpload {
   budget_amount?: number | null;
   current_used_amount?: number | null;
   current_remaining_amount?: number | null;
+  adjustment_type?: string | null;
 }
 
 const DocumentUploads = () => {
@@ -58,20 +59,25 @@ const DocumentUploads = () => {
   const [officialList, setOfficialList] = useState<OfficialExpense[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'submit' | 'history'>('submit');
+  const [selectedDepartment, setSelectedDepartment] = useState('');
   const [mainCategory, setMainCategory] = useState('');
   const [selectedCode, setSelectedCode] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [adjustmentType, setAdjustmentType] = useState<'increase' | 'decrease' | 'reallocation'>('increase');
   const [submitting, setSubmitting] = useState(false);
   const [uploads, setUploads] = useState<DocumentUpload[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'submitted_to_accounting' | 'acknowledged' | 'returned'>('all');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [dateRangeFilter, setDateRangeFilter] = useState({ start: '', end: '' });
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null);
   const [selectedUpload, setSelectedUpload] = useState<DocumentUpload | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ status: 'acknowledged' | 'returned'; uploadId: string } | null>(null);
   const [targetDepartmentId, setTargetDepartmentId] = useState<string>('');
+  const [currentBudgetInfo, setCurrentBudgetInfo] = useState<any>(null);
 
   const fiscalYear = 2026;
   const isReviewRole = user?.role === 'accounting';
@@ -104,26 +110,26 @@ const DocumentUploads = () => {
     return status;
   };
 
-  const uploadSupportingFile = async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
+  const fetchCurrentBudgetInfo = async (departmentId: string, categoryCode: string) => {
+    try {
+      if (!departmentId || !categoryCode) {
+        setCurrentBudgetInfo(null);
+        return;
+      }
 
-    const response = await api.post('/api/upload', formData);
-    return response.data;
-  };
+      const params = new URLSearchParams();
+      params.set('department_id', departmentId);
+      params.set('fiscal_year', String(fiscalYear));
 
-  const uploadFiles = async (files: File[]) => {
-    const uploadedAttachments: any[] = [];
-    for (const file of files) {
-      const uploaded = await uploadSupportingFile(file);
-      uploadedAttachments.push({
-        file_name: uploaded.file_name,
-        file_url: uploaded.file_url,
-        file_type: uploaded.file_type || uploaded.attachment_type || file.type,
-        file_size: uploaded.file_size != null ? uploaded.file_size : file.size,
-      });
+      const res = await api.get(`/api/budget/categories?${params.toString()}`);
+      const category = Array.isArray(res.data)
+        ? res.data.find((c: any) => String(c.category_code) === String(categoryCode))
+        : null;
+
+      setCurrentBudgetInfo(category || null);
+    } catch (err: any) {
+      console.error('Failed to fetch current budget info:', err);
     }
-    return uploadedAttachments;
   };
 
   const fetchHistory = async (showError = true) => {
@@ -132,6 +138,10 @@ const DocumentUploads = () => {
       const params = new URLSearchParams();
       params.set('fiscal_year', String(fiscalYear));
       if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (departmentFilter) params.set('department_id', departmentFilter);
+      if (categoryFilter) params.set('category_code', categoryFilter);
+      if (dateRangeFilter.start) params.set('start_date', dateRangeFilter.start);
+      if (dateRangeFilter.end) params.set('end_date', dateRangeFilter.end);
       const res = await api.get(`/api/document-uploads?${params.toString()}`, {
         });
       setUploads(Array.isArray(res.data) ? res.data : []);
@@ -144,47 +154,61 @@ const DocumentUploads = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedDepartment) {
+      toast.error('Please select a department');
+      return;
+    }
+    if (!mainCategory) {
+      toast.error('Please select a main category');
+      return;
+    }
     if (!selectedCode) {
       toast.error('Please select a sub-category');
       return;
     }
-    if (!description.trim()) {
-      toast.error('Please enter description / remarks');
-      return;
-    }
     if (!amount || Number.parseFloat(amount) <= 0) {
-      toast.error('Please enter a budget amount to set/override');
+      toast.error('Please enter a new budget amount');
       return;
     }
-    if (attachments.length === 0) {
-      toast.error('Please attach at least one document');
+    if (currentBudgetInfo && Number.parseFloat(amount) < (currentBudgetInfo.used_amount || 0)) {
+      toast.error(`Cannot set budget below used amount of ₱${formatMoney(currentBudgetInfo.used_amount)}`);
       return;
     }
 
     setSubmitting(true);
     try {
-      const uploadedAttachments = await uploadFiles(attachments);
-      await api.post(
-        '/api/document-uploads',
-        {
-          category_code: selectedCode,
-          description,
-          amount: Number.parseFloat(amount),
-          fiscal_year: fiscalYear,
-          attachments: uploadedAttachments,
-        }
-      );
+      const newBudgetAmount = Number.parseFloat(amount);
+
+      if (!currentBudgetInfo?.id) {
+        throw new Error('Selected category is not yet set up in Budget Categories. Please create it first in Budget Setup.');
+      }
+
+      await api.put(`/api/budget/categories/${currentBudgetInfo.id}`, {
+        budget_amount: newBudgetAmount,
+        remarks: description,
+      });
+
+      await api.post('/api/document-uploads', {
+        category_code: selectedCode,
+        department_id: selectedDepartment,
+        description,
+        amount: newBudgetAmount,
+        fiscal_year: fiscalYear,
+        adjustment_type: adjustmentType,
+      });
 
       toast.success('Budget updated successfully');
+      setSelectedDepartment('');
       setMainCategory('');
       setSelectedCode('');
       setDescription('');
       setAmount('');
-      setAttachments([]);
+      setAdjustmentType('increase');
+      setCurrentBudgetInfo(null);
       setActiveTab('history');
       await fetchHistory(false);
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to update budget'));
+      toast.error(getErrorMessage(err, 'Failed to apply budget allocation'));
     } finally {
       setSubmitting(false);
     }
@@ -238,7 +262,15 @@ const DocumentUploads = () => {
   useEffect(() => {
     if (activeTab !== 'history') return;
     void fetchHistory(false);
-  }, [activeTab, statusFilter]);
+  }, [activeTab, statusFilter, departmentFilter, categoryFilter, dateRangeFilter]);
+
+  useEffect(() => {
+    if (selectedDepartment && selectedCode) {
+      void fetchCurrentBudgetInfo(selectedDepartment, selectedCode);
+      return;
+    }
+    setCurrentBudgetInfo(null);
+  }, [selectedDepartment, selectedCode]);
 
   if (loading) {
     return <PageSkeleton />;
@@ -268,8 +300,8 @@ const DocumentUploads = () => {
   return (
     <div className="text-[var(--role-text)] page-transition">
       <div className="page-header">
-        <h1 className="page-title">Budget Override</h1>
-        <p className="page-subtitle">Set and override category budgets</p>
+        <h1 className="page-title">Budget Allocation</h1>
+        <p className="page-subtitle">Allocate and override category budgets</p>
       </div>
 
       <div className="flex gap-2 mb-6">
@@ -313,6 +345,26 @@ const DocumentUploads = () => {
           </div>
 
           <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Department *</label>
+            <select
+              required
+              value={selectedDepartment}
+              onChange={(e) => {
+                setSelectedDepartment(e.target.value);
+                setMainCategory('');
+                setSelectedCode('');
+                setCurrentBudgetInfo(null);
+              }}
+              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+            >
+              <option value="">Select department...</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>{dept.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mb-4">
             <label className="block text-sm font-medium mb-2">Main Category *</label>
             <select
               required
@@ -320,8 +372,10 @@ const DocumentUploads = () => {
               onChange={(e) => {
                 setMainCategory(e.target.value);
                 setSelectedCode('');
+                setCurrentBudgetInfo(null);
               }}
-              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+              disabled={!selectedDepartment}
+              className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
             >
               <option value="">Select main category...</option>
               {uniqueMainCategories.map((cat) => (
@@ -348,40 +402,117 @@ const DocumentUploads = () => {
             </select>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Budget Override (Required) *</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  required
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                  placeholder="Enter budget amount to set/override"
-                />
+          {currentBudgetInfo && (
+            <div className="mb-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+              <h3 className="text-sm font-semibold mb-3">Current Budget Info</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-[var(--role-text)]/60">Approved Budget</p>
+                  <p className="font-semibold">{formatMoney(currentBudgetInfo.budget_amount || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--role-text)]/60">Used</p>
+                  <p className="font-semibold">{formatMoney(currentBudgetInfo.used_amount || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--role-text)]/60">Committed</p>
+                  <p className="font-semibold">{formatMoney(currentBudgetInfo.committed_amount || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--role-text)]/60">Remaining</p>
+                  <p className="font-semibold">{formatMoney(currentBudgetInfo.remaining_amount || 0)}</p>
+                </div>
+                <div className="col-span-2 md:col-span-1">
+                  <p className="text-xs text-[var(--role-text)]/60">Utilization</p>
+                  <p className="font-semibold">
+                    {currentBudgetInfo.budget_amount 
+                      ? `${((currentBudgetInfo.used_amount || 0) / currentBudgetInfo.budget_amount * 100).toFixed(1)}%`
+                      : '0%'}
+                  </p>
+                </div>
               </div>
-              <p className="mt-2 text-xs text-[var(--role-text)]/60">
-                This will set or override the budget for the selected category.
-              </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Status</label>
-              <input
-                value="Submitted to Accounting"
-                disabled
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-gray-100"
-              />
+          )}
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Adjustment Type *</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  value="increase"
+                  checked={adjustmentType === 'increase'}
+                  onChange={(e) => setAdjustmentType(e.target.value as any)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm">Budget Increase</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  value="decrease"
+                  checked={adjustmentType === 'decrease'}
+                  onChange={(e) => setAdjustmentType(e.target.value as any)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm">Budget Decrease</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  value="reallocation"
+                  checked={adjustmentType === 'reallocation'}
+                  onChange={(e) => setAdjustmentType(e.target.value as any)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm">Budget Reallocation</span>
+              </label>
             </div>
           </div>
 
           <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Description / Remarks *</label>
+            <label className="block text-sm font-medium mb-2">New Budget Amount *</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full pl-8 pr-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                placeholder="Enter new budget amount"
+              />
+            </div>
+          </div>
+
+          {currentBudgetInfo && amount && (
+            <div className="mb-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+              <h3 className="text-sm font-semibold mb-3">Before & After Preview</h3>
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-[var(--role-text)]/60">Before</p>
+                  <p className="font-semibold">{formatMoney(currentBudgetInfo.remaining_amount || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--role-text)]/60">New Budget</p>
+                  <p className="font-semibold">{formatMoney(Number.parseFloat(amount))}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--role-text)]/60">Change</p>
+                  <p className={`font-semibold ${Number.parseFloat(amount) > (currentBudgetInfo.remaining_amount || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                    {Number.parseFloat(amount) > (currentBudgetInfo.remaining_amount || 0) ? '+' : ''}
+                    {formatMoney(Number.parseFloat(amount) - (currentBudgetInfo.remaining_amount || 0))}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">Description / Remarks (optional)</label>
             <textarea
-              required
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] min-h-[100px]"
@@ -389,52 +520,12 @@ const DocumentUploads = () => {
             />
           </div>
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Attachments *</label>
-            <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.multiple = true;
-                  input.accept = 'image/*,.pdf';
-                  input.onchange = (e: any) => {
-                    if (e.target.files) {
-                      setAttachments((prev) => [...prev, ...Array.from(e.target.files as FileList)]);
-                    }
-                  };
-                  input.click();
-                }}
-                className="btn-secondary px-6 py-3 w-full text-left"
-              >
-                {attachments.length === 0 ? 'Select documents to upload' : `${attachments.length} file(s) selected`}
-              </button>
-              {attachments.length > 0 && (
-                <div className="space-y-2 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
-                  {attachments.map((file, fileIdx) => (
-                    <div key={fileIdx} className="flex items-center justify-between gap-3 rounded-lg bg-[var(--role-surface)] px-3 py-2">
-                      <span className="truncate text-sm text-[var(--role-text)]/80">{file.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== fileIdx))}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
           <div className="flex gap-3">
             <button type="button" onClick={() => navigate('/tracker')} className="btn-secondary px-8">
               Cancel
             </button>
             <button type="submit" disabled={submitting} className="btn-primary px-8 flex-1">
-              {submitting ? 'Updating...' : 'Update Budget'}
+              {submitting ? 'Applying...' : 'Apply Budget Allocation'}
             </button>
           </div>
         </form>
@@ -444,18 +535,63 @@ const DocumentUploads = () => {
         <div className="space-y-4">
           <div className="panel">
             <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Status</label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as any)}
-                  className="w-full md:w-72 px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-                >
-                  <option value="all">All</option>
-                  <option value="submitted_to_accounting">Submitted to Accounting</option>
-                  <option value="acknowledged">Acknowledged</option>
-                  <option value="returned">Returned</option>
-                </select>
+              <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">Department</label>
+                  <select
+                    value={departmentFilter}
+                    onChange={(e) => setDepartmentFilter(e.target.value)}
+                    className="w-full md:w-48 px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                  >
+                    <option value="">All Departments</option>
+                    {departments.map((dept) => (
+                      <option key={dept.id} value={dept.id}>{dept.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">Category</label>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="w-full md:w-48 px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                  >
+                    <option value="">All Categories</option>
+                    {uniqueMainCategories.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as any)}
+                    className="w-full md:w-48 px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                  >
+                    <option value="all">All</option>
+                    <option value="submitted_to_accounting">Submitted to Accounting</option>
+                    <option value="acknowledged">Acknowledged</option>
+                    <option value="returned">Returned</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">Date Range</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={dateRangeFilter.start}
+                      onChange={(e) => setDateRangeFilter({ ...dateRangeFilter, start: e.target.value })}
+                      className="px-3 py-2 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+                    />
+                    <input
+                      type="date"
+                      value={dateRangeFilter.end}
+                      onChange={(e) => setDateRangeFilter({ ...dateRangeFilter, end: e.target.value })}
+                      className="px-3 py-2 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+                    />
+                  </div>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <button type="button" onClick={() => fetchHistory()} className="btn-secondary px-6">
@@ -473,52 +609,55 @@ const DocumentUploads = () => {
             </div>
           ) : uploads.length === 0 ? (
             <div className="panel text-center py-14">
-              <p className="text-sm text-[var(--role-text)]/70">No budget override records found for fiscal year {fiscalYear}.</p>
+              <p className="text-sm text-[var(--role-text)]/70">No budget allocation records found for fiscal year {fiscalYear}.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {uploads.map((upload) => (
-                <button
-                  key={upload.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedUpload(upload);
-                    setShowDetails(true);
-                  }}
-                  className="panel text-left hover:shadow-lg transition-shadow"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-xs text-[var(--role-text)]/60">Submitted {upload.created_at ? formatDateTime(upload.created_at) : ''}</p>
-                      <h3 className="mt-1 text-lg font-semibold truncate">
-                        {upload.category_code} — {upload.category_name}
-                      </h3>
-                      <p className="mt-1 text-sm text-[var(--role-text)]/70 truncate">{upload.description}</p>
-                    </div>
-                    <span className="inline-flex items-center rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-3 py-1 text-xs font-semibold">
-                      {statusLabel(upload.status)}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
-                      <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Department</p>
-                      <p className="mt-1 font-semibold truncate">{departmentNameById.get(upload.department_id) || upload.department_id}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
-                      <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Amount</p>
-                      <p className="mt-1 font-semibold">{upload.amount ? formatMoney(upload.amount) : '—'}</p>
-                    </div>
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3">
-                      <p className="text-xs uppercase tracking-wide text-[var(--role-text)]/50">Remaining</p>
-                      <p className="mt-1 font-semibold">{upload.current_remaining_amount != null ? formatMoney(upload.current_remaining_amount) : '—'}</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between text-xs text-[var(--role-text)]/60">
-                    <span>{(upload.attachments || []).length} attachment(s)</span>
-                    {upload.reviewed_at && <span>Reviewed {formatDateTime(upload.reviewed_at)}</span>}
-                  </div>
-                </button>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[var(--role-border)]">
+                    <th className="text-left px-4 py-3 text-sm font-semibold">Date</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold">Department</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold">Category</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold">Old Amount</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold">New Amount</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold">Change</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold">Adjustment Type</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold">Changed By</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploads.map((upload) => (
+                    <tr
+                      key={upload.id}
+                      onClick={() => {
+                        setSelectedUpload(upload);
+                        setShowDetails(true);
+                      }}
+                      className="border-b border-[var(--role-border)] hover:bg-[var(--role-accent)] cursor-pointer"
+                    >
+                      <td className="px-4 py-3 text-sm">{upload.created_at ? formatDateTime(upload.created_at) : '—'}</td>
+                      <td className="px-4 py-3 text-sm">{departmentNameById.get(upload.department_id) || upload.department_id}</td>
+                      <td className="px-4 py-3 text-sm">{upload.category_code} — {upload.category_name}</td>
+                      <td className="px-4 py-3 text-sm text-right">{upload.current_remaining_amount != null ? formatMoney(upload.current_remaining_amount) : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-right">{upload.amount ? formatMoney(upload.amount) : '—'}</td>
+                      <td className={`px-4 py-3 text-sm text-right ${upload.amount && upload.amount > (upload.current_remaining_amount || 0) ? 'text-green-600' : 'text-red-600'}`}>
+                        {upload.amount && upload.current_remaining_amount != null
+                          ? (upload.amount > upload.current_remaining_amount ? '+' : '') + formatMoney(upload.amount - upload.current_remaining_amount)
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-sm capitalize">{upload.adjustment_type || '—'}</td>
+                      <td className="px-4 py-3 text-sm">{upload.uploaded_by || '—'}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className="inline-flex items-center rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-3 py-1 text-xs font-semibold">
+                          {statusLabel(upload.status)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
