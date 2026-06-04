@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, authorize, hasFullAccountingAccess } from '../middleware/auth';
+import { authenticate, authorize, authorizeOrDelegate, hasFullAccountingAccess } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
 import { sendEmail } from '../utils/email';
 import {
@@ -22,7 +22,7 @@ import {
   resolveOfficialExpenseList,
   departmentMatchesExpenseItem,
 } from '../utils/expenseCategories';
-import { PRESIDENT_THRESHOLD, getPresidentThreshold } from '../constants/approval';
+import { PRESIDENT_THRESHOLD, getPresidentThreshold, BUDGET_PRESIDENT_THRESHOLD } from '../constants/approval';
 import { AUDIT_ACTIONS, logAuditEvent, logFailedApprovalAttempt } from '../utils/auditLog';
 import {
   notifyAccounting,
@@ -331,7 +331,7 @@ const appendWorkflowData = async (rows: any[]) => {
       .order('uploaded_at', { ascending: true }),
     supabase
       .from('request_liquidations')
-      .select('id, request_id, liquidation_no, status, due_at, submitted_at, reviewed_at, actual_amount, reimbursable_amount, cash_return_amount, shortage_amount, remarks, created_at, updated_at')
+      .select('id, request_id, liquidation_no, status, due_at, submitted_at, reviewed_at, actual_amount, reimbursable_amount, cash_return_amount, cash_return_status, cash_returned_at, cash_returned_confirmed_by, cash_advance_id, shortage_amount, remarks, created_at, updated_at')
       .in('request_id', requestIds)
       .order('created_at', { ascending: false })
   ]);
@@ -349,9 +349,42 @@ const appendWorkflowData = async (rows: any[]) => {
   const latestLiquidationByRequestId = new Map<string, any>();
   (liquidationResult.data || []).forEach((liquidation: any) => {
     if (!latestLiquidationByRequestId.has(liquidation.request_id)) {
-      latestLiquidationByRequestId.set(liquidation.request_id, liquidation);
+      latestLiquidationByRequestId.set(liquidation.request_id, {
+        ...liquidation,
+        items: []
+      });
     }
   });
+
+  const liquidationIds = Array.from(
+    new Set(
+      (liquidationResult.data || [])
+        .map((liquidation: any) => liquidation.id)
+        .filter(Boolean)
+    )
+  );
+
+  const liquidationItemsById = new Map<string, any[]>();
+  if (liquidationIds.length) {
+    const { data: liquidationItems, error: liquidationItemsError } = await supabase
+      .from('liquidation_items')
+      .select('*')
+      .in('liquidation_id', liquidationIds)
+      .order('expense_date', { ascending: true });
+
+    if (liquidationItemsError) throw liquidationItemsError;
+    (liquidationItems || []).forEach((item: any) => {
+      const list = liquidationItemsById.get(item.liquidation_id) || [];
+      list.push(item);
+      liquidationItemsById.set(item.liquidation_id, list);
+    });
+
+    for (const liquidation of latestLiquidationByRequestId.values()) {
+      if (liquidation.id) {
+        liquidation.items = liquidationItemsById.get(liquidation.id) || [];
+      }
+    }
+  }
 
   return enrichedRows.map((row) => ({
     ...row,
@@ -817,6 +850,30 @@ const releaseRequest = async (
 
   if (error) throw error;
 
+  // Record petty cash transactions for disbursements when release method is petty cash
+  if (releaseMethod === 'petty_cash') {
+    try {
+      const txInserts = (normalizedAllocations || []).map((alloc: any) => ({
+        department_id: alloc.department_id,
+        managed_by: actorId,
+        type: 'disbursement',
+        amount: toNumber(alloc.amount),
+        purpose: request.purpose || `Release for ${request.request_code}`,
+        reference_request_id: request.id,
+        transaction_date: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
+      }));
+
+      if (txInserts.length) {
+        const { error: txError } = await supabase.from('petty_cash_transactions').insert(txInserts);
+        if (txError) console.error('Failed to insert petty cash transactions on release:', txError);
+      }
+    } catch (txErr) {
+      console.error('Error recording petty cash transactions on release:', txErr);
+    }
+  }
+
   if (liquidationDueAt) {
     const { data: existingLiquidation } = await supabase
       .from('request_liquidations')
@@ -1014,19 +1071,23 @@ const buildOfficialListForDepartment = async (
 router.get('/official-list', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const departmentId = req.user.department_id;
+  const userRole = String(req.user.role || '').trim().toLowerCase();
   const requestType = req.query.request_type as 'cash_advance' | 'reimbursement' | undefined;
   const mannerOfSubmission = String(req.query.manner_of_submission || '').trim() as 'for_submission' | 'for_upload' | '';
 
   try {
     const baseList = await resolveOfficialExpenseList();
     if (mannerOfSubmission === 'for_upload') {
+      const uploadList = baseList.filter((item: any) => String(item.mannerOfSubmission || 'for_submission') === 'for_upload');
+      if (userRole === 'accounting') {
+        return res.json(uploadList);
+      }
       if (!departmentId) return res.json([]);
       const { data: deptData } = await supabase.from('departments').select('name').eq('id', departmentId).maybeSingle();
       const departmentName = String(deptData?.name || '').trim();
       const isFinanceOrAdminDept = departmentName === 'Finance Department' || departmentName === 'Admin Department';
 
-      const list = baseList
-        .filter((item: any) => String(item.mannerOfSubmission || 'for_submission') === 'for_upload')
+      const list = uploadList
         .filter((item: any) => {
           if (item.canCA && item.canRE) return true;
           if (!departmentName) return false;
@@ -1221,7 +1282,6 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   // Budget approval workflow based on amount thresholds
   // Calculate total amount for approval routing
   const requestAmount = toNumber(amount);
-  const PRESIDENT_THRESHOLD = 500; // $500 threshold for President approval
 
   let initialStatus;
   
@@ -1234,7 +1294,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
       initialStatus = 'pending_accounting';
     } else if (userRole === 'accounting') {
       // Accounting routes budget proposals based on amount: $500+ goes to President, <$500 goes to VP
-      initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+      initialStatus = requestAmount >= BUDGET_PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
     } else if (userRole === 'vp') {
       initialStatus = 'pending_president';
     } else {
@@ -1249,7 +1309,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
       const presidentThreshold = getPresidentThreshold(currency);
       initialStatus = requestAmount >= presidentThreshold ? 'pending_president' : 'pending_vp';
     } else if (userRole === 'accounting') {
-      // Accounting routes based on amount: $500+ goes to President, <$500 goes to VP
+      // Accounting routes based on amount: $500K+ goes to President, <$500K goes to VP
       initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
     } else if (userRole === 'vp') {
       initialStatus = 'pending_president';
@@ -2079,7 +2139,7 @@ router.patch('/:id/priority', authenticate, authorize('supervisor', 'admin'), as
 });
 
 // PATCH /api/requests/:id/approve - Supervisor/admin only; VP/President uses /co-approve
-router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), async (req: any, res) => {
+router.patch('/:id/approve', authenticate, authorizeOrDelegate('supervisor', 'admin'), async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
@@ -2160,7 +2220,7 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
 });
 
 // POST /api/requests/:id/co-approve - VP/President dual authorization
-router.post('/:id/co-approve', authenticate, authorize('vp', 'president', 'admin'), async (req: any, res) => {
+router.post('/:id/co-approve', authenticate, authorizeOrDelegate('vp', 'president', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -2317,7 +2377,7 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
 });
 
 // PATCH /api/requests/:id/approve-vp - VP viewing / approval routing
-router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (req: any, res) => {
+router.patch('/:id/approve-vp', authenticate, authorizeOrDelegate('vp', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -2415,7 +2475,7 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
 });
 
 // PATCH /api/requests/:id/mark-viewed - VP explicit viewing for budget proposals/revisions
-router.patch('/:id/mark-viewed', authenticate, authorize('vp', 'admin'), async (req: any, res) => {
+router.patch('/:id/mark-viewed', authenticate, authorizeOrDelegate('vp', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -2468,7 +2528,7 @@ router.patch('/:id/mark-viewed', authenticate, authorize('vp', 'admin'), async (
 });
 
 // PATCH /api/requests/:id/approve-president - President final approval
-router.patch('/:id/approve-president', authenticate, authorize('president', 'admin'), async (req: any, res) => {
+router.patch('/:id/approve-president', authenticate, authorizeOrDelegate('president', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -3138,6 +3198,7 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
       reviewed_at: new Date(),
       reviewed_by: req.user.id,
       remarks: remarks || liquidation.remarks,
+      cash_return_status: finalStatus === 'verified' && cashReturn > 0 ? 'pending_return' : null,
       updated_at: new Date()
     })
     .eq('id', liquidation.id)
@@ -3206,8 +3267,9 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
         parentRequest.employee_id,
         parentRequest.request_code,
         'Liquidation Refund',
-        `Liquidation verified. Refund of ₱${cashReturn.toFixed(2)} will be processed for ${parentRequest.request_code}.`
+        `Liquidation verified. Please return ₱${cashReturn.toFixed(2)} in cash to Accounting for ${parentRequest.request_code}.`
       );
+      await notifyAccounting(`Cash return pending for ${parentRequest.request_code}: ₱${cashReturn.toFixed(2)} needs to be returned by employee.`);
     }
   }
 
@@ -3224,6 +3286,74 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
   }
 
   res.json(data);
+});
+
+// PATCH /api/requests/:id/liquidation/confirm-return
+router.patch('/:id/liquidation/confirm-return', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: liquidation, error: liquidationError } = await supabase
+      .from('request_liquidations')
+      .select('*')
+      .eq('request_id', id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (liquidationError || !liquidation) {
+      return res.status(404).json({ error: 'Liquidation not found.' });
+    }
+
+    if (liquidation.cash_return_status !== 'pending_return') {
+      return res.status(400).json({ error: 'Cash return is not pending confirmation.' });
+    }
+
+    const { data, error } = await supabase
+      .from('request_liquidations')
+      .update({
+        cash_return_status: 'returned',
+        cash_returned_at: new Date(),
+        cash_returned_confirmed_by: req.user.id,
+        updated_at: new Date()
+      })
+      .eq('id', liquidation.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    await insertAuditLogs(id, req.user.id, [
+      {
+        entity_type: 'liquidation',
+        action: 'cash_return_confirmed',
+        field_name: 'cash_return_status',
+        old_value: liquidation.cash_return_status || 'pending_return',
+        new_value: 'returned',
+        note: 'Accounting confirmed the cash return.'
+      }
+    ]);
+
+    const { data: parentRequest } = await supabase
+      .from('expense_requests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (parentRequest) {
+      await notifyEmployee(
+        parentRequest.employee_id,
+        parentRequest.request_code,
+        'Cash Return Confirmed',
+        `Your cash return of ₱${liquidation.cash_return_amount?.toFixed(2) ?? '0.00'} for ${parentRequest.request_code} has been confirmed by Accounting.`
+      );
+    }
+
+    res.json(data);
+  } catch (err: any) {
+    console.error('Cash return confirmation error:', err);
+    res.status(500).json({ error: err.message || 'Unable to confirm cash return.' });
+  }
 });
 
 // GET /api/requests/:id/timeline

@@ -12,7 +12,7 @@ const {
   sanitizeText,
   createErrorResponse 
 } = require('./utils/enhancedAuth');
-const { getPresidentThreshold } = require('./utils/approval');
+const { getPresidentThreshold, BUDGET_PRESIDENT_THRESHOLD } = require('./utils/approval');
 const { toNumber, assertMainCategoryProposal, enrichRequestsWithMainCategory, applyApprovedBudgetProposal, requiresPresidentBudgetApproval, getBudgetProposalAmount } = require('./utils/budget');
 const { AUDIT_ACTIONS, logAuditEvent } = require('./utils/auditLog');
 const { notifyAccounting, notifyPresident, notifyDepartmentSupervisor, notifyEmployee } = require('./utils/workflowNotify');
@@ -455,14 +455,13 @@ exports.handler = async (event, context) => {
         };
       }
 
-      const PRESIDENT_THRESHOLD = 500;
       const approvedRequests = [];
       const failedRequests = [];
 
       for (const request of requests) {
         try {
           const requestAmount = toNumber(request.amount);
-          const nextStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+          const nextStatus = requestAmount >= BUDGET_PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
 
           const { data: updatedRequest, error: updateError } = await supabase
             .from('expense_requests')
