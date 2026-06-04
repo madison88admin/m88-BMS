@@ -42,7 +42,7 @@ const Layout = ({ children }: LayoutProps) => {
 
   const fetchNotifications = useCallback(async (token: string) => {
     try {
-      const res = await api.get('/api/notifications', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/notifications');
       setNotifications(Array.isArray(res.data) ? res.data : []);
     } catch { /* silent */ }
   }, []);
@@ -68,7 +68,7 @@ const Layout = ({ children }: LayoutProps) => {
       }
 
       if (needFetchBudget) {
-        const budgetRes = await api.get('/api/budget/categories', { headers: { Authorization: `Bearer ${token}` } });
+        const budgetRes = await api.get('/api/budget/categories');
         localStorage.setItem(PREFETCH_KEY_BUDGET_CATEGORIES, JSON.stringify({
           data: budgetRes.data,
           timestamp: now
@@ -89,7 +89,7 @@ const Layout = ({ children }: LayoutProps) => {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      await api.patch('/api/notifications/mark-all-read', {}, { headers: { Authorization: `Bearer ${token}` } });
+      await api.patch('/api/notifications/mark-all-read', {});
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       toast.success('All notifications marked as read');
     } catch { /* silent */ }
@@ -103,14 +103,14 @@ const Layout = ({ children }: LayoutProps) => {
 
     const bootstrap = async () => {
       try {
-        const meRes = await api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        const meRes = await api.get('/api/auth/me');
         if (cancelled) return;
         const currentUser = meRes.data;
         setUser(currentUser);
         userIdRef.current = currentUser.id;
 
         if (currentUser.role === 'supervisor' || currentUser.role === 'accounting' || currentUser.role === 'admin' || currentUser.role === 'vp' || currentUser.role === 'president') {
-          const reqRes = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
+          const reqRes = await api.get('/api/requests');
           if (cancelled) return;
           const requests = Array.isArray(reqRes.data) ? reqRes.data : [];
           if (!Array.isArray(reqRes.data)) console.warn('bootstrap: unexpected /api/requests response', reqRes.data);
@@ -261,8 +261,8 @@ const Layout = ({ children }: LayoutProps) => {
           {(user.role !== 'super_admin' && user.role !== 'admin') && (
             <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>New Expense</Link>
           )}
-          {(user.role === 'accounting' || user.role === 'admin' || user.role === 'super_admin') && (
-            <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Document Uploads</Link>
+          {user.role === 'accounting' && (
+            <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Budget Override</Link>
           )}
           {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'accounting') && (
             <Link to="/tracker" className={getNavClassName('/tracker')}>My History</Link>
@@ -293,6 +293,9 @@ const Layout = ({ children }: LayoutProps) => {
       )}
       {(user.role === 'vp' || user.role === 'president') && (
         <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget View</Link>
+      )}
+      {(user.role === 'vp' || user.role === 'president' || user.role === 'admin' || user.role === 'super_admin') && (
+        <Link to="/delegations" className={getNavClassName('/delegations')}>Delegations</Link>
       )}
       {user.role === 'admin' && (
         <Link to="/reports" className={getNavClassName('/reports')}>Reports</Link>

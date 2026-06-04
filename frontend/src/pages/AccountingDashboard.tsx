@@ -53,7 +53,8 @@ const AccountingDashboard = () => {
     total_released_this_month: 0,
     petty_cash_alerts: 0,
     on_hold_count: 0,
-    pending_document_uploads: 0
+    pending_document_uploads: 0,
+    pending_cash_returns: 0
   });
 
   const [documentUploads, setDocumentUploads] = useState<any[]>([]);
@@ -64,6 +65,13 @@ const AccountingDashboard = () => {
   const [pettyCashThreshold, setPettyCashThreshold] = useState(5000);
   const [selectedDeptForPetty, setSelectedDeptForPetty] = useState('');
   const [pettyCashHistory, setPettyCashHistory] = useState<any[]>([]);
+  const [pettyCashForm, setPettyCashForm] = useState({ action: 'replenish', amount: '', purpose: '' });
+
+  const [delegations, setDelegations] = useState<any[]>([]);
+  const [fiscalHistory, setFiscalHistory] = useState<any[]>([]);
+  const [rolloverTargetYear, setRolloverTargetYear] = useState(new Date().getFullYear() + 1);
+  const [rolloverNote, setRolloverNote] = useState('');
+  const [isRolloverLoading, setIsRolloverLoading] = useState(false);
 
   // Release Tracking
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
@@ -95,9 +103,7 @@ const AccountingDashboard = () => {
 
     const fetchUser = async () => {
       try {
-        const res = await api.get('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await api.get('/api/auth/me');
         setUser(res.data);
       } catch {
         toast.error('Failed to load user data');
@@ -132,6 +138,25 @@ const AccountingDashboard = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const storedThreshold = Number(localStorage.getItem('pettyCashThreshold') || '');
+    if (storedThreshold > 0) {
+      setPettyCashThreshold(storedThreshold);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role === 'accounting' || user.role === 'admin') {
+      void fetchDelegations();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!departments.length) return;
+    checkPettyCashAlerts();
+  }, [departments, pettyCashThreshold]);
+
   const loadAllData = async () => {
     setLoading(true);
     try {
@@ -143,6 +168,7 @@ const AccountingDashboard = () => {
         fetchAuditLogs(),
         fetchDocumentUploads(),
       ]);
+      await fetchFiscalHistory();
       computeStats(pending, depts, uploads, allReqs);
       computeNotifications(uploads || [], allReqs || []);
     } catch (err) {
@@ -153,8 +179,7 @@ const AccountingDashboard = () => {
   };
 
   const computeNotifications = (uploads: any[], allReqs: any[]) => {
-    // Document uploads awaiting accounting
-    const newDocUploads = (uploads || []).filter(u => ['submitted', 'pending_review', 'submitted_to_accounting'].includes(u.status));
+      // Budget override records awaiting accounting
 
     // Reimbursements and cash advances pending accounting
     const reimbursements = (allReqs || []).filter((r: any) => String(r.request_type) === 'reimbursement' && r.status === 'pending_accounting');
@@ -168,19 +193,25 @@ const AccountingDashboard = () => {
       return Boolean(anySubmitted);
     });
 
+    const cashReturns = (allReqs || []).filter((r: any) => {
+      const latest = r.latest_liquidation || r.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+      return latest?.cash_return_status === 'pending_return';
+    });
+
     const toItems = (rows: any[], type: string) => rows.slice(0, 5).map((r: any) => ({ id: r.id || r.upload_id || r.request_code, title: r.category_name || r.request_code || r.category_code || r.title || (r.description && String(r.description).slice(0, 40)), amount: r.amount || r.amount_issued || r.actual_amount || null, type }));
 
     setNotifications([
-      { key: 'document_uploads', label: 'Document Uploads', count: newDocUploads.length, items: toItems(newDocUploads, 'document_upload') },
+      { key: 'document_uploads', label: 'Budget Override', count: uploads.length, items: toItems(uploads, 'document_upload') },
       { key: 'reimbursements', label: 'Reimbursements', count: reimbursements.length, items: toItems(reimbursements, 'reimbursement') },
       { key: 'cash_advances', label: 'Cash Advances', count: cashAdvances.length, items: toItems(cashAdvances, 'cash_advance') },
       { key: 'liquidations', label: 'Liquidations', count: liquidations.length, items: toItems(liquidations, 'liquidation') },
+      { key: 'cash_returns', label: 'Cash Returns', count: cashReturns.length, items: toItems(cashReturns, 'cash_return') },
     ]);
   };
 
   const fetchAllRequests = async () => {
     const token = localStorage.getItem('token');
-    const res = await api.get('/api/requests', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await api.get('/api/requests');
     const data = res.data || [];
     setAllRequests(data);
     return data;
@@ -188,7 +219,7 @@ const AccountingDashboard = () => {
 
   const fetchDepartments = async () => {
     const token = localStorage.getItem('token');
-    const res = await api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await api.get('/api/departments');
     const data = res.data || [];
     setDepartments(data);
     return data;
@@ -196,9 +227,7 @@ const AccountingDashboard = () => {
 
   const fetchPendingReleases = async () => {
     const token = localStorage.getItem('token');
-    const res = await api.get('/api/requests', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const res = await api.get('/api/requests');
     const data = res.data || [];
     setPendingReleases(data);
     return data.filter((r: any) => r.status === 'pending_accounting' || r.status === 'on_hold');
@@ -206,16 +235,92 @@ const AccountingDashboard = () => {
 
   const fetchDocumentUploads = async () => {
     const token = localStorage.getItem('token');
-    const res = await api.get('/api/document-uploads', { headers: { Authorization: `Bearer ${token}` } });
+    const res = await api.get('/api/document-uploads');
     const data = res.data || [];
     setDocumentUploads(data);
     return data;
+  };
+
+  const fetchDelegations = async () => {
+    try {
+      const res = await api.get('/api/auth/delegations');
+      const data = res.data || [];
+      setDelegations(data);
+      return data;
+    } catch {
+      setDelegations([]);
+      return [];
+    }
+  };
+
+  const fetchFiscalHistory = async () => {
+    try {
+      const res = await api.get('/api/fiscal-year/history');
+      const data = res.data || [];
+      setFiscalHistory(data);
+      return data;
+    } catch {
+      setFiscalHistory([]);
+      return [];
+    }
+  };
+
+  const submitPettyCashAction = async () => {
+    if (!selectedDeptForPetty) {
+      toast.error('Select a department first');
+      return;
+    }
+
+    const amount = toNumber(pettyCashForm.amount);
+    const purpose = String(pettyCashForm.purpose || '').trim();
+    if (!purpose) {
+      toast.error('Reason is required');
+      return;
+    }
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+
+    let endpoint = '/api/petty-cash/replenish';
+    if (pettyCashForm.action === 'disburse') {
+      endpoint = '/api/petty-cash/disburse';
+    } else if (pettyCashForm.action === 'adjust') {
+      endpoint = '/api/petty-cash/adjust';
+    }
+
+    try {
+      await api.post(endpoint, {
+        department_id: selectedDeptForPetty,
+        amount,
+        purpose
+      });
+
+      toast.success(
+        pettyCashForm.action === 'replenish'
+          ? 'Petty cash replenished successfully.'
+          : pettyCashForm.action === 'disburse'
+            ? 'Petty cash disbursement recorded.'
+            : 'Petty cash adjustment saved.'
+      );
+
+      setPettyCashForm({ action: pettyCashForm.action, amount: '', purpose: '' });
+      await fetchDepartments();
+      await fetchPettyCashHistory(selectedDeptForPetty);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to update petty cash'));
+    }
   };
 
   const computeStats = (pending: any[], depts: any[], uploads: any[] = [], allReqs: any[] = []) => {
     const today = new Date().toISOString().slice(0, 10);
     const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
     const alerts = depts.filter(d => toNumber(d.petty_cash_balance) < pettyCashThreshold * 0.5).length;
+    const pendingCashReturns = allReqs.filter((r: any) => {
+      const latest = r.latest_liquidation || r.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+      return latest?.cash_return_status === 'pending_return';
+    }).length;
+
     setStats({
       total_pending: pending.length,
       total_released_today: allReqs.filter(r => r.status === 'released' && r.released_at?.startsWith(today)).length,
@@ -223,6 +328,7 @@ const AccountingDashboard = () => {
       petty_cash_alerts: alerts,
       on_hold_count: pending.filter(r => r.status === 'on_hold').length,
       pending_document_uploads: uploads.filter((row) => row.status === 'submitted' || row.status === 'pending_review').length,
+      pending_cash_returns: pendingCashReturns,
     });
   };
 
@@ -255,9 +361,7 @@ const AccountingDashboard = () => {
     if (!deptId) return;
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get(`/api/petty-cash/${deptId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get(`/api/petty-cash/${deptId}`);
       setPettyCashHistory(res.data || []);
     } catch {
       toast.error('Failed to load petty cash history');
@@ -266,9 +370,7 @@ const AccountingDashboard = () => {
 
   const fetchReconciliationItems = async () => {
     const token = localStorage.getItem('token');
-    const res = await api.get('/api/requests', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const res = await api.get('/api/requests');
     
     const items: ReconciliationItem[] = (res.data || [])
       .filter((req: any) => req.status === 'released')
@@ -290,9 +392,7 @@ const AccountingDashboard = () => {
   const fetchAuditLogs = async () => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get('/api/requests/audit-logs', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get('/api/requests/audit-logs');
       setAuditLogs(res.data || []);
     } catch {
       // Audit logs endpoint might not exist yet
@@ -341,8 +441,7 @@ const AccountingDashboard = () => {
       for (const requestId of requestsToRelease) {
         await api.patch(
           `/api/requests/${requestId}/release`,
-          { release_method: 'bank_transfer', release_reference_no: `BATCH-${Date.now()}` },
-          { headers: { Authorization: `Bearer ${token}` } }
+          { release_method: 'bank_transfer', release_reference_no: `BATCH-${Date.now()}` }
         );
       }
       
@@ -359,9 +458,7 @@ const AccountingDashboard = () => {
   const toggleOnHold = async (requestId: string) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.patch(`/api/requests/${requestId}/hold`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.patch(`/api/requests/${requestId}/hold`, {});
       const newStatus = res.data.status;
       toast.success(newStatus === 'on_hold' ? 'Request placed On Hold' : 'Request removed from On Hold');
       loadAllData(); // Refresh all data
@@ -387,8 +484,7 @@ const AccountingDashboard = () => {
     try {
       await api.patch(
         `/api/requests/${requestId}/reconcile`,
-        { reconciled, discrepancy_note: note },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { reconciled, discrepancy_note: note }
       );
       toast.success(reconciled ? 'Marked as reconciled' : 'Reconciliation removed');
       fetchReconciliationItems();
@@ -458,6 +554,26 @@ const AccountingDashboard = () => {
     });
   }, [auditLogs, auditFilter]);
 
+  const selectedDeptBalance = useMemo(() => {
+    return toNumber(departments.find(d => d.id === selectedDeptForPetty)?.petty_cash_balance);
+  }, [departments, selectedDeptForPetty]);
+
+  const pettyCashHistoryWithBalances = useMemo(() => {
+    let currentBalance = selectedDeptBalance;
+    return pettyCashHistory.map((tx) => {
+      const amount = toNumber(tx.amount);
+      const effect = tx.type === 'disbursement' ? -amount : amount;
+      const balance_after = currentBalance;
+      currentBalance -= effect;
+      return { ...tx, balance_after };
+    });
+  }, [pettyCashHistory, selectedDeptBalance]);
+
+  const activeDelegations = useMemo(() => {
+    const now = new Date().toISOString();
+    return delegations.filter((delegation) => delegation.active && delegation.starts_at <= now && (!delegation.ends_at || delegation.ends_at >= now));
+  }, [delegations]);
+
   if (user?.role !== 'accounting' && user?.role !== 'admin') {
     return (
       <div className="panel text-center py-12">
@@ -481,10 +597,13 @@ const AccountingDashboard = () => {
           { key: 'petty_cash', label: 'Petty Cash', icon: (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           )},
+          ...(user?.role === 'accounting' ? [{ key: 'fiscal_year', label: 'Fiscal Year', icon: (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0 0a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2v-4zM6 8h2a2 2 0 012 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V10a2 2 0 012-2z" /></svg>
+          )}] : []),
           { key: 'audit', label: 'Audit Trail', icon: (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
           )},
-          { key: 'document_uploads', label: `Document Uploads${stats.pending_document_uploads > 0 ? ` (${stats.pending_document_uploads})` : ''}`, icon: (
+          { key: 'document_uploads', label: `Budget Override${stats.pending_document_uploads > 0 ? ` (${stats.pending_document_uploads})` : ''}`, icon: (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
           )}
         ].map(tab => (
@@ -523,7 +642,7 @@ const AccountingDashboard = () => {
               <p className="mt-1 text-xs text-[var(--role-text)]/50">Processed disbursements</p>
             </div>
             <div className="panel !p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Document Uploads</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Budget Override</p>
               <p className={`mt-2 text-3xl font-bold ${stats.pending_document_uploads > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{stats.pending_document_uploads}</p>
               <p className="mt-1 text-xs text-[var(--role-text)]/50">
                 <button type="button" onClick={() => setActiveTab('document_uploads')} className="text-[var(--role-primary)] hover:underline">
@@ -532,16 +651,49 @@ const AccountingDashboard = () => {
               </p>
             </div>
             <div className="panel !p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Cash Returns</p>
+              <p className={`mt-2 text-3xl font-bold ${stats.pending_cash_returns > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{stats.pending_cash_returns}</p>
+              <p className="mt-1 text-xs text-[var(--role-text)]/50">Pending confirmation</p>
+            </div>
+            <div className="panel !p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">On Hold</p>
               <p className={`mt-2 text-3xl font-bold ${stats.on_hold_count > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{stats.on_hold_count}</p>
               <p className="mt-1 text-xs text-[var(--role-text)]/50">Temporarily held</p>
             </div>
           </div>
 
+          {activeDelegations.length > 0 && (
+            <div className="panel">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Active Delegations</h3>
+                  <p className="text-sm text-[var(--role-text)]/60">Current VP/President delegations in effect.</p>
+                </div>
+                <button className="btn-secondary" onClick={fetchDelegations}>Refresh</button>
+              </div>
+              <div className="grid gap-3">
+                {activeDelegations.map((delegation) => (
+                  <div key={delegation.id} className="rounded-3xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                    <p className="font-semibold">{delegation.delegated_role.toUpperCase()} delegated to {delegation.delegate_name || delegation.delegate_id}</p>
+                    <p className="text-sm text-[var(--role-text)]/60">
+                      {formatDateTime(delegation.starts_at)}{delegation.ends_at ? ` → ${formatDateTime(delegation.ends_at)}` : ' (Open ended)'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Notifications Panel */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             {notifications.map((n) => {
-              const to = n.key === 'document_uploads' ? '/document-uploads' : n.key === 'liquidations' ? '/approvals?view=liquidations' : `/requests?type=${n.key === 'reimbursements' ? 'reimbursement' : 'cash_advance'}`;
+              const to = n.key === 'document_uploads'
+                ? '/document-uploads'
+                : n.key === 'liquidations'
+                  ? '/approvals?view=liquidations'
+                  : n.key === 'cash_returns'
+                    ? '/approvals?view=cash_returns'
+                    : `/requests?type=${n.key === 'reimbursements' ? 'reimbursement' : 'cash_advance'}`;
               return (
                 <div key={n.key} className="panel">
                   <div className="flex items-start justify-between">
@@ -681,30 +833,81 @@ const AccountingDashboard = () => {
             {selectedDeptForPetty ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--role-accent)]">
-                  <p className="font-medium">Current Balance</p>
+                  <div>
+                    <p className="font-medium">Current Balance</p>
+                    <p className="text-sm text-[var(--role-text)]/60">For {departments.find(d => d.id === selectedDeptForPetty)?.name}</p>
+                  </div>
                   <p className="text-2xl font-bold">
-                    {formatMoney(toNumber(departments.find(d => d.id === selectedDeptForPetty)?.petty_cash_balance))}
+                    {formatMoney(selectedDeptBalance)}
                   </p>
                 </div>
 
-                {pettyCashHistory.length === 0 ? (
+                <div className="panel bg-[var(--role-accent)]">
+                  <h3 className="text-lg font-semibold mb-4">Petty Cash Management</h3>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div>
+                      <label className="field-label">Action</label>
+                      <select
+                        className="field-input w-full"
+                        value={pettyCashForm.action}
+                        onChange={(e) => setPettyCashForm(prev => ({ ...prev, action: e.target.value as 'replenish' | 'disburse' | 'adjust' }))}
+                      >
+                        <option value="replenish">Replenish</option>
+                        <option value="disburse">Disburse</option>
+                        <option value="adjust">Manual Adjustment</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="field-label">Amount</label>
+                      <input
+                        type="number"
+                        className="field-input w-full"
+                        value={pettyCashForm.amount}
+                        onChange={(e) => setPettyCashForm(prev => ({ ...prev, amount: e.target.value }))}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label">Purpose</label>
+                      <input
+                        type="text"
+                        className="field-input w-full"
+                        value={pettyCashForm.purpose}
+                        onChange={(e) => setPettyCashForm(prev => ({ ...prev, purpose: e.target.value }))}
+                        placeholder={pettyCashForm.action === 'disburse' ? 'Reason for disbursement' : pettyCashForm.action === 'adjust' ? 'Adjustment reason' : 'Reason for replenishment'}
+                      />
+                    </div>
+                  </div>
+                  <button
+                    className="btn-primary mt-4"
+                    onClick={submitPettyCashAction}
+                  >
+                    {pettyCashForm.action === 'replenish' ? 'Replenish Funds' : pettyCashForm.action === 'disburse' ? 'Record Disbursement' : 'Apply Adjustment'}
+                  </button>
+                </div>
+
+                {pettyCashHistoryWithBalances.length === 0 ? (
                   <p className="text-[var(--role-text)]/60 text-center py-8">No petty cash transactions found.</p>
                 ) : (
                   <div className="space-y-2">
-                    {pettyCashHistory.map((tx: any) => (
-                      <div key={tx.id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--role-border)]">
-                        <div className="flex items-center gap-3">
-                          <span className={`w-2 h-2 rounded-full ${tx.type === 'replenishment' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                          <div>
-                            <p className="font-medium capitalize">{tx.type}</p>
-                            <p className="text-sm text-[var(--role-text)]/60">{tx.purpose}</p>
+                    {pettyCashHistoryWithBalances.map((tx: any) => (
+                      <div key={tx.id} className="grid gap-2 sm:grid-cols-[1fr_0.8fr_0.8fr] items-center p-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)]">
+                        <div>
+                          <div className="flex items-center gap-3">
+                            <span className={`w-2 h-2 rounded-full ${tx.type === 'replenishment' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                            <p className="font-medium capitalize mb-0">{tx.type}</p>
                           </div>
+                          <p className="text-sm text-[var(--role-text)]/60">{tx.purpose}</p>
                         </div>
                         <div className="text-right">
                           <p className={`font-semibold ${tx.type === 'replenishment' ? 'text-emerald-600' : 'text-amber-600'}`}>
                             {tx.type === 'replenishment' ? '+' : '-'}{formatMoney(toNumber(tx.amount))}
                           </p>
                           <p className="text-xs text-[var(--role-text)]/60">{formatDateTime(tx.transaction_date)}</p>
+                        </div>
+                        <div className="text-right text-sm text-[var(--role-text)]/70">
+                          <p className="font-medium">Balance after</p>
+                          <p>{formatMoney(tx.balance_after)}</p>
                         </div>
                       </div>
                     ))}
@@ -725,7 +928,13 @@ const AccountingDashboard = () => {
                 type="number"
                 className="field-input w-40"
                 value={pettyCashThreshold}
-                onChange={(e) => setPettyCashThreshold(Number(e.target.value))}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  setPettyCashThreshold(value);
+                  if (!Number.isNaN(value) && value > 0) {
+                    localStorage.setItem('pettyCashThreshold', String(value));
+                  }
+                }}
               />
               <button onClick={checkPettyCashAlerts} className="btn-secondary">
                 Update Alerts
@@ -734,6 +943,132 @@ const AccountingDashboard = () => {
             <p className="text-sm text-[var(--role-text)]/60 mt-2">
               Alerts trigger when balance falls below 50% (warning) or 20% (critical) of this threshold.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* FISCAL YEAR ROLLOVER TAB */}
+      {activeTab === 'fiscal_year' && (
+        <div className="space-y-6 animate-fade-in-up">
+          <div className="grid gap-4 lg:grid-cols-[1.4fr_0.9fr]">
+            <div className="panel">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Fiscal Year Summary</h3>
+                  <p className="text-sm text-[var(--role-text)]/60">Review current year totals and rollover history.</p>
+                </div>
+                <div>
+                  <span className="text-sm text-[var(--role-text)]/60">Next target: FY {rolloverTargetYear}</span>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-3xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50">Current Fiscal Year</p>
+                  <p className="mt-2 text-2xl font-bold text-[var(--role-text)]">{Math.max(...departments.map(d => Number(d.fiscal_year)), new Date().getFullYear())}</p>
+                </div>
+                <div className="rounded-3xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50">Total Budget</p>
+                  <p className="mt-2 text-2xl font-bold text-[var(--role-primary)]">{formatMoney(departments.reduce((sum, dept) => sum + toNumber(dept.annual_budget), 0))}</p>
+                </div>
+                <div className="rounded-3xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50">Total Spent</p>
+                  <p className="mt-2 text-2xl font-bold text-[var(--role-text)]">{formatMoney(departments.reduce((sum, dept) => sum + toNumber(dept.used_budget), 0))}</p>
+                </div>
+                <div className="rounded-3xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50">Departments</p>
+                  <p className="mt-2 text-2xl font-bold text-[var(--role-text)]">{departments.filter(d => Number(d.fiscal_year) === Math.max(...departments.map(d => Number(d.fiscal_year)), new Date().getFullYear())).length}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="panel">
+              <h3 className="text-lg font-semibold mb-4">Rollover Settings</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="field-label">Target Fiscal Year</label>
+                  <input
+                    type="number"
+                    className="field-input w-full"
+                    value={rolloverTargetYear}
+                    onChange={(e) => setRolloverTargetYear(Number(e.target.value))}
+                    min={new Date().getFullYear() + 1}
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Note</label>
+                  <textarea
+                    className="field-input h-28"
+                    value={rolloverNote}
+                    onChange={(e) => setRolloverNote(e.target.value)}
+                    placeholder="Optional note for the rollover event"
+                  />
+                </div>
+                <button
+                  className="btn-primary w-full"
+                  onClick={async () => {
+                    if (rolloverTargetYear <= Math.max(...departments.map(d => Number(d.fiscal_year)), new Date().getFullYear())) {
+                      toast.error('Target year must be greater than current fiscal year.');
+                      return;
+                    }
+                    if (!window.confirm(`Roll over budgets to FY ${rolloverTargetYear}? This will create new year departments and categories.`)) {
+                      return;
+                    }
+                    setIsRolloverLoading(true);
+                    try {
+                      await api.post('/api/fiscal-year/rollover', { target_year: rolloverTargetYear, note: rolloverNote });
+                      toast.success(`Rollover to FY ${rolloverTargetYear} completed.`);
+                      await fetchDepartments();
+                      await fetchFiscalHistory();
+                    } catch (err: any) {
+                      toast.error(getErrorMessage(err, 'Failed to perform fiscal rollover'));
+                    } finally {
+                      setIsRolloverLoading(false);
+                    }
+                  }}
+                >
+                  {isRolloverLoading ? 'Rolling Over...' : `Roll Over to FY ${rolloverTargetYear}`}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold">Rollover History</h3>
+                <p className="text-sm text-[var(--role-text)]/60">Past fiscal year rollover events.</p>
+              </div>
+              <button className="btn-secondary" onClick={fetchFiscalHistory}>Refresh</button>
+            </div>
+            {fiscalHistory.length === 0 ? (
+              <p className="text-[var(--role-text)]/60">No rollover history available.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-[var(--role-border)] text-[var(--role-text)]/60 uppercase tracking-[0.14em] text-xs">
+                    <tr>
+                      <th className="py-3 text-left">From Year</th>
+                      <th className="py-3 text-left">To Year</th>
+                      <th className="py-3 text-left">Actor</th>
+                      <th className="py-3 text-left">Date</th>
+                      <th className="py-3 text-left">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--role-border)]">
+                    {fiscalHistory.map((row) => (
+                      <tr key={row.id}>
+                        <td className="py-3">{row.from_year}</td>
+                        <td className="py-3">{row.to_year}</td>
+                        <td className="py-3">{row.actor_id || 'Unknown'}</td>
+                        <td className="py-3">{formatDateTime(row.created_at)}</td>
+                        <td className="py-3">{row.note || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1005,26 +1340,26 @@ const AccountingDashboard = () => {
         </div>
       )}
 
-      {/* DOCUMENT UPLOADS TAB */}
+      {/* BUDGET OVERRIDE TAB */}
       {activeTab === 'document_uploads' && (
         <div className="space-y-6 animate-fade-in-up">
           <div className="panel flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="text-lg font-bold text-[var(--role-text)]">Employee Document Uploads</h3>
+              <h3 className="text-lg font-bold text-[var(--role-text)]">Employee Budget Overrides</h3>
               <p className="text-sm text-[var(--role-text)]/60">
                 Upload-only expense items submitted by employees appear here for accounting review.
               </p>
             </div>
             <Link to="/document-uploads" className="btn-primary whitespace-nowrap">
-              Open Full Review Page
+              Open Full Budget Override Page
             </Link>
           </div>
 
-          <div className="panel overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b border-[var(--role-border)]">
-                <tr className="text-left text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/60">
-                  <th className="pb-3 pr-4">Submitted</th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-[var(--role-border)] text-[var(--role-text)]/60 uppercase tracking-[0.14em] text-xs">
+                <tr>
+                  <th className="pb-3 pr-4">Date</th>
                   <th className="pb-3 pr-4">Main Category</th>
                   <th className="pb-3 pr-4">Sub-category</th>
                   <th className="pb-3 pr-4">Description</th>
@@ -1038,7 +1373,7 @@ const AccountingDashboard = () => {
                 {documentUploads.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-[var(--role-text)]/60">
-                      No document uploads yet.
+                      No budget overrides yet.
                     </td>
                   </tr>
                 ) : (

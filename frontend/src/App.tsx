@@ -19,6 +19,7 @@ import BudgetManagement from './pages/BudgetManagement';
 import NewRequestForm from './pages/NewRequestForm';
 import CashAdvanceAging from './pages/CashAdvanceAging';
 import AuditTrail from './pages/AuditTrail';
+import Delegations from './pages/Delegations';
 import DocumentUploads from './pages/DocumentUploads';
 
 function App() {
@@ -44,6 +45,7 @@ function App() {
               <Route path="/approvals" element={<Approvals />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/accounting" element={<AccountingDashboard />} />
+              <Route path="/delegations" element={<Delegations />} />
               <Route path="/management" element={<ManagementDashboard />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/profile" element={<Profile />} />

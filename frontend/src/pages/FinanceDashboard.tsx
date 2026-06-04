@@ -40,19 +40,13 @@ const FinanceDashboard = () => {
   const [departments, setDepartments] = useState<any[]>([]);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-
     const loadData = async () => {
       try {
         const [userRes, summaryRes, budgetRes, deptsRes] = await Promise.all([
-          api.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/api/budget/summary', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/api/budget/monitoring', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/api/departments', { headers: { Authorization: `Bearer ${token}` } })
+          api.get('/api/auth/me'),
+          api.get('/api/budget/summary'),
+          api.get('/api/budget/monitoring'),
+          api.get('/api/departments')
         ]);
 
         setUser(userRes.data);
@@ -86,6 +80,31 @@ const FinanceDashboard = () => {
       if (channel && supabase) void supabase.removeChannel(channel);
     };
   }, [navigate]);
+
+  const exportBudgetCsv = () => {
+    const headers = ['Category', 'Department', 'Budget', 'Actual', 'Committed', 'Remaining', 'Utilization'];
+    const rows = filteredBudgetData.map((item) => [
+      item.category_name,
+      item.department_name,
+      item.budget.toFixed(2),
+      item.actual.toFixed(2),
+      item.committed.toFixed(2),
+      item.remaining.toFixed(2),
+      `${item.utilization_pct}%`
+    ]);
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `budget_vs_actual_${selectedDepartment || 'all'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const filteredBudgetData = selectedDepartment === 'all' 
     ? budgetData 
@@ -255,19 +274,43 @@ const FinanceDashboard = () => {
             Budget vs Actual
           </h2>
           
-          <select
-            value={selectedDepartment}
-            onChange={(e) => setSelectedDepartment(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
-          >
-            <option value="all">All Departments</option>
-            {departments.map(dept => (
-              <option key={dept.id} value={dept.name}>{dept.name}</option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+            >
+              <option value="all">All Departments</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.name}>{dept.name}</option>
+              ))}
+            </select>
+            <button onClick={exportBudgetCsv} className="btn-secondary text-sm">
+              Export CSV
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await api.get(`/api/budget/monitoring?fiscal_year=&format=pdf`, { responseType: 'blob' });
+                  const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', `budget_vs_actual_${new Date().getFullYear()}.pdf`);
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                  window.URL.revokeObjectURL(url);
+                } catch (err: any) {
+                  toast.error(getErrorMessage(err, 'Failed to export PDF'));
+                }
+              }}
+              className="btn-secondary text-sm"
+            >
+              Export PDF
+            </button>
+          </div>
         </div>
 
-        {/* Legend */}
         <div className="flex flex-wrap gap-4 mb-4 text-sm text-[var(--role-text)]/70">
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
