@@ -250,6 +250,12 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
 
   let categories: any[] = [];
   try {
+    console.log(`[budget-breakdown] Calling loadBudgetCategoriesForBreakdown with:`, {
+      relatedDepartmentIds: relatedDepartmentIds,
+      fiscalYear: Number(selectedDepartment.fiscal_year),
+      departmentId: departmentId,
+      selectedDepartmentName: selectedDepartment.name
+    });
     categories = await loadBudgetCategoriesForBreakdown(
       supabase,
       relatedDepartmentIds,

@@ -64,6 +64,11 @@ const fetchCategoriesForDepartments = async (
 ) => {
   if (!departmentIds.length) return [] as CategoryRow[];
 
+  console.log(`[fetchCategoriesForDepartments] Querying budget_categories with:`, {
+    departmentIds: departmentIds,
+    departmentIdsCount: departmentIds.length,
+    fiscalYear: fiscalYear
+  });
   const { data, error } = await supabase
     .from('budget_categories')
     .select(
@@ -73,7 +78,21 @@ const fetchCategoriesForDepartments = async (
     .eq('fiscal_year', fiscalYear)
     .order('category_name');
 
-  if (error) throw error;
+  if (error) {
+    console.error(`[fetchCategoriesForDepartments] Query error:`, error);
+    throw error;
+  }
+  console.log(`[fetchCategoriesForDepartments] Query returned ${data?.length || 0} categories`);
+  if (data && data.length > 0) {
+    console.log(`[fetchCategoriesForDepartments] Sample category:`, {
+      id: data[0].id,
+      category_code: data[0].category_code,
+      category_name: data[0].category_name,
+      department_id: data[0].department_id,
+      fiscal_year: data[0].fiscal_year,
+      budget_amount: data[0].budget_amount
+    });
+  }
   return (data || []) as CategoryRow[];
 };
 
@@ -476,16 +495,23 @@ export const loadBudgetCategoriesForBreakdown = async (
   fiscalYear: number,
   primaryDepartmentId: string
 ) => {
+  console.log(`[loadBudgetCategoriesForBreakdown] Fetching categories for departmentIds: ${departmentIds.length}, fiscalYear: ${fiscalYear}, primaryDepartmentId: ${primaryDepartmentId}`);
   let categories = await fetchCategoriesForDepartments(supabase, departmentIds, fiscalYear);
+  console.log(`[loadBudgetCategoriesForBreakdown] Fetched ${categories.length} categories from database`);
 
+  // Only attempt restore if truly no categories exist
   if (!categories.length) {
+    console.log(`[loadBudgetCategoriesForBreakdown] No categories found in database, attempting restore from other sources`);
     const { restored, categories: restoredCategories } = await restoreBudgetCategoriesIfEmpty(
       supabase,
       primaryDepartmentId
     );
+    console.log(`[loadBudgetCategoriesForBreakdown] Restore result: restored=${restored}, categories=${restoredCategories.length}`);
     if (restored) {
       categories = restoredCategories;
     }
+  } else {
+    console.log(`[loadBudgetCategoriesForBreakdown] Categories found in database (${categories.length} records), using existing data without restore`);
   }
 
   // Sync expense categories as sub-categories in budget_categories (optimized to avoid timeout)
