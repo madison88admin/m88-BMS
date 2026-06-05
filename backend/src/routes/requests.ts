@@ -1720,7 +1720,7 @@ router.get('/:id/items', authenticate, async (req: any, res) => {
     // Fetch individual items
     const { data: items, error: itemsError } = await supabase
       .from('request_items')
-      .select('id, description, item_name, amount')
+      .select('id, item_name, amount')
       .eq('request_id', req.params.id)
       .order('created_at', { ascending: true });
     
@@ -1728,10 +1728,10 @@ router.get('/:id/items', authenticate, async (req: any, res) => {
       return res.status(400).json({ error: itemsError });
     }
     
-    // Return items (use description if available, fall back to item_name)
+    // Return items
     res.json((items || []).map(item => ({
       id: item.id,
-      description: item.description || item.item_name,
+      description: item.item_name,
       item_name: item.item_name,
       amount: item.amount
     })));
@@ -3024,13 +3024,12 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
     for (let i = 0; i < items.length && i < existingItemIds.length; i++) {
       const item = items[i];
       const itemAmount = toNumber(item.amount);
-      const itemDescription = toText(item.description || item.item_name || '');
+      const itemName = toText(item.description || item.item_name || '');
       
       await supabase
         .from('request_items')
         .update({
-          description: itemDescription,
-          item_name: itemDescription,
+          item_name: itemName,
           amount: itemAmount,
           updated_at: new Date()
         })
@@ -3041,11 +3040,8 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
     if (items.length > existingItemIds.length) {
       const newItems = items.slice(existingItemIds.length).map((item: any) => ({
         request_id: id,
-        description: toText(item.description || item.item_name || ''),
         item_name: toText(item.description || item.item_name || ''),
-        amount: toNumber(item.amount),
-        created_at: new Date(),
-        updated_at: new Date()
+        amount: toNumber(item.amount)
       }));
       
       await supabase.from('request_items').insert(newItems);
