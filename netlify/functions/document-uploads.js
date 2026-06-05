@@ -272,6 +272,47 @@ exports.handler = async (event) => {
         await notifyAccounting(
           `New budget allocation submitted: ${inserted.category_code} ${inserted.category_name} (${formatMoney(amount)}).`
         );
+      } else {
+        // For finance roles submitting budget override, directly update the budget_amount in budget_categories
+        const { data: existingCategory, error: categoryError } = await supabase
+          .from('budget_categories')
+          .select('id, budget_amount, used_amount, committed_amount')
+          .eq('department_id', inserted.department_id)
+          .eq('fiscal_year', inserted.fiscal_year)
+          .eq('category_code', inserted.category_code)
+          .maybeSingle();
+
+        if (!categoryError && existingCategory) {
+          const newBudgetAmount = toNumber(inserted.amount);
+          const usedAmount = toNumber(existingCategory.used_amount);
+          const committedAmount = toNumber(existingCategory.committed_amount);
+          const newRemainingAmount = Math.max(0, newBudgetAmount - usedAmount - committedAmount);
+
+          await supabase
+            .from('budget_categories')
+            .update({
+              budget_amount: newBudgetAmount,
+              remaining_amount: newRemainingAmount,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingCategory.id);
+        } else if (!categoryError && !existingCategory) {
+          // Create new budget category if it doesn't exist
+          await supabase
+            .from('budget_categories')
+            .insert({
+              department_id: inserted.department_id,
+              fiscal_year: inserted.fiscal_year,
+              category_code: inserted.category_code,
+              category_name: inserted.category_name,
+              budget_amount: toNumber(inserted.amount),
+              used_amount: 0,
+              committed_amount: 0,
+              remaining_amount: toNumber(inserted.amount),
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+        }
       }
       await logAuditEvent({
         user,
