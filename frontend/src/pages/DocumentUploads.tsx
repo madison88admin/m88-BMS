@@ -167,37 +167,24 @@ const DocumentUploads = () => {
       return;
     }
     if (!amount || Number.parseFloat(amount) <= 0) {
-      toast.error('Please enter a new budget amount');
-      return;
-    }
-    if (currentBudgetInfo && Number.parseFloat(amount) < (currentBudgetInfo.used_amount || 0)) {
-      toast.error(`Cannot set budget below used amount of ₱${formatMoney(currentBudgetInfo.used_amount)}`);
+      toast.error('Please enter a valid override amount');
       return;
     }
 
     setSubmitting(true);
     try {
-      const newBudgetAmount = Number.parseFloat(amount);
-
-      if (!currentBudgetInfo?.id) {
-        throw new Error('Selected category is not yet set up in Budget Categories. Please create it first in Budget Setup.');
-      }
-
-      await api.put(`/api/budget/categories/${currentBudgetInfo.id}`, {
-        budget_amount: newBudgetAmount,
-        remarks: description,
-      });
+      const overrideAmount = Number.parseFloat(amount);
 
       await api.post('/api/document-uploads', {
         category_code: selectedCode,
         department_id: selectedDepartment,
         description,
-        amount: newBudgetAmount,
+        amount: overrideAmount,
         fiscal_year: fiscalYear,
         adjustment_type: adjustmentType,
       });
 
-      toast.success('Budget updated successfully');
+      toast.success('Budget override submitted successfully');
       setSelectedDepartment('');
       setMainCategory('');
       setSelectedCode('');
@@ -208,7 +195,7 @@ const DocumentUploads = () => {
       setActiveTab('history');
       await fetchHistory(false);
     } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to apply budget allocation'));
+      toast.error(getErrorMessage(err, 'Failed to submit budget override'));
     } finally {
       setSubmitting(false);
     }
@@ -300,13 +287,13 @@ const DocumentUploads = () => {
   return (
     <div className="text-[var(--role-text)] page-transition">
       <div className="page-header">
-        <h1 className="page-title">Budget Allocation</h1>
-        <p className="page-subtitle">Allocate and override category budgets</p>
+        <h1 className="page-title">Budget Override</h1>
+        <p className="page-subtitle">Create a budget override request for accounting review</p>
       </div>
 
       <div className="flex gap-2 mb-6">
         {[
-          { key: 'submit', label: 'Set Budget' },
+          { key: 'submit', label: 'Submit Override' },
           { key: 'history', label: 'History' },
         ].map((tab) => (
           <button
@@ -471,7 +458,7 @@ const DocumentUploads = () => {
           </div>
 
           <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">New Budget Amount *</label>
+            <label className="block text-sm font-medium mb-2">Override Amount *</label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--role-text)]/50 text-sm">₱</span>
               <input
@@ -525,7 +512,7 @@ const DocumentUploads = () => {
               Cancel
             </button>
             <button type="submit" disabled={submitting} className="btn-primary px-8 flex-1">
-              {submitting ? 'Applying...' : 'Apply Budget Allocation'}
+              {submitting ? 'Submitting...' : 'Submit Budget Override'}
             </button>
           </div>
         </form>

@@ -692,12 +692,17 @@ router.get('/delegation-candidates', authenticate, async (req: any, res) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('users')
     .select('id, name, role, department_id')
     .neq('id', req.user.id)
     .order('name', { ascending: true });
 
+  if (req.user.role === 'vp' || req.user.role === 'president') {
+    query = query.eq('role', 'accounting');
+  }
+
+  const { data, error } = await query;
   if (error) return res.status(400).json({ error });
   res.json(data || []);
 });
@@ -805,6 +810,22 @@ router.post('/delegations', authenticate, async (req: any, res) => {
   const normalizedRole = String(delegated_role || '').trim();
   if (!['supervisor', 'vp', 'president'].includes(normalizedRole)) {
     return res.status(400).json({ error: 'Delegated role must be supervisor, vp, or president.' });
+  }
+
+  if (req.user.role === 'vp' || req.user.role === 'president') {
+    const { data: delegateUser, error: delegateError } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', delegate_id)
+      .maybeSingle();
+
+    if (delegateError || !delegateUser) {
+      return res.status(400).json({ error: 'Invalid delegate selected.' });
+    }
+
+    if (delegateUser.role !== 'accounting') {
+      return res.status(400).json({ error: 'VP/President delegations can only be assigned to accounting personnel.' });
+    }
   }
 
   const { data, error } = await supabase

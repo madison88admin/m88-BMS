@@ -49,7 +49,11 @@ const Delegations = () => {
   const fetchCandidates = async () => {
     try {
       const res = await api.get('/api/auth/delegation-candidates');
-      setCandidates(res.data || []);
+      const allCandidates = res.data || [];
+      const filtered = user?.role === 'vp' || user?.role === 'president'
+        ? allCandidates.filter((candidate: any) => candidate.role === 'accounting')
+        : allCandidates;
+      setCandidates(filtered);
     } catch (err: any) {
       toast.error(getErrorMessage(err, 'Failed to load delegation candidates'));
       setCandidates([]);
@@ -240,6 +244,11 @@ const Delegations = () => {
                   </option>
                 ))}
               </select>
+              {(user?.role === 'vp' || user?.role === 'president') && (
+                <p className="text-xs text-[var(--role-text)]/60 mt-2">
+                  As VP/President, you may only delegate approval to accounting personnel.
+                </p>
+              )}
             </div>
 
             <div>

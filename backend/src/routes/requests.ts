@@ -1699,6 +1699,47 @@ router.get('/:id', authenticate, async (req: any, res) => {
   }
 });
 
+// GET /api/requests/:id/items - Fetch individual request items for multi-item editing
+router.get('/:id/items', authenticate, async (req: any, res) => {
+  try {
+    const { data: request, error: requestError } = await supabase
+      .from('expense_requests')
+      .select('id, employee_id, department_id')
+      .eq('id', req.params.id)
+      .single();
+    
+    if (requestError || !request) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    
+    // Authorization check
+    if ((req.user.role === 'employee' || req.user.role === 'manager') && request.employee_id !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    // Fetch individual items
+    const { data: items, error: itemsError } = await supabase
+      .from('request_items')
+      .select('id, description, item_name, amount')
+      .eq('request_id', req.params.id)
+      .order('created_at', { ascending: true });
+    
+    if (itemsError) {
+      return res.status(400).json({ error: itemsError });
+    }
+    
+    // Return items (use description if available, fall back to item_name)
+    res.json((items || []).map(item => ({
+      id: item.id,
+      description: item.description || item.item_name,
+      item_name: item.item_name,
+      amount: item.amount
+    })));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || err });
+  }
+});
+
 const recomputeCashAdvanceBalance = async (cashAdvanceId: string) => {
   const { data: cashAdvance, error: cashAdvanceError } = await supabase
     .from('cash_advances')
@@ -2655,8 +2696,8 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
   res.json(data);
 });
 
-// PATCH /api/requests/:id/hold - toggle on_hold status (VP/President only)
-router.patch('/:id/hold', authenticate, authorize('accounting', 'vp', 'president', 'admin'), async (req: any, res) => {
+// PATCH /api/requests/:id/hold - toggle on_hold status (Accounting/VP/President/Supervisor/Admin)
+router.patch('/:id/hold', authenticate, authorize('accounting', 'vp', 'president', 'supervisor', 'admin'), async (req: any, res) => {
   const { id } = req.params;
   const { data: request, error: fetchError } = await supabase
     .from('expense_requests')
@@ -2668,18 +2709,31 @@ router.patch('/:id/hold', authenticate, authorize('accounting', 'vp', 'president
     return res.status(404).json({ error: 'Request not found' });
   }
   
-  // Only allow putting on_hold if currently pending_accounting
-  // or removing on_hold if currently on_hold
   const currentStatus = request.status;
   let newStatus: string;
   
-  if (currentStatus === 'pending_accounting') {
+  if (['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].includes(currentStatus)) {
     newStatus = 'on_hold';
   } else if (currentStatus === 'on_hold') {
-    newStatus = 'pending_accounting';
+    // Restore to the original pending status based on who placed it on hold if possible.
+    let restoreStatus = 'pending_accounting';
+    if (request.on_hold_by) {
+      const { data: holdUser, error: userError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', request.on_hold_by)
+        .maybeSingle();
+      if (!userError && holdUser?.role) {
+        if (holdUser.role === 'supervisor') restoreStatus = 'pending_supervisor';
+        else if (holdUser.role === 'accounting') restoreStatus = 'pending_accounting';
+        else if (holdUser.role === 'vp') restoreStatus = 'pending_vp';
+        else if (holdUser.role === 'president') restoreStatus = 'pending_president';
+      }
+    }
+    newStatus = restoreStatus;
   } else {
     return res.status(400).json({ 
-      error: `Cannot change hold status when request is ${currentStatus}. Only pending_accounting or on_hold requests can be toggled.` 
+      error: `Cannot change hold status when request is ${currentStatus}. Only pending supervisor/accounting/VP/President or on_hold requests can be toggled.` 
     });
   }
   
@@ -2876,7 +2930,8 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
     category, 
     priority, 
     purpose, 
-    attachments = [] 
+    attachments = [],
+    items = []
   } = req.body || {};
 
   const normalizedItemName = toText(item_name);
@@ -2954,6 +3009,48 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
     .select()
     .single();
   if (error) return res.status(400).json({ error });
+
+  // Update individual items if provided (multi-item revision)
+  if (Array.isArray(items) && items.length > 0) {
+    const { data: existingItems } = await supabase
+      .from('request_items')
+      .select('id')
+      .eq('request_id', id)
+      .order('created_at', { ascending: true });
+    
+    const existingItemIds = (existingItems || []).map((item: any) => item.id);
+    
+    // Update each existing item with new amounts
+    for (let i = 0; i < items.length && i < existingItemIds.length; i++) {
+      const item = items[i];
+      const itemAmount = toNumber(item.amount);
+      const itemDescription = toText(item.description || item.item_name || '');
+      
+      await supabase
+        .from('request_items')
+        .update({
+          description: itemDescription,
+          item_name: itemDescription,
+          amount: itemAmount,
+          updated_at: new Date()
+        })
+        .eq('id', existingItemIds[i]);
+    }
+    
+    // If more items provided than existing, insert new ones
+    if (items.length > existingItemIds.length) {
+      const newItems = items.slice(existingItemIds.length).map((item: any) => ({
+        request_id: id,
+        description: toText(item.description || item.item_name || ''),
+        item_name: toText(item.description || item.item_name || ''),
+        amount: toNumber(item.amount),
+        created_at: new Date(),
+        updated_at: new Date()
+      }));
+      
+      await supabase.from('request_items').insert(newItems);
+    }
+  }
 
   // Update allocation if amount or department changes (assuming single item requests for now)
   // For simplicity, we update the primary allocation to match the new request amount

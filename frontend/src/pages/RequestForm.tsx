@@ -52,7 +52,19 @@ const RequestForm = () => {
 
           setRequestType(req.request_type || '');
           setRequestCode(req.request_code || id.slice(0, 8));
-          setItems([{ name: req.item_name, amount: String(req.amount) }]);
+          
+          // Load individual request items for multi-item editing
+          try {
+            const itemsRes = await api.get(`/api/requests/${id}/items`);
+            const requestItems = Array.isArray(itemsRes.data) && itemsRes.data.length > 0
+              ? itemsRes.data.map((item: any) => ({ name: item.description || item.item_name || '', amount: String(item.amount || 0) }))
+              : [{ name: req.item_name || '', amount: String(req.amount || 0) }];
+            setItems(requestItems);
+          } catch (err) {
+            // Fallback to aggregate if items endpoint not available
+            setItems([{ name: req.item_name || '', amount: String(req.amount || 0) }]);
+          }
+          
           const cleanPurpose = req.purpose?.split('\n\nItem Breakdown:')[0] || req.purpose || '';
           setForm({
             category: req.category,
@@ -182,14 +194,18 @@ const RequestForm = () => {
 
     try {
       if (id) {
-        // Edit / Resubmit mode - use same combined data as new request
+        // Edit / Resubmit mode - send individual items array for multi-item revision
         await api.patch(`/api/requests/${id}/resubmit`, {
           item_name: combinedItemName,
           department_id: department?.id,
           amount: totalAmount,
           category: form.category,
           priority: form.priority,
-          purpose: `${form.purpose}\n\nItem Breakdown:\n${itemBreakdown}`
+          purpose: `${form.purpose}\n\nItem Breakdown:\n${itemBreakdown}`,
+          items: items.map(item => ({
+            description: item.name,
+            amount: toNumber(item.amount)
+          }))
         });
 
         toast.success('Request resubmitted successfully!');

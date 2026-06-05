@@ -3304,7 +3304,7 @@ const Approvals = () => {
                       </button>
 
                       {/* On Hold - VP/President/Admin only */}
-                      {(user.role === 'vp' || user.role === 'president' || user.role === 'admin') && (
+                      {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin') && (
                         <button
                           onClick={() => {
                             if (req.status === 'on_hold') {
