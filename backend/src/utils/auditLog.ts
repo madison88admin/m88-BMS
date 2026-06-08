@@ -22,6 +22,11 @@ export const AUDIT_ACTIONS = {
   DOCUMENT_UPLOADED: 'document_uploaded',
   DOCUMENT_UPLOAD_REVIEWED: 'document_upload_reviewed',
   FAILED_APPROVAL_ATTEMPT: 'failed_approval_attempt',
+  COST_CENTER_CREATED: 'cost_center_created',
+  COST_CENTER_UPDATED: 'cost_center_updated',
+  COST_CENTER_DELETED: 'cost_center_deleted',
+  COST_ALLOCATION_TAGGED: 'cost_allocation_tagged',
+  COST_ALLOCATION_CONFIRMED: 'cost_allocation_confirmed',
 } as const;
 
 export type AuditActionType = typeof AUDIT_ACTIONS[keyof typeof AUDIT_ACTIONS];
