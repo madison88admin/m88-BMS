@@ -22,6 +22,8 @@ import configRoutes from './routes/config';
 import auditLogRoutes from './routes/auditLogs';
 import documentUploadRoutes from './routes/documentUploads';
 import fiscalYearRoutes from './routes/fiscalYear';
+import costCenterRoutes from './routes/costCenters';
+import costAllocationRoutes from './routes/costAllocations';
 
 dotenv.config();
 
@@ -56,6 +58,8 @@ app.use('/api/config', configRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/document-uploads', documentUploadRoutes);
 app.use('/api/fiscal-year', fiscalYearRoutes);
+app.use('/api/cost-centers', costCenterRoutes);
+app.use('/api/cost-allocations', costAllocationRoutes);
 
 // Health check endpoint
 app.get('/api/system/health', async (req, res) => {

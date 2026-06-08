@@ -33,6 +33,7 @@ import {
   checkBudgetUtilizationWarning,
 } from '../utils/workflowNotify';
 import { invalidateCache } from '../middleware/cache';
+import { generateRequestCode } from '../utils/sequentialCodeGenerator';
 
 const router = express.Router();
 
@@ -1214,7 +1215,7 @@ router.get('/', authenticate, async (req: any, res) => {
       : query.eq('department_id', req.user.department_id);
   }
 
-  const { data, error } = await query.order('submitted_at', { ascending: false });
+  const { data, error } = await query.order('request_code', { ascending: true });
   if (error) return res.status(400).json({ error });
 
   try {
@@ -1263,12 +1264,9 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     return res.status(403).json({ error: 'Only supervisors can submit budget proposals or revisions.' });
   }
   
-  // Use UUID to prevent collision instead of timestamp
-  const request_code = isBudgetRevision
-    ? `REV-${crypto.randomUUID().split('-')[0].toUpperCase()}`
-    : isBudgetRequest
-      ? `BUD-${crypto.randomUUID().split('-')[0].toUpperCase()}`
-      : `REQ-${crypto.randomUUID().split('-')[0].toUpperCase()}`;
+  // Use sequential auto-increment codes instead of random UUID (Section 2.1)
+  const requestType = isBudgetRevision ? 'budget_revision' : isBudgetRequest ? 'budget_request' : request_type || 'reimbursement';
+  const request_code = await generateRequestCode(supabase, requestType);
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   
   // Use provided department_id if user is admin/accounting, otherwise use user's own department
@@ -3900,6 +3898,179 @@ router.post('/bulk-approve-executive', authenticate, authorize('vp', 'president'
     failed: failedRequests.length,
     failed_requests: failedRequests
   });
+});
+
+// PATCH /api/requests/:id/confirm-allocation - Confirm cost allocation and perform dual deduction
+router.patch('/:id/confirm-allocation', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  try {
+    const { cost_center_id, budget_category_id, notes } = req.body;
+    const requestId = req.params.id;
+
+    if (!cost_center_id || !budget_category_id) {
+      return res.status(400).json({ error: 'cost_center_id and budget_category_id are required' });
+    }
+
+    // Get request details
+    const { data: request, error: requestError } = await supabase
+      .from('expense_requests')
+      .select('*')
+      .eq('id', requestId)
+      .single();
+
+    if (requestError || !request) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    if (request.status !== 'pending_accounting') {
+      return res.status(400).json({ error: 'Request must be in pending_accounting status' });
+    }
+
+    // Verify cost center exists and has sufficient funds
+    const { data: costCenter, error: costCenterError } = await supabase
+      .from('cost_centers')
+      .select('*')
+      .eq('id', cost_center_id)
+      .eq('is_active', true)
+      .single();
+
+    if (costCenterError || !costCenter) {
+      return res.status(404).json({ error: 'Cost center not found or inactive' });
+    }
+
+    const amount = parseFloat(request.amount);
+
+    if (parseFloat(costCenter.remaining_amount) < amount) {
+      return res.status(400).json({ 
+        error: 'Insufficient funds in cost center',
+        available: costCenter.remaining_amount,
+        requested: amount
+      });
+    }
+
+    // Verify budget category exists and has sufficient funds
+    const { data: budgetCategory, error: categoryError } = await supabase
+      .from('budget_categories')
+      .select('*')
+      .eq('id', budget_category_id)
+      .single();
+
+    if (categoryError || !budgetCategory) {
+      return res.status(404).json({ error: 'Budget category not found' });
+    }
+
+    if (parseFloat(budgetCategory.remaining_amount) < amount) {
+      return res.status(400).json({ 
+        error: 'Insufficient funds in budget category',
+        available: budgetCategory.remaining_amount,
+        requested: amount
+      });
+    }
+
+    // Create cost allocation record
+    const { data: allocation, error: allocationError } = await supabase
+      .from('request_cost_allocations')
+      .insert({
+        request_id: requestId,
+        cost_center_id,
+        budget_category_id,
+        amount,
+        tagged_by: req.user.id,
+        notes: notes || null
+      })
+      .select()
+      .single();
+
+    if (allocationError) return res.status(400).json({ error: allocationError.message });
+
+    // Perform dual deduction
+    // Deduct from cost center
+    const { error: costCenterDeductError } = await supabase
+      .from('cost_centers')
+      .update({
+        used_amount: parseFloat(costCenter.used_amount) + amount,
+        remaining_amount: parseFloat(costCenter.remaining_amount) - amount
+      })
+      .eq('id', cost_center_id);
+
+    if (costCenterDeductError) {
+      return res.status(400).json({ error: 'Failed to deduct from cost center: ' + costCenterDeductError.message });
+    }
+
+    // Deduct from budget category
+    const { error: categoryDeductError } = await supabase
+      .from('budget_categories')
+      .update({
+        used_amount: parseFloat(budgetCategory.used_amount) + amount,
+        remaining_amount: parseFloat(budgetCategory.remaining_amount) - amount
+      })
+      .eq('id', budget_category_id);
+
+    if (categoryDeductError) {
+      // Rollback cost center deduction
+      await supabase
+        .from('cost_centers')
+        .update({
+          used_amount: parseFloat(costCenter.used_amount),
+          remaining_amount: parseFloat(costCenter.remaining_amount)
+        })
+        .eq('id', cost_center_id);
+      
+      return res.status(400).json({ error: 'Failed to deduct from budget category: ' + categoryDeductError.message });
+    }
+
+    // Mark allocation as confirmed
+    const { error: confirmError } = await supabase
+      .from('request_cost_allocations')
+      .update({
+        confirmed_at: new Date().toISOString(),
+        confirmed_by: req.user.id
+      })
+      .eq('id', allocation.id);
+
+    if (confirmError) {
+      // Rollback cost center deduction
+      await supabase.from('cost_centers').update({
+        used_amount: parseFloat(costCenter.used_amount),
+        remaining_amount: parseFloat(costCenter.remaining_amount)
+      }).eq('id', cost_center_id);
+      
+      // Rollback budget category deduction
+      await supabase.from('budget_categories').update({
+        used_amount: parseFloat(budgetCategory.used_amount),
+        remaining_amount: parseFloat(budgetCategory.remaining_amount)
+      }).eq('id', budget_category_id);
+      
+      // Delete orphaned allocation record
+      await supabase.from('request_cost_allocations')
+        .delete()
+        .eq('id', allocation.id);
+      
+      return res.status(400).json({ error: 'Failed to confirm allocation: ' + confirmError.message });
+    }
+
+    // Log audit event
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.COST_ALLOCATION_CONFIRMED,
+      recordType: 'request_cost_allocation',
+      recordId: allocation.id,
+      recordLabel: request.request_code,
+      remarks: `Confirmed dual deduction: ${amount} from cost center ${costCenter.name} and budget category ${budgetCategory.category_name}`
+    });
+
+    // Notify accounting team
+    await notifyAccounting(`Cost allocation confirmed for request ${request.request_code}. Amount: ${amount}, Cost Center: ${costCenter.name}, Budget Category: ${budgetCategory.category_name}`);
+
+    res.json({ 
+      message: 'Allocation confirmed and dual deduction completed successfully',
+      allocation_id: allocation.id,
+      amount_deducted: amount,
+      cost_center_remaining: parseFloat(costCenter.remaining_amount) - amount,
+      budget_category_remaining: parseFloat(budgetCategory.remaining_amount) - amount
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Migration endpoint to update existing request items to use sub-categories
