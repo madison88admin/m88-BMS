@@ -27,6 +27,7 @@ export const AUDIT_ACTIONS = {
   COST_CENTER_DELETED: 'cost_center_deleted',
   COST_ALLOCATION_TAGGED: 'cost_allocation_tagged',
   COST_ALLOCATION_CONFIRMED: 'cost_allocation_confirmed',
+  GENERAL_BUDGET_STORED_TO_COST_CENTER: 'general_budget_stored_to_cost_center',
 } as const;
 
 export type AuditActionType = typeof AUDIT_ACTIONS[keyof typeof AUDIT_ACTIONS];

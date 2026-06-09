@@ -243,35 +243,35 @@ const Layout = ({ children }: LayoutProps) => {
     <>
       {(user.role === 'employee' || user.role === 'manager') ? (
         <>
-          <Link to="/employee" className={getNavClassName('/employee')}>Overview</Link>
-          <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>New Expense</Link>
-          <Link to="/tracker" className={getNavClassName('/tracker')}>My History</Link>
+          <Link to="/employee" className={getNavClassName('/employee')}>Dashboard</Link>
+          <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>Create Ticket</Link>
+          <Link to="/tracker" className={getNavClassName('/tracker')}>My Requests</Link>
         </>
       ) : (
         <>
           {(user.role === 'admin' || user.role === 'super_admin') ? (
-            <Link to="/admin" className={getNavClassName('/admin')}>Admin Overview</Link>
+            <Link to="/admin" className={getNavClassName('/admin')}>Dashboard</Link>
           ) : user.role === 'management' ? (
             <Link to="/management" className={getNavClassName('/management')}>Management Overview</Link>
           ) : user.role === 'accounting' ? (
-            <Link to="/accounting" className={getNavClassName('/accounting')}>Overview</Link>
+            <Link to="/accounting" className={getNavClassName('/accounting')}>Dashboard</Link>
           ) : (
-            <Link to="/" className={getNavClassName('/')}>Overview</Link>
+            <Link to="/" className={getNavClassName('/')}>Dashboard</Link>
           )}
           {(user.role !== 'super_admin' && user.role !== 'admin') && (
-            <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>New Expense</Link>
+            <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>Create Ticket</Link>
           )}
           {user.role === 'accounting' && (
-            <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Budget Override</Link>
+            <Link to="/document-uploads" className={`${getNavClassName('/document-uploads')} whitespace-nowrap`}>Budget Adjustments</Link>
           )}
           {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'accounting') && (
-            <Link to="/tracker" className={getNavClassName('/tracker')}>My History</Link>
+            <Link to="/tracker" className={getNavClassName('/tracker')}>My Requests</Link>
           )}
         </>
       )}
       {(user.role === 'supervisor' || user.role === 'accounting' || user.role === 'admin' || user.role === 'vp' || user.role === 'president') && (
         <Link to="/approvals" className={`${getNavClassName('/approvals')} relative whitespace-nowrap`}>
-          {user.role === 'supervisor' ? 'Team Approvals' : user.role === 'vp' || user.role === 'president' ? 'Approval Authority' : 'Fund Disbursements'}
+          {user.role === 'supervisor' ? 'Team Approvals' : user.role === 'vp' || user.role === 'president' ? 'Disbursement Hub' : 'Disbursement Hub'}
           {pendingApprovalsCount > 0 && (
             <span className="ml-1.5 inline-flex h-5 min-w-[18px] items-center justify-center rounded-full border border-[var(--role-primary)]/20 bg-[var(--role-primary)]/10 px-1 text-[10px] font-semibold text-[var(--role-primary)]">
               {pendingApprovalsCount}
@@ -280,7 +280,7 @@ const Layout = ({ children }: LayoutProps) => {
         </Link>
       )}
       {user.role === 'admin' && (
-        <Link to="/budget-setup" className={getNavClassName('/budget-setup')}>Budget Setup</Link>
+        <Link to="/budget-setup" className={getNavClassName('/budget-setup')}>Budget Matrix</Link>
       )}
       {user.role === 'admin' && (
         <Link to="/accounting" className={getNavClassName('/accounting')}>Accounting</Link>
@@ -292,7 +292,7 @@ const Layout = ({ children }: LayoutProps) => {
         <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Matrix</Link>
       )}
       {(user.role === 'vp' || user.role === 'president') && (
-        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget View</Link>
+        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Matrix</Link>
       )}
       {(user.role === 'vp' || user.role === 'president' || user.role === 'admin' || user.role === 'super_admin') && (
         <Link to="/delegations" className={getNavClassName('/delegations')}>Delegations</Link>

@@ -41,7 +41,7 @@ interface AuditLog {
 
 const AccountingDashboard = () => {
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'petty_cash' | 'releases' | 'reconciliation' | 'audit' | 'document_uploads'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'petty_cash' | 'releases' | 'reconciliation' | 'audit' | 'document_uploads' | 'fiscal_year'>('overview');
   
   // Overview data
   const [departments, setDepartments] = useState<any[]>([]);
@@ -170,7 +170,7 @@ const AccountingDashboard = () => {
       ]);
       await fetchFiscalHistory();
       computeStats(pending, depts, uploads, allReqs);
-      computeNotifications(uploads || [], allReqs || []);
+      computeNotifications(uploads || []);
     } catch (err) {
       toast.error('Failed to load accounting data');
     } finally {
@@ -178,39 +178,19 @@ const AccountingDashboard = () => {
     }
   };
 
-  const computeNotifications = (uploads: any[], allReqs: any[]) => {
+  const computeNotifications = (uploads: any[]) => {
       // Budget override records awaiting accounting
-
-    // Reimbursements and cash advances pending accounting
-    const reimbursements = (allReqs || []).filter((r: any) => String(r.request_type) === 'reimbursement' && r.status === 'pending_accounting');
-    const cashAdvances = (allReqs || []).filter((r: any) => String(r.request_type) === 'cash_advance' && r.status === 'pending_accounting');
-
-    // Liquidations: check latest_liquidation or nested liquidations
-    const liquidations = (allReqs || []).filter((r: any) => {
-      const latest = r.latest_liquidation || null;
-      if (latest && latest.status === 'submitted') return true;
-      const anySubmitted = Array.isArray(r.liquidations) && r.liquidations.some((l: any) => l.status === 'submitted');
-      return Boolean(anySubmitted);
-    });
-
-    const cashReturns = (allReqs || []).filter((r: any) => {
-      const latest = r.latest_liquidation || r.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
-      return latest?.cash_return_status === 'pending_return';
-    });
+    // Removed: reimbursements, cash_advances, liquidations, cash_returns per Section 1.2 requirements
 
     const toItems = (rows: any[], type: string) => rows.slice(0, 5).map((r: any) => ({ id: r.id || r.upload_id || r.request_code, title: r.category_name || r.request_code || r.category_code || r.title || (r.description && String(r.description).slice(0, 40)), amount: r.amount || r.amount_issued || r.actual_amount || null, type }));
 
     setNotifications([
       { key: 'document_uploads', label: 'Budget Override', count: uploads.length, items: toItems(uploads, 'document_upload') },
-      { key: 'reimbursements', label: 'Reimbursements', count: reimbursements.length, items: toItems(reimbursements, 'reimbursement') },
-      { key: 'cash_advances', label: 'Cash Advances', count: cashAdvances.length, items: toItems(cashAdvances, 'cash_advance') },
-      { key: 'liquidations', label: 'Liquidations', count: liquidations.length, items: toItems(liquidations, 'liquidation') },
-      { key: 'cash_returns', label: 'Cash Returns', count: cashReturns.length, items: toItems(cashReturns, 'cash_return') },
+      // Removed: reimbursements, cash_advances, liquidations, cash_returns per Section 1.2 requirements
     ]);
   };
 
   const fetchAllRequests = async () => {
-    const token = localStorage.getItem('token');
     const res = await api.get('/api/requests');
     const data = res.data || [];
     setAllRequests(data);
@@ -218,7 +198,6 @@ const AccountingDashboard = () => {
   };
 
   const fetchDepartments = async () => {
-    const token = localStorage.getItem('token');
     const res = await api.get('/api/departments');
     const data = res.data || [];
     setDepartments(data);
@@ -226,7 +205,6 @@ const AccountingDashboard = () => {
   };
 
   const fetchPendingReleases = async () => {
-    const token = localStorage.getItem('token');
     const res = await api.get('/api/requests');
     const data = res.data || [];
     setPendingReleases(data);
@@ -234,7 +212,6 @@ const AccountingDashboard = () => {
   };
 
   const fetchDocumentUploads = async () => {
-    const token = localStorage.getItem('token');
     const res = await api.get('/api/document-uploads');
     const data = res.data || [];
     setDocumentUploads(data);
@@ -359,7 +336,6 @@ const AccountingDashboard = () => {
 
   const fetchPettyCashHistory = async (deptId: string) => {
     if (!deptId) return;
-    const token = localStorage.getItem('token');
     try {
       const res = await api.get(`/api/petty-cash/${deptId}`);
       setPettyCashHistory(res.data || []);
@@ -369,7 +345,6 @@ const AccountingDashboard = () => {
   };
 
   const fetchReconciliationItems = async () => {
-    const token = localStorage.getItem('token');
     const res = await api.get('/api/requests');
     
     const items: ReconciliationItem[] = (res.data || [])
@@ -390,7 +365,6 @@ const AccountingDashboard = () => {
   };
 
   const fetchAuditLogs = async () => {
-    const token = localStorage.getItem('token');
     try {
       const res = await api.get('/api/requests/audit-logs');
       setAuditLogs(res.data || []);
@@ -434,7 +408,6 @@ const AccountingDashboard = () => {
     }
 
     setIsBatchReleasing(true);
-    const token = localStorage.getItem('token');
     const requestsToRelease = eligibleRequests;
     
     try {
@@ -456,7 +429,6 @@ const AccountingDashboard = () => {
   };
 
   const toggleOnHold = async (requestId: string) => {
-    const token = localStorage.getItem('token');
     try {
       const res = await api.patch(`/api/requests/${requestId}/hold`, {});
       const newStatus = res.data.status;
@@ -480,7 +452,6 @@ const AccountingDashboard = () => {
   };
 
   const markReconciled = async (requestId: string, reconciled: boolean, note?: string) => {
-    const token = localStorage.getItem('token');
     try {
       await api.patch(
         `/api/requests/${requestId}/reconcile`,
@@ -649,11 +620,6 @@ const AccountingDashboard = () => {
                   Pending review
                 </button>
               </p>
-            </div>
-            <div className="panel !p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Cash Returns</p>
-              <p className={`mt-2 text-3xl font-bold ${stats.pending_cash_returns > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{stats.pending_cash_returns}</p>
-              <p className="mt-1 text-xs text-[var(--role-text)]/50">Pending confirmation</p>
             </div>
             <div className="panel !p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">On Hold</p>

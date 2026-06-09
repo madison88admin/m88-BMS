@@ -32,13 +32,6 @@ interface CashAdvance {
   purpose: string;
 }
 
-interface CategoryBreakdownItem {
-  category_id: string;
-  category_name: string;
-  original_amount: number;
-  item_label: string;
-}
-
 interface LiquidationCategoryItem {
   category_id: string;
   category_name: string;
@@ -90,6 +83,7 @@ const NewRequestForm = () => {
   const [selectedAdvance, setSelectedAdvance] = useState<CashAdvance | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
 
   // Selected main categories for hierarchical dropdowns
   const [reimbursementMainCategory, setReimbursementMainCategory] = useState('');
@@ -135,6 +129,16 @@ const NewRequestForm = () => {
     );
   };
 
+  const fetchM88ManilaCostCenter = async () => {
+    try {
+      const res = await api.get('/api/cost-centers');
+      const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
+      setM88ManilaCostCenter(m88 || null);
+    } catch {
+      // Silent fail - cost center might not exist yet
+    }
+  };
+
   const uploadSupportingFile = async (file: File) => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -168,7 +172,6 @@ const NewRequestForm = () => {
     try {
       const advance = cashAdvances.find(a => a.id === advanceId);
       if (!advance || !advance.request_id) {
-        setAdvanceCategoryBreakdown([]);
         setLiquidationForm(prev => ({ ...prev, categoryItems: [] }));
         return;
       }
@@ -191,10 +194,8 @@ const NewRequestForm = () => {
         item_label: item.item_name || item.item || item.description || 'Item'
       }));
 
-      setAdvanceCategoryBreakdown(breakdown);
-
       // Initialize liquidation category items per original request item
-      const categoryItems: LiquidationCategoryItem[] = breakdown.map((entry) => ({
+      const categoryItems: LiquidationCategoryItem[] = breakdown.map((entry: any) => ({
         category_id: entry.category_id,
         category_name: entry.category_name,
         original_amount: entry.original_amount,
@@ -206,7 +207,6 @@ const NewRequestForm = () => {
     } catch (err) {
       console.error('Error fetching cash advance details:', err);
       toast.error('Failed to load cash advance details');
-      setAdvanceCategoryBreakdown([]);
       setLiquidationForm(prev => ({ ...prev, categoryItems: [] }));
     }
   };
@@ -254,7 +254,6 @@ const NewRequestForm = () => {
     remarks: '',
     categoryItems: [] as LiquidationCategoryItem[]
   });
-  const [advanceCategoryBreakdown, setAdvanceCategoryBreakdown] = useState<CategoryBreakdownItem[]>([]);
 
   // Load drafts on mount
   useEffect(() => {
@@ -365,6 +364,9 @@ const NewRequestForm = () => {
         const initialRequestType = initialType === 'cash_advance' ? 'cash_advance' : initialType === 'reimbursement' ? 'reimbursement' : '';
         const officialRes = await api.get(`/api/requests/official-list${initialRequestType ? `?request_type=${initialRequestType}` : ''}`);
         setOfficialList(officialRes.data || []);
+
+        // Fetch M88 Manila cost center for General Category budget info
+        fetchM88ManilaCostCenter();
 
         // If initial advance_id provided, select it
         if (initialAdvanceId) {
@@ -512,7 +514,6 @@ const NewRequestForm = () => {
   const handleSubmitReimbursement = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    const token = localStorage.getItem('token');
 
     try {
       const totalAmount = reimbursementForm.items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
@@ -575,7 +576,6 @@ const NewRequestForm = () => {
   const handleSubmitCashAdvance = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    const token = localStorage.getItem('token');
 
     const totalAmount = cashAdvanceForm.breakdown.reduce((sum: number, item: any) => sum + (parseFloat(item.amount as string) || 0), 0);
 
@@ -661,7 +661,6 @@ const NewRequestForm = () => {
     }
 
     setSubmitting(true);
-    const token = localStorage.getItem('token');
 
     try {
       // Process category items with their attachments
@@ -835,6 +834,40 @@ const NewRequestForm = () => {
                 ))}
             </select>
           </div>
+
+          {/* Info banner for General/Dept Category */}
+          {reimbursementMainCategory && (() => {
+            const selectedCategory = categories.find(c => c.category_name === reimbursementMainCategory);
+            const isGeneralCategory = selectedCategory?.department_id === 'All';
+            return (
+              <div className={`mb-4 px-4 py-3 rounded-xl border ${isGeneralCategory ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+                <p className={`text-sm ${isGeneralCategory ? 'text-blue-800' : 'text-gray-700'}`}>
+                  {isGeneralCategory 
+                    ? 'This expense will be charged to both your department budget and the M88 Manila General Budget.'
+                    : 'This expense will be charged to your department budget only.'}
+                </p>
+              </div>
+            );
+          })()}
+
+          {/* Remaining budget info */}
+          {reimbursementMainCategory && (() => {
+            const selectedCategory = categories.find(c => c.category_name === reimbursementMainCategory);
+            const isGeneralCategory = selectedCategory?.department_id === 'All';
+            const deptRemaining = selectedCategory?.remaining_amount || 0;
+            return (
+              <div className="mb-4 px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]">
+                <p className="text-sm text-[var(--role-text)]">
+                  Department Budget Remaining: <span className="font-semibold">{formatMoney(deptRemaining)}</span>
+                </p>
+                {isGeneralCategory && m88ManilaCostCenter && (
+                  <p className="text-sm text-[var(--role-text)] mt-1">
+                    M88 Manila General Budget Remaining: <span className="font-semibold">{formatMoney(m88ManilaCostCenter.remaining_amount)}</span>
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           {reimbursementMainCategory && (
             <div className="mb-4">
@@ -1181,6 +1214,40 @@ const NewRequestForm = () => {
                 ))}
             </select>
           </div>
+
+          {/* Info banner for General/Dept Category */}
+          {cashAdvanceMainCategory && (() => {
+            const selectedCategory = categories.find(c => c.category_name === cashAdvanceMainCategory);
+            const isGeneralCategory = selectedCategory?.department_id === 'All';
+            return (
+              <div className={`mb-4 px-4 py-3 rounded-xl border ${isGeneralCategory ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+                <p className={`text-sm ${isGeneralCategory ? 'text-blue-800' : 'text-gray-700'}`}>
+                  {isGeneralCategory 
+                    ? 'This expense will be charged to both your department budget and the M88 Manila General Budget.'
+                    : 'This expense will be charged to your department budget only.'}
+                </p>
+              </div>
+            );
+          })()}
+
+          {/* Remaining budget info */}
+          {cashAdvanceMainCategory && (() => {
+            const selectedCategory = categories.find(c => c.category_name === cashAdvanceMainCategory);
+            const isGeneralCategory = selectedCategory?.department_id === 'All';
+            const deptRemaining = selectedCategory?.remaining_amount || 0;
+            return (
+              <div className="mb-4 px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]">
+                <p className="text-sm text-[var(--role-text)]">
+                  Department Budget Remaining: <span className="font-semibold">{formatMoney(deptRemaining)}</span>
+                </p>
+                {isGeneralCategory && m88ManilaCostCenter && (
+                  <p className="text-sm text-[var(--role-text)] mt-1">
+                    M88 Manila General Budget Remaining: <span className="font-semibold">{formatMoney(m88ManilaCostCenter.remaining_amount)}</span>
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           {cashAdvanceMainCategory && (
             <div className="mb-4">
@@ -1547,7 +1614,7 @@ const NewRequestForm = () => {
                                 input.onchange = (e: any) => {
                                   if (e.target.files) {
                                     const newItems = [...liquidationForm.categoryItems];
-                                    newItems[idx].attachments = [...newItems[idx].attachments, ...Array.from(e.target.files)];
+                                    newItems[idx].attachments = [...newItems[idx].attachments, ...Array.from(e.target.files) as File[]];
                                     setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
                                   }
                                 };

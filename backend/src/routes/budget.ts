@@ -9,6 +9,7 @@ import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
 import { checkBudgetUtilizationWarning, notifyDepartmentSupervisor } from '../utils/workflowNotify';
 import { ensureDepartmentCostCenterCode } from '../utils/costCenters';
 import { isMainCategoryCode } from '../utils/budgetCategoryHierarchy';
+import { updateM88ManilaCostCenterBudget } from '../utils/generalBudget';
 import PDFDocument from 'pdfkit';
 
 const router = Router();
@@ -285,6 +286,11 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
     await syncDepartmentBudget(department_id, targetFY);
     await syncMainCategoryRemaining(parent_category_id || data.id);
 
+    // Auto-store General Category budgets to M88 Manila cost center
+    if (department_id === 'All') {
+      await updateM88ManilaCostCenterBudget(targetFY, requestedBudget, 0, req.user);
+    }
+
     // Invalidate cache for budget categories
     invalidateCache('/api/budget/categories');
     invalidateCache('/api/departments');
@@ -504,6 +510,12 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
     await syncDepartmentBudget(current.department_id, current.fiscal_year);
     await syncMainCategoryRemaining(current.parent_category_id);
     await syncMainCategoryRemaining(nextParentCategoryId || id);
+
+    // Auto-store General Category budgets to M88 Manila cost center
+    if (current.department_id === 'All') {
+      const previousBudget = toNumber(current.budget_amount);
+      await updateM88ManilaCostCenterBudget(current.fiscal_year, requestedBudget, previousBudget, req.user);
+    }
 
     // Invalidate cache for budget categories
     invalidateCache('/api/budget/categories');

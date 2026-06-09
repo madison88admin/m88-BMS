@@ -137,6 +137,9 @@ const BudgetManagement = () => {
   const [revisionHistory, setRevisionHistory] = useState<Record<string, any[]>>({});
   const [submittingProposal, setSubmittingProposal] = useState(false);
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
+  const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
+  const [showGeneralCategoryConfirm, setShowGeneralCategoryConfirm] = useState(false);
+  const [pendingGeneralCategoryUpdate, setPendingGeneralCategoryUpdate] = useState<{id: string, amount: number} | null>(null);
 
   // Accounting, admin, and supervisor may lock/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
@@ -295,6 +298,7 @@ const BudgetManagement = () => {
       });
     fetchDepartments();
     fetchExchangeRate(false);
+    fetchM88ManilaCostCenter();
     const id = window.setInterval(() => fetchExchangeRate(false), 60000);
     let ch: any;
     if (supabase) {
@@ -403,10 +407,17 @@ const BudgetManagement = () => {
       }
     }
     
+    // Show confirmation dialog for General Category budget saves
+    if (category?.department_id === 'All') {
+      setPendingGeneralCategoryUpdate({ id: catId, amount: budget });
+      setShowGeneralCategoryConfirm(true);
+      return;
+    }
+    
     try {
       await api.put(`/api/budget/categories/${catId}`, { budget_amount: budget });
       toast.success('Category budget updated!');
-      if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); }
+      if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); await fetchM88ManilaCostCenter(); }
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to update category')); }
   };
 
@@ -632,13 +643,23 @@ const BudgetManagement = () => {
     }
   };
 
+  const fetchM88ManilaCostCenter = async () => {
+    try {
+      const res = await api.get('/api/cost-centers', { params: { fiscal_year: selectedFiscalYear } });
+      const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
+      setM88ManilaCostCenter(m88 || null);
+    } catch {
+      // Silent fail - cost center might not exist yet
+    }
+  };
+
   if (loading) return <PageSkeleton />;
 
   const overviewCards = [
     { label: 'Departments', value: overview.totalDepartments.toString(), helper: 'Active in view', glow: 'bg-[var(--role-primary)]' },
     { label: 'Budget Pool', value: displayMoney(overview.totalBudget), helper: secondaryMoney(overview.totalBudget), glow: 'bg-[var(--role-secondary)]' },
     { label: 'Used', value: displayMoney(overview.usedBudget), helper: `Remaining ${displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))}`, glow: 'bg-[var(--role-primary)]' },
-    { label: 'Spent This Month', value: displayMoney(overview.monthlySpent), helper: 'Current calendar month', glow: 'bg-[var(--role-secondary)]' },
+    // Removed 'Spent This Month' per Section 1.3 requirements
     { label: 'Utilization', value: formatPercent(overview.utilization), helper: `${displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))} available`, glow: 'bg-[var(--role-secondary)]' },
   ];
 
@@ -669,6 +690,29 @@ const BudgetManagement = () => {
                 </div>
               ))}
             </div>
+            {/* M88 Manila Cost Center Summary Card - visible to Supervisor and Accounting */}
+            {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
+              <div className="relative overflow-hidden rounded-[32px] border border-blue-500/30 bg-blue-50/50 p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
+                <div className="absolute -right-10 top-0 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl" />
+                <div className="relative">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-blue-700/70">M88 Manila General Budget</p>
+                  <div className="mt-3 grid grid-cols-3 gap-3">
+                    <div>
+                      <p className="text-[10px] uppercase text-blue-600/60">Total</p>
+                      <p className="text-lg font-bold text-blue-900">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-blue-600/60">Used</p>
+                      <p className="text-lg font-bold text-blue-900">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-blue-600/60">Remaining</p>
+                      <p className="text-lg font-bold text-emerald-700">{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* FX Card */}
             <div className="relative overflow-hidden rounded-[32px] border border-[var(--role-border)] bg-[var(--role-surface)] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
               <div className="flex items-start justify-between gap-3">
@@ -751,10 +795,7 @@ const BudgetManagement = () => {
                         <p className="text-[10px] uppercase text-[var(--role-text)]/50">Total</p>
                         <p className="font-semibold text-[var(--role-text)]">{displayMoney(annual)}</p>
                       </div>
-                      <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-2 text-center">
-                        <p className="text-[10px] uppercase text-[var(--role-text)]/50">Spent This Month</p>
-                        <p className="font-semibold text-[var(--role-text)]">{displayMoney(toNumber(dept.monthly_spent))}</p>
-                      </div>
+                      {/* Removed 'Spent This Month' per Section 1.3 requirements */}
                       <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-2 text-center">
                         <p className="text-[10px] uppercase text-[var(--role-text)]/50">Remaining</p>
                         <p className="font-semibold text-[var(--role-text)]">{displayMoney(remaining)}</p>
@@ -809,7 +850,7 @@ const BudgetManagement = () => {
                   { label: 'Annual Budget', value: displayMoney(breakdownTotals.annual_budget), sub: secondaryMoney(breakdownTotals.annual_budget) },
                   { label: 'Utilized', value: displayMoney(breakdownTotals.used_budget), sub: secondaryMoney(breakdownTotals.used_budget) },
                   { label: 'Available', value: displayMoney(breakdownDept.remaining_budget), sub: secondaryMoney(breakdownDept.remaining_budget) },
-                  { label: 'Spent This Month', value: displayMoney(breakdownTotals.monthly_spent || 0), sub: 'Current calendar month actual spend' },
+                  // Removed 'Spent This Month' per Section 1.3 requirements
                   { label: 'Utilization', value: formatPercent(breakdownDept.utilization_percentage), sub: `Committed: ${displayMoney(breakdownDept.projected_committed_total)}` },
                 ].map(s => (
                   <div key={s.label} className="rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
@@ -1085,6 +1126,12 @@ const BudgetManagement = () => {
                                 <div key={cat.id} className={`rounded-xl border p-3 ${utilizationWarning ? 'border-amber-400 bg-amber-50/40' : ''} ${childrenWarning ? 'border-red-400 bg-red-50/40' : 'border-[var(--role-border)] bg-[var(--role-surface)]'}`} style={{ marginLeft: `${depth * 16}px` }}>
                                   <div className="flex items-center gap-2 mb-1">
                                     <span className="font-mono text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">{cat.category_code}</span>
+                                    {cat.department_id === 'All' && (
+                                      <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">General</span>
+                                    )}
+                                    {cat.department_id !== 'All' && cat.department_id && (
+                                      <span className="text-[10px] font-semibold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">Dept Only</span>
+                                    )}
                                     <span className="flex-1 text-sm font-medium truncate text-[var(--role-text)]">
                                       {depth > 0 ? '↳ ' : ''}{cat.category_name}
                                     </span>
@@ -1288,6 +1335,45 @@ const BudgetManagement = () => {
           )}
         </div>
       </div>
+
+      {/* General Category Budget Confirmation Dialog */}
+      {showGeneralCategoryConfirm && pendingGeneralCategoryUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="panel max-w-md w-full mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-[var(--role-text)] mb-4">Confirm General Category Budget Update</h3>
+              <p className="text-sm text-[var(--role-text)]/70 mb-6">
+                This amount will also be added to the M88 Manila General Budget. Confirm?
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setShowGeneralCategoryConfirm(false);
+                    setPendingGeneralCategoryUpdate(null);
+                  }}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.put(`/api/budget/categories/${pendingGeneralCategoryUpdate.id}`, { budget_amount: pendingGeneralCategoryUpdate.amount });
+                      toast.success('Category budget updated and M88 Manila cost center updated!');
+                      if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); await fetchM88ManilaCostCenter(); }
+                    } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to update category')); }
+                    setShowGeneralCategoryConfirm(false);
+                    setPendingGeneralCategoryUpdate(null);
+                  }}
+                  className="btn-primary"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Department Panel */}
       <div className="panel">

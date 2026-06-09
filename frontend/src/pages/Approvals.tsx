@@ -41,11 +41,15 @@ const Approvals = () => {
 
   const [budgetCategories, setBudgetCategories] = useState<any[]>([]);
 
+  const [costCenters, setCostCenters] = useState<any[]>([]);
+
   const [allocationDrafts, setAllocationDrafts] = useState<Record<string, Array<{ department_id: string; amount: string }>>>({});
 
   const [priorityDrafts, setPriorityDrafts] = useState<Record<string, string>>({});
 
   const [disbursementDrafts, setDisbursementDrafts] = useState<Record<string, { disbursement_method: string; disbursement_reference_no: string; disbursement_note: string; liquidation_due_at: string }>>({});
+
+  const [costAllocationDrafts, setCostAllocationDrafts] = useState<Record<string, { cost_center_id: string; budget_category_id: string; notes: string }>>({});
 
   const [expandedRequests, setExpandedRequests] = useState<Record<string, boolean>>({});
 
@@ -124,7 +128,7 @@ const Approvals = () => {
 
     requestId: string;
 
-    type: 'return' | 'reject' | 'on_hold';
+    type: 'return' | 'reject' | 'on_hold' | 'confirm_allocation';
 
     title: string;
 
@@ -223,6 +227,13 @@ const Approvals = () => {
     
 
     fetchRequests(user.role);
+
+    // Fetch cost centers for accounting users
+    if (['accounting', 'admin', 'super_admin'].includes(user.role)) {
+      api.get('/api/cost-centers')
+        .then((res) => setCostCenters(res.data || []))
+        .catch((err) => console.error('Failed to fetch cost centers:', err));
+    }
 
 
 
@@ -930,6 +941,44 @@ const Approvals = () => {
 
     }
 
+  };
+
+
+
+  const handleConfirmAllocation = async (requestId: string) => {
+    try {
+      const draft = costAllocationDrafts[requestId];
+      if (!draft?.cost_center_id || !draft?.budget_category_id) {
+        toast.error('Please select both cost center and budget category');
+        return;
+      }
+
+      await api.patch(
+        `/api/requests/${requestId}/confirm-allocation`,
+        {
+          cost_center_id: draft.cost_center_id,
+          budget_category_id: draft.budget_category_id,
+          notes: draft.notes || ''
+        }
+      );
+
+      toast.success('Cost allocation confirmed successfully!');
+      
+      // Clear the draft
+      setCostAllocationDrafts((current) => {
+        const next = { ...current };
+        delete next[requestId];
+        return next;
+      });
+
+      // Refresh requests
+      fetchRequests();
+    } catch (err: any) {
+      const errorMsg = typeof err.response?.data?.error === 'string' 
+        ? err.response.data.error 
+        : (err.response?.data?.error?.message || err.message || 'Failed to confirm allocation');
+      toast.error(errorMsg);
+    }
   };
 
 
@@ -1961,7 +2010,7 @@ const Approvals = () => {
                           <th className="w-10 px-4 py-3"></th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Code</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Item</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Type</th>
+                          {/* Removed 'Type' column per Section 1.4 requirements */}
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Submitted By</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Priority</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Date</th>
@@ -2012,12 +2061,7 @@ const Approvals = () => {
                                   <p className="text-xs text-[var(--role-text)]/40 truncate mt-0.5" title={req.purpose}>{req.purpose}</p>
                                 )}
                               </td>
-                              {/* Type */}
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${req.request_type === 'budget_revision' ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20' : 'bg-blue-500/10 text-blue-700 border border-blue-500/20'}`}>
-                                  {req.request_type === 'budget_revision' ? 'Revision' : 'Proposal'}
-                                </span>
-                              </td>
+                              {/* Removed 'Type' column per Section 1.4 requirements */}
                               {/* Submitted By */}
                               <td className="px-4 py-3 text-[var(--role-text)]/70 whitespace-nowrap text-xs">
                                 {getRequesterName(req)}
@@ -2119,7 +2163,7 @@ const Approvals = () => {
 
           <p className="text-xl font-semibold text-[var(--role-text)]">No pending expenses at this time.</p>
 
-          <p className="mt-2 text-[var(--role-text)]/60">New expenses will appear here automatically when they reach your stage.</p>
+          <p className="mt-2 text-[var(--role-text)]/60">New tickets will appear here automatically when they reach your stage.</p>
 
         </div>
 
@@ -3036,6 +3080,97 @@ const Approvals = () => {
 
 
 
+                    {(user.role === 'accounting' || user.role === 'admin') && req.status === 'pending_accounting' && (
+                      <div className="mb-5 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-[var(--role-text)]">Cost Allocation</h3>
+                        </div>
+                        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-2">
+                              Source Cost Center
+                            </label>
+                            <select
+                              className="field-input"
+                              value={costAllocationDrafts[req.id]?.cost_center_id || ''}
+                              onChange={(event) => setCostAllocationDrafts((current) => ({
+                                ...current,
+                                [req.id]: { ...current[req.id], cost_center_id: event.target.value }
+                              }))}
+                            >
+                              <option value="">Select cost center...</option>
+                              {costCenters.map((cc) => (
+                                <option key={cc.id} value={cc.id}>
+                                  {cc.name} ({formatMoney(cc.remaining_amount, 'PHP')} remaining)
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-2">
+                              Chargeable Line
+                            </label>
+                            <select
+                              className="field-input"
+                              value={costAllocationDrafts[req.id]?.budget_category_id || ''}
+                              onChange={(event) => setCostAllocationDrafts((current) => ({
+                                ...current,
+                                [req.id]: { ...current[req.id], budget_category_id: event.target.value }
+                              }))}
+                            >
+                              <option value="">Select budget category...</option>
+                              {budgetCategories
+                                .filter((bc) => bc.department_id === req.department_id)
+                                .map((bc) => (
+                                  <option key={bc.id} value={bc.id}>
+                                    {bc.category_name} ({formatMoney(bc.remaining_amount, 'PHP')} remaining)
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-2">
+                              Notes (Optional)
+                            </label>
+                            <input
+                              className="field-input"
+                              placeholder="Add allocation notes..."
+                              value={costAllocationDrafts[req.id]?.notes || ''}
+                              onChange={(event) => setCostAllocationDrafts((current) => ({
+                                ...current,
+                                [req.id]: { ...current[req.id], notes: event.target.value }
+                              }))}
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-4">
+                          <button
+                            type="button"
+                            disabled={!costAllocationDrafts[req.id]?.cost_center_id || !costAllocationDrafts[req.id]?.budget_category_id}
+                            onClick={() => {
+                              const draft = costAllocationDrafts[req.id];
+                              const costCenter = costCenters.find((cc) => cc.id === draft?.cost_center_id);
+                              const budgetCategory = budgetCategories.find((bc) => bc.id === draft?.budget_category_id);
+                              setModalConfig({
+                                isOpen: true,
+                                requestId: req.id,
+                                type: 'confirm_allocation',
+                                title: 'Confirm Cost Allocation',
+                                message: `This will deduct ${displayMoney(requestAmount, requestCurrency)} from:\n• ${costCenter?.name}\n• ${req.department_name} - ${budgetCategory?.category_name}\n\nConfirm?`,
+                                placeholder: '',
+                                confirmLabel: 'Confirm Allocation'
+                              });
+                            }}
+                            className="btn-primary w-full"
+                          >
+                            Confirm Allocation
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+
+
                     {(user.role === 'accounting' || user.role === 'admin') && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision' && (
 
                       <div className="mb-5 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
@@ -3461,6 +3596,10 @@ const Approvals = () => {
 
             void handleOnHold(modalConfig.requestId, value);
 
+          } else if (modalConfig.type === 'confirm_allocation') {
+
+            void handleConfirmAllocation(modalConfig.requestId);
+
           } else {
 
             void handleReturn(modalConfig.requestId, value);
@@ -3481,7 +3620,7 @@ const Approvals = () => {
 
         cancelLabel="Cancel"
 
-        type="prompt"
+        type={modalConfig.type === 'confirm_allocation' ? 'confirm' : 'prompt'}
 
       />
 

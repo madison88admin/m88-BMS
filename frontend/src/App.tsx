@@ -44,7 +44,7 @@ function App() {
               <Route path="/request/edit/:id" element={<RequestForm />} />
               <Route path="/approvals" element={<Approvals />} />
               <Route path="/reports" element={<Reports />} />
-              <Route path="/accounting" element={<AccountingDashboard />} />
+              <Route path="/accounting" element={<BudgetManagement />} />
               <Route path="/delegations" element={<Delegations />} />
               <Route path="/management" element={<ManagementDashboard />} />
               <Route path="/admin" element={<Admin />} />

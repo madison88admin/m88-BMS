@@ -34,6 +34,7 @@ import {
 } from '../utils/workflowNotify';
 import { invalidateCache } from '../middleware/cache';
 import { generateRequestCode } from '../utils/sequentialCodeGenerator';
+import { findOrCreateM88ManilaCostCenter, isGeneralCategory } from '../utils/generalBudget';
 
 const router = express.Router();
 
@@ -711,6 +712,31 @@ const releaseRequest = async (
 
   const categoryAuditEntries: any[] = [];
 
+  // Store original category budget values for rollback if dual deduction fails
+  const categoryRollbackData: Map<string, { used_amount: number; committed_amount: number; remaining_amount: number }> = new Map();
+
+  // Check if request uses General Category for dual deduction
+  let isGeneralCategoryRequest = false;
+  let generalCategoryId: string | null = null;
+  
+  if (request.category_id) {
+    isGeneralCategoryRequest = await isGeneralCategory(request.category_id);
+    generalCategoryId = request.category_id;
+  } else if (request.category) {
+    // For requests without category_id, check by category name
+    const { data: cat } = await supabase
+      .from('budget_categories')
+      .select('id, department_id')
+      .eq('category_name', String(request.category).trim())
+      .eq('department_id', request.department_id)
+      .eq('fiscal_year', request.fiscal_year)
+      .maybeSingle();
+    if (cat && cat.department_id === 'All') {
+      isGeneralCategoryRequest = true;
+      generalCategoryId = cat.id;
+    }
+  }
+
   for (const allocation of normalizedAllocations) {
     if (releaseMethod === 'petty_cash') {
       const { data: department, error: departmentError } = await supabase
@@ -762,6 +788,13 @@ const releaseRequest = async (
 
         if (!catBudget) continue;
 
+        // Store original values for potential rollback
+        categoryRollbackData.set(catBudget.id, {
+          used_amount: toNumber(catBudget.used_amount),
+          committed_amount: toNumber(catBudget.committed_amount),
+          remaining_amount: toNumber(catBudget.remaining_amount)
+        });
+
         const newCommitted = Math.max(0, toNumber(catBudget.committed_amount) - itemAmountToDeduct);
         const newUsed = toNumber(catBudget.used_amount) + itemAmountToDeduct;
         const newRemaining = Math.max(0, toNumber(catBudget.budget_amount) - newUsed - newCommitted);
@@ -801,6 +834,13 @@ const releaseRequest = async (
       const { data: categoryBudget, error: fetchCategoryError } = await categoryBudgetQuery.maybeSingle();
 
       if (!fetchCategoryError && categoryBudget) {
+        // Store original values for potential rollback
+        categoryRollbackData.set(categoryBudget.id, {
+          used_amount: toNumber(categoryBudget.used_amount),
+          committed_amount: toNumber(categoryBudget.committed_amount),
+          remaining_amount: toNumber(categoryBudget.remaining_amount)
+        });
+
         const amountToDeduct = toNumber(allocation.amount);
         const newCommitted = Math.max(0, toNumber(categoryBudget.committed_amount) - amountToDeduct);
         const newUsedAmount = toNumber(categoryBudget.used_amount) + amountToDeduct;
@@ -825,6 +865,83 @@ const releaseRequest = async (
           await checkBudgetUtilizationWarning(categoryBudget.id);
         }
       }
+    }
+  }
+
+  // Dual deduction for General Categories: also deduct from M88 Manila cost center
+  if (isGeneralCategoryRequest) {
+    try {
+      const costCenter = await findOrCreateM88ManilaCostCenter(request.fiscal_year);
+      const amountToDeduct = toNumber(request.amount);
+
+      // Check if M88 Manila cost center has sufficient funds
+      if (toNumber(costCenter.remaining_amount) < amountToDeduct) {
+        throw new Error(`Insufficient funds in M88 Manila cost center. Available: ${toNumber(costCenter.remaining_amount).toFixed(2)}, Required: ${amountToDeduct.toFixed(2)}`);
+      }
+
+      // Deduct from M88 Manila cost center
+      const { error: costCenterError } = await supabase
+        .from('cost_centers')
+        .update({
+          used_amount: toNumber(costCenter.used_amount) + amountToDeduct,
+          remaining_amount: toNumber(costCenter.remaining_amount) - amountToDeduct
+        })
+        .eq('id', costCenter.id);
+
+      if (costCenterError) {
+        throw new Error(`Failed to deduct from M88 Manila cost center: ${costCenterError.message}`);
+      }
+
+      // Log audit event for cost center deduction
+      await logAuditEvent({
+        user: { id: actorId },
+        actionType: AUDIT_ACTIONS.COST_ALLOCATION_CONFIRMED,
+        recordType: 'cost_center',
+        recordId: costCenter.id,
+        recordLabel: costCenter.name,
+        remarks: `Dual deduction: ${amountToDeduct} deducted from M88 Manila cost center for General Category request ${request.request_code}`
+      });
+    } catch (dualDeductionError: any) {
+      // Rollback category budget deductions if cost center deduction fails
+      console.error('Dual deduction failed, rolling back category deductions:', dualDeductionError);
+
+      // Perform actual rollback of category budgets
+      const rollbackErrors: string[] = [];
+      for (const [categoryId, originalValues] of categoryRollbackData.entries()) {
+        try {
+          const { error: rollbackError } = await supabase
+            .from('budget_categories')
+            .update({
+              used_amount: originalValues.used_amount,
+              committed_amount: originalValues.committed_amount,
+              remaining_amount: originalValues.remaining_amount,
+              updated_at: new Date()
+            })
+            .eq('id', categoryId);
+
+          if (rollbackError) {
+            rollbackErrors.push(`Category ${categoryId}: ${rollbackError.message}`);
+          }
+        } catch (err: any) {
+          rollbackErrors.push(`Category ${categoryId}: ${err.message}`);
+        }
+      }
+
+      // Log rollback audit event
+      await logAuditEvent({
+        user: { id: actorId },
+        actionType: 'dual_deduction_rolled_back',
+        recordType: 'request',
+        recordId: request.id,
+        recordLabel: request.request_code,
+        remarks: `Dual deduction rollback for General Category request ${request.request_code}. Reason: ${dualDeductionError.message}. Rolled back ${categoryRollbackData.size} categories. Errors: ${rollbackErrors.join(', ') || 'None'}`
+      });
+
+      // TODO: Migrate to database transaction (Option B) for atomic dual deduction
+      // Currently using manual rollback (Option A) which is less reliable
+      // Future: Use Supabase RPC transaction to ensure both deductions succeed or fail together
+
+      throw new Error(`Dual deduction failed: ${dualDeductionError.message}. Category budgets have been rolled back. ${rollbackErrors.length > 0 ? `Rollback errors: ${rollbackErrors.join(', ')}` : ''}`);
     }
   }
 
