@@ -270,12 +270,6 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
     return res.status(400).json({ error: categoryError?.message || categoryError });
   }
 
-  // If categories are set, their sum IS the annual budget
-  const categoryBudgetTotal = (categories || []).reduce((s: number, c: any) => s + toNumber(c.budget_amount), 0);
-  if (categoryBudgetTotal > 0) {
-    totals.annual_budget = categoryBudgetTotal;
-  }
-
   const breakdownTotal = totals.released_requests_total + totals.direct_expenses_total;
   const remainingBudget = totals.annual_budget - totals.used_budget;
   const committedBudget = totals.used_budget + totals.pending_supervisor_total + totals.pending_accounting_total;

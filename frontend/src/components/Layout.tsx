@@ -101,6 +101,12 @@ const Layout = ({ children }: LayoutProps) => {
 
     let cancelled = false;
 
+    // Redirect Accounting users to Budget Matrix as default landing page
+    if (user?.role === 'accounting' && location.pathname === '/') {
+      navigate('/accounting');
+      return;
+    }
+
     const bootstrap = async () => {
       try {
         const meRes = await api.get('/api/auth/me');
@@ -253,9 +259,7 @@ const Layout = ({ children }: LayoutProps) => {
             <Link to="/admin" className={getNavClassName('/admin')}>Dashboard</Link>
           ) : user.role === 'management' ? (
             <Link to="/management" className={getNavClassName('/management')}>Management Overview</Link>
-          ) : user.role === 'accounting' ? (
-            <Link to="/accounting" className={getNavClassName('/accounting')}>Dashboard</Link>
-          ) : (
+          ) : user.role === 'accounting' ? null : (
             <Link to="/" className={getNavClassName('/')}>Dashboard</Link>
           )}
           {(user.role !== 'super_admin' && user.role !== 'admin') && (
