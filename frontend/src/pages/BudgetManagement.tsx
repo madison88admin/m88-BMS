@@ -692,23 +692,21 @@ const BudgetManagement = () => {
             </div>
             {/* M88 Manila Cost Center Summary Card - visible to Supervisor and Accounting */}
             {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
-              <div className="relative overflow-hidden rounded-[32px] border border-blue-500/30 bg-blue-50/50 p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-                <div className="absolute -right-10 top-0 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl" />
-                <div className="relative">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-blue-700/70">M88 Manila General Budget</p>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    <div>
-                      <p className="text-[10px] uppercase text-blue-600/60">Total</p>
-                      <p className="text-lg font-bold text-blue-900">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-blue-600/60">Used</p>
-                      <p className="text-lg font-bold text-blue-900">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-blue-600/60">Remaining</p>
-                      <p className="text-lg font-bold text-emerald-700">{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</p>
-                    </div>
+              <div className="group relative overflow-hidden rounded-[28px] border border-blue-500/30 bg-[var(--role-surface)] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
+                <div className={`absolute -right-10 top-0 h-24 w-24 rounded-full blur-2xl bg-blue-500/10 opacity-10`} />
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--role-text)]/60">M88 Manila General Budget</p>
+                <div className="mt-3 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-[var(--role-text)]/70">Total</span>
+                    <span className="text-lg font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-[var(--role-text)]/70">Used</span>
+                    <span className="text-lg font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-[var(--role-text)]/70">Remaining</span>
+                    <span className={`text-lg font-bold ${toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</span>
                   </div>
                 </div>
               </div>
