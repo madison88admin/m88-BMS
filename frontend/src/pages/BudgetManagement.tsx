@@ -305,6 +305,7 @@ const BudgetManagement = () => {
       ch = supabase.channel('bm-realtime')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'departments' }, () => { fetchDepartments(false); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, false, false); })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_categories' }, () => { if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, false, false); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'cost_centers' }, () => { fetchM88ManilaCostCenter(); })
         .subscribe();
     }
     return () => { window.clearInterval(id); if (ch && supabase) supabase.removeChannel(ch); };

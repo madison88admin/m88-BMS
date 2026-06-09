@@ -8,7 +8,6 @@ import ReimbursementForm from './pages/ReimbursementForm';
 import RequestTracker from './pages/RequestTracker';
 import Approvals from './pages/Approvals';
 import Reports from './pages/Reports';
-import AccountingDashboard from './pages/AccountingDashboard';
 import ManagementDashboard from './pages/ManagementDashboard';
 import Admin from './pages/Admin';
 import Profile from './pages/Profile';
