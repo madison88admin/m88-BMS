@@ -672,10 +672,14 @@ const BudgetManagement = () => {
 
   const fetchM88ManilaCostCenter = async () => {
     try {
+      console.log('Fetching M88 Manila cost center for fiscal year:', selectedFiscalYear);
       const res = await api.get('/api/budget/cost-centers', { params: { fiscal_year: selectedFiscalYear } });
+      console.log('Cost centers response:', res.data);
       const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
+      console.log('M88 Manila cost center found:', m88);
       setM88ManilaCostCenter(m88 || null);
-    } catch {
+    } catch (err) {
+      console.error('Failed to fetch M88 Manila cost center:', err);
       // Silent fail - cost center might not exist yet
     }
   };

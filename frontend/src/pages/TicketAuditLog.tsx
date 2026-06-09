@@ -273,6 +273,7 @@ const TicketAuditLog = () => {
                   </div>
                   <div className="text-sm text-gray-600">
                     <p>Record: {log.record_label || log.record_id}</p>
+                    {selectedRequest && <p>Ticket Owner: {selectedRequest.employee_name}</p>}
                     {log.department_name && <p>Department: {log.department_name}</p>}
                     {log.remarks && <p className="text-gray-500 italic">"{log.remarks}"</p>}
                     {(log.old_value || log.new_value) && (

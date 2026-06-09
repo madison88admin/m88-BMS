@@ -570,7 +570,7 @@ router.delete('/categories/:id', authenticate, authorize('accounting', 'admin', 
 // GET /api/budget/cost-centers - Get cost centers
 router.get('/cost-centers', authenticate, async (req: any, res) => {
   try {
-    const { department_id } = req.query;
+    const { department_id, fiscal_year } = req.query;
 
     if (department_id) {
       await ensureDepartmentCostCenterCode(supabase, String(department_id));
@@ -580,6 +580,10 @@ router.get('/cost-centers', authenticate, async (req: any, res) => {
       .from('cost_centers')
       .select('*')
       .eq('is_active', true);
+
+    if (fiscal_year) {
+      query = query.eq('fiscal_year', parseInt(fiscal_year as string));
+    }
 
     const { data, error } = await query.order('name');
     if (error) throw error;
