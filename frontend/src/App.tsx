@@ -20,6 +20,7 @@ import CashAdvanceAging from './pages/CashAdvanceAging';
 import AuditTrail from './pages/AuditTrail';
 import Delegations from './pages/Delegations';
 import DocumentUploads from './pages/DocumentUploads';
+import TicketAuditLog from './pages/TicketAuditLog';
 
 function App() {
   return (
@@ -50,6 +51,7 @@ function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/cash-advance-aging" element={<CashAdvanceAging />} />
               <Route path="/audit-trail/:requestId?" element={<AuditTrail />} />
+              <Route path="/ticket-audit-log" element={<TicketAuditLog />} />
             </Routes>
           </Layout>
         } />

@@ -849,8 +849,8 @@ const NewRequestForm = () => {
             );
           })()}
 
-          {/* Remaining budget info */}
-          {reimbursementMainCategory && (() => {
+          {/* Remaining budget info - hidden per user request */}
+          {/* {reimbursementMainCategory && (() => {
             const selectedCategory = categories.find(c => c.category_name === reimbursementMainCategory);
             const isGeneralCategory = selectedCategory?.department_id === 'All';
             const deptRemaining = selectedCategory?.remaining_amount || 0;
@@ -866,7 +866,7 @@ const NewRequestForm = () => {
                 )}
               </div>
             );
-          })()}
+          })()} */}
 
           {reimbursementMainCategory && (
             <div className="mb-4">
@@ -1229,8 +1229,8 @@ const NewRequestForm = () => {
             );
           })()}
 
-          {/* Remaining budget info */}
-          {cashAdvanceMainCategory && (() => {
+          {/* Remaining budget info - hidden per user request */}
+          {/* {cashAdvanceMainCategory && (() => {
             const selectedCategory = categories.find(c => c.category_name === cashAdvanceMainCategory);
             const isGeneralCategory = selectedCategory?.department_id === 'All';
             const deptRemaining = selectedCategory?.remaining_amount || 0;
@@ -1246,7 +1246,7 @@ const NewRequestForm = () => {
                 )}
               </div>
             );
-          })()}
+          })()} */}
 
           {cashAdvanceMainCategory && (
             <div className="mb-4">

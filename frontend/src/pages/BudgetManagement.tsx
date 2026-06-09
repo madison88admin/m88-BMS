@@ -331,15 +331,17 @@ const BudgetManagement = () => {
     fetchExchangeRate(false);
     fetchM88ManilaCostCenter();
     const id = window.setInterval(() => fetchExchangeRate(false), 60000);
+    const costCenterId = window.setInterval(() => fetchM88ManilaCostCenter(), 30000);
     let ch: any;
     if (supabase) {
       ch = supabase.channel('bm-realtime')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'departments' }, () => { fetchDepartments(false); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, false, false); })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_categories' }, () => { if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, false, false); })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'cost_centers' }, () => { fetchM88ManilaCostCenter(); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requests' }, () => { fetchM88ManilaCostCenter(); })
         .subscribe();
     }
-    return () => { window.clearInterval(id); if (ch && supabase) supabase.removeChannel(ch); };
+    return () => { window.clearInterval(id); window.clearInterval(costCenterId); if (ch && supabase) supabase.removeChannel(ch); };
   }, [selectedDepartmentId]);
 
   useEffect(() => {
