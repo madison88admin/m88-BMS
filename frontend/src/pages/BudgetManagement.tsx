@@ -77,6 +77,47 @@ const getBudgetHealth = (dept: any) => {
   return 'low';
 };
 
+const getUtilizationColor = (pct: number) => {
+  if (pct >= 80) return 'text-red-500';
+  if (pct >= 50) return 'text-amber-500';
+  return 'text-green-600';
+};
+
+const getUtilizationBarColor = (pct: number) => {
+  if (pct >= 80) return 'bg-red-500';
+  if (pct >= 50) return 'bg-amber-500';
+  return 'bg-emerald-500';
+};
+
+const getDeptIcon = (name?: string) => {
+  const n = (name || '').toLowerCase();
+  if (n.includes('it')) return (
+    <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  );
+  if (n.includes('finance') || n.includes('accounting') || n.includes('costing')) return (
+    <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M12 7h.01M9 7h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+  if (n.includes('hr') || n.includes('human')) return (
+    <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+  if (n.includes('executive') || n.includes('president') || n.includes('vp')) return (
+    <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  );
+  return (
+    <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  );
+};
+
 const getDeptCode = (name?: string) => {
   const n = (name || '').trim().toLowerCase();
   if (n.includes('it')) return 'm88IT';
@@ -140,6 +181,11 @@ const BudgetManagement = () => {
   const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
+  const [pettyCashOpen, setPettyCashOpen] = useState(false);
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
+  const [showInactive, setShowInactive] = useState(true);
+  const [categoryPageSize, setCategoryPageSize] = useState(5);
+  const [openOverflowId, setOpenOverflowId] = useState<string | null>(null);
 
   // Accounting, admin, and supervisor may lock/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
@@ -314,9 +360,19 @@ const BudgetManagement = () => {
   }, [enrichedCategories]);
   const categoryAllocationRemaining = Math.max(0, editableBudgetValue - categoryAllocatedTotal);
 
+  const visibleOrderedCategories = useMemo(() => {
+    if (showInactive) return orderedCategories;
+    return orderedCategories.filter(({ cat }) => {
+      const used = toNumber(cat.used_amount);
+      const committed = toNumber(cat.committed_amount);
+      const budget = toNumber(cat.budget_amount);
+      return !(used === 0 && committed === 0 && budget === 0);
+    });
+  }, [orderedCategories, showInactive]);
+
   const paginatedCategories = useMemo(
-    () => orderedCategories.slice((categoryPage - 1) * CATEGORY_PAGE_SIZE, categoryPage * CATEGORY_PAGE_SIZE),
-    [orderedCategories, categoryPage]
+    () => visibleOrderedCategories.slice((categoryPage - 1) * categoryPageSize, categoryPage * categoryPageSize),
+    [visibleOrderedCategories, categoryPage, categoryPageSize]
   );
 
   useEffect(() => {
@@ -740,9 +796,9 @@ const BudgetManagement = () => {
             <div className="h-4 w-px bg-[var(--role-border)]" />
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilization</span>
-              <span className="font-bold text-[var(--role-text)]">{formatPercent(overview.utilization)}</span>
+              <span className={`font-bold ${getUtilizationColor(overview.utilization)}`}>{formatPercent(overview.utilization)}</span>
               <div className="h-2 w-20 overflow-hidden rounded-full bg-[var(--role-border)]">
-                <div className="h-full rounded-full bg-gradient-to-r from-[var(--role-primary)] to-[var(--role-secondary)]" style={{ width: `${Math.min(100, overview.utilization)}%` }} />
+                <div className={`h-full rounded-full ${getUtilizationBarColor(overview.utilization)}`} style={{ width: `${Math.min(100, overview.utilization)}%` }} />
               </div>
             </div>
             {/* FX info */}
@@ -764,14 +820,23 @@ const BudgetManagement = () => {
 
           {/* M88 Manila cost center row — only for accounting/admin/supervisor */}
           {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
-            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-blue-400/30 bg-blue-50/40 px-5 py-3 text-sm">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-blue-600/70 font-semibold">M88 Manila General</span>
-              <div className="h-4 w-px bg-blue-300/40" />
-              <span className="text-[var(--role-text)]/60">Total <span className="font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span></span>
-              <div className="h-4 w-px bg-blue-300/40" />
-              <span className="text-[var(--role-text)]/60">Used <span className="font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span></span>
-              <div className="h-4 w-px bg-blue-300/40" />
-              <span className="text-[var(--role-text)]/60">Remaining <span className={`font-semibold ${toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</span></span>
+            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm text-sm">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">M88 Manila General</span>
+              <div className="h-4 w-px bg-[var(--role-border)]" />
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Total</span>
+                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span>
+              </div>
+              <div className="h-4 w-px bg-[var(--role-border)]" />
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Used</span>
+                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span>
+              </div>
+              <div className="h-4 w-px bg-[var(--role-border)]" />
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Remaining</span>
+                <span className={`font-bold ${toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</span>
+              </div>
             </div>
           )}
         </div>
@@ -855,7 +920,7 @@ const BudgetManagement = () => {
                       </div>
                       {/* Mini utilization bar */}
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--role-border)]">
-                        <div className="h-full rounded-full bg-gradient-to-r from-[var(--role-primary)] to-[var(--role-secondary)]" style={{ width: `${Math.min(utilization, 100)}%` }} />
+                        <div className={`h-full rounded-full ${getUtilizationBarColor(utilization)}`} style={{ width: `${Math.min(utilization, 100)}%` }} />
                       </div>
                       <div className="mt-1 flex items-center justify-between gap-2">
                         <span className="text-[10px] text-[var(--role-text)]/50">{displayMoney(remaining)} rem.</span>
@@ -901,21 +966,30 @@ const BudgetManagement = () => {
 
         {/* Budget Workspace */}
         <div className="panel overflow-hidden">
-          <div className="relative overflow-hidden rounded-[28px] border border-[var(--role-border)] bg-[var(--role-surface)] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-            <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[var(--role-primary)]/5 blur-3xl" />
-            <div className="relative">
-              <h2 className="mt-2 text-3xl font-bold text-[var(--role-text)]">{selectedDepartment?.name || breakdownDept?.name || 'Select a department'}</h2>
-              {(selectedDepartment || breakdownDept) && (
-                <span className="mt-2 inline-flex rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--role-text)]/70">
-                  {getDeptCode(selectedDepartment?.name || breakdownDept?.name)}
-                </span>
+          {/* Slim department header — name + code + compact utilization line */}
+          <div className="flex items-center justify-between gap-3 pb-4 border-b border-[var(--role-border)]">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {getDeptIcon(selectedDepartment?.name || breakdownDept?.name)}
+                <h2 className="text-base font-bold text-[var(--role-text)]">
+                  {selectedDepartment?.name || breakdownDept?.name || 'Select a department'}
+                </h2>
+                {(selectedDepartment || breakdownDept) && (
+                  <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--role-text)]/60">
+                    {getDeptCode(selectedDepartment?.name || breakdownDept?.name)}
+                  </span>
+                )}
+              </div>
+              {breakdownTotals && breakdownDept && (
+                <p className="mt-0.5 text-xs text-[var(--role-text)]/50">
+                  {displayMoney(breakdownTotals.used_budget)} utilized of {displayMoney(breakdownTotals.annual_budget)} total
+                  {' '}(<span className={getUtilizationColor(breakdownDept.utilization_percentage)}>{formatPercent(breakdownDept.utilization_percentage)}</span>)
+                  {breakdownDept.remaining_budget != null && (
+                    <> · <span className="text-emerald-600 font-medium">{displayMoney(breakdownDept.remaining_budget)} remaining</span></>
+                  )}
+                </p>
               )}
             </div>
-          </div>
-
-          <div className="mt-3 flex items-center justify-end gap-2 text-xs text-[var(--role-text)]/40">
-            <span>Displaying in {displayCurrency} · Synced: {formatDateTime(selectedBreakdown?.generated_at)}</span>
-            <button className="btn-secondary !rounded-full !px-3 !py-1.5 text-xs" onClick={() => { fetchExchangeRate(true); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}>↻</button>
           </div>
 
           {detailLoading ? (
@@ -929,24 +1003,7 @@ const BudgetManagement = () => {
               </div>
             </div>
           ) : (
-            <div className="mt-6 space-y-6">
-              {/* 4-stat grid */}
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                {[
-                  { label: 'Annual Budget', value: displayMoney(breakdownTotals.annual_budget), sub: secondaryMoney(breakdownTotals.annual_budget) },
-                  { label: 'Utilized', value: displayMoney(breakdownTotals.used_budget), sub: secondaryMoney(breakdownTotals.used_budget) },
-                  { label: 'Available', value: displayMoney(breakdownDept.remaining_budget), sub: secondaryMoney(breakdownDept.remaining_budget) },
-                  // Removed 'Spent This Month' per Section 1.3 requirements
-                  { label: 'Utilization', value: formatPercent(breakdownDept.utilization_percentage), sub: `Committed: ${displayMoney(breakdownDept.projected_committed_total)}` },
-                ].map(s => (
-                  <div key={s.label} className="rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-                    <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/60">{s.label}</p>
-                    <p className="mt-3 text-2xl font-bold text-[var(--role-text)]">{s.value}</p>
-                    <p className="mt-1 text-sm text-[var(--role-text)]/60">{s.sub}</p>
-                  </div>
-                ))}
-              </div>
-
+            <div className="mt-4 space-y-6">
               {/* Unlock Budget Matrix — accounting/admin/supervisor can manage locks */}
               {canEditMatrix && lockedCategories.length > 0 && (
                 <div className="rounded-[24px] border-2 border-amber-400/50 bg-amber-50/60 p-5">
@@ -1194,101 +1251,219 @@ const BudgetManagement = () => {
                     {/* Category list */}
                     {enrichedCategories.length > 0 ? (
                       <>
-                        <div className="space-y-1 max-h-64 overflow-y-auto">
+                        {/* Show inactive toggle */}
+                        <div className="mb-2">
+                          <label className="flex items-center gap-2 text-xs text-[var(--role-text)]/60 cursor-pointer select-none">
+                            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded" />
+                            Show inactive categories
+                          </label>
+                        </div>
+                        <div className="space-y-1 max-h-[600px] overflow-y-auto">
                           {paginatedCategories.map(({ cat, depth }) => {
                               const budget = toNumber(cat.budget_amount), used = toNumber(cat.used_amount), committed = toNumber(cat.committed_amount);
                               const totalConsumed = used + committed;
                               const rem = Math.max(0, budget - totalConsumed);
                               const pct = budget > 0 ? (totalConsumed / budget) * 100 : 0;
                               const utilizationWarning = user?.role === 'supervisor' && pct >= 80;
+                              const isInactive = used === 0 && committed === 0 && toNumber(cat.budget_amount) === 0;
+
+                              // Skip inactive if toggle is off
+                              if (!showInactive && isInactive) return null;
                               
                               // Calculate sub-category total for parent categories
                               const children = enrichedCategories.filter(c => c.parent_category_id === cat.id);
                               const childrenTotal = children.reduce((sum, child) => sum + toNumber(child.budget_amount), 0);
                               const hasChildren = children.length > 0;
                               const childrenWarning = hasChildren && childrenTotal > budget;
+
+                              const isExpanded = expandedCategoryIds.has(cat.id);
                               
                               return (
-                                <div key={cat.id} className={`rounded-xl border p-3 ${utilizationWarning ? 'border-amber-400 bg-amber-50/40' : ''} ${childrenWarning ? 'border-red-400 bg-red-50/40' : 'border-[var(--role-border)] bg-[var(--role-surface)]'}`} style={{ marginLeft: `${depth * 16}px` }}>
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <span className="font-mono text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">{cat.category_code}</span>
-                                    {cat.department_id === 'All' && (
-                                      <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">General</span>
-                                    )}
-                                    {cat.department_id !== 'All' && cat.department_id && (
-                                      <span className="text-[10px] font-semibold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">Dept Only</span>
+                                <div
+                                  key={cat.id}
+                                  className={`rounded-xl border ${utilizationWarning ? 'border-amber-400 bg-amber-50/40' : ''} ${childrenWarning ? 'border-red-400 bg-red-50/40' : 'border-[var(--role-border)] bg-[var(--role-surface)]'} ${isInactive ? 'opacity-60' : ''}`}
+                                  style={{ marginLeft: `${depth * 16}px` }}
+                                >
+                                  {/* Row header — always visible, click to toggle */}
+                                  <div
+                                    className="flex items-center gap-2 p-3 cursor-pointer"
+                                    onClick={() => setExpandedCategoryIds(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(cat.id)) next.delete(cat.id); else next.add(cat.id);
+                                      return next;
+                                    })}
+                                  >
+                                    <span className="font-mono text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded shrink-0">{cat.category_code}</span>
+                                    {cat.is_locked && (
+                                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded shrink-0">LOCKED</span>
                                     )}
                                     <span className="flex-1 text-sm font-medium truncate text-[var(--role-text)]">
                                       {depth > 0 ? '↳ ' : ''}{cat.category_name}
                                     </span>
-                                    {utilizationWarning && (
-                                      <span className="text-[10px] font-semibold text-amber-800 bg-amber-200 px-1.5 py-0.5 rounded" title="80%+ of approved budget used">
-                                        ⚠ {pct.toFixed(0)}% used
-                                      </span>
+                                    {isInactive && (
+                                      <span className="text-[10px] text-[var(--role-text)]/40 border border-[var(--role-border)] rounded-full px-1.5 py-0.5 shrink-0">No activity</span>
                                     )}
-                                    {childrenWarning && (
-                                      <span className="text-[10px] font-semibold text-red-800 bg-red-200 px-1.5 py-0.5 rounded" title="Sub-categories exceed parent budget">
-                                        ⚠ Sub-cats: {displayMoney(childrenTotal)} &gt; {displayMoney(budget)}
-                                      </span>
+                                    {/* Remaining pill */}
+                                    <span className="text-xs text-emerald-600 font-medium shrink-0">{displayMoney(rem)}</span>
+                                    {/* Overflow menu — always visible */}
+                                    {canEditMatrix && (
+                                      <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
+                                        <button
+                                          className="p-1 rounded hover:bg-[var(--role-accent)] text-[var(--role-text)]/40 hover:text-[var(--role-text)]/70 transition"
+                                          onClick={() => setOpenOverflowId(openOverflowId === cat.id ? null : cat.id)}
+                                        >
+                                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                            <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
+                                          </svg>
+                                        </button>
+                                        {openOverflowId === cat.id && (
+                                          <div className="absolute right-0 top-7 z-20 min-w-[120px] rounded-xl border border-[var(--role-border)] bg-[var(--bms-bg-2)] shadow-lg p-1">
+                                            {cat.is_locked ? (
+                                              <button onClick={() => { unlockCategory(cat.id); setOpenOverflowId(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 transition">
+                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>
+                                                Unlock
+                                              </button>
+                                            ) : (
+                                              <button onClick={() => { deleteCategory(cat.id); setOpenOverflowId(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 transition">
+                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                Delete
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                     )}
-                                    {hasChildren && !childrenWarning && (
-                                      <span className="text-[10px] text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded" title="Sub-categories total">
-                                        Sub-cats: {displayMoney(childrenTotal)}
-                                      </span>
-                                    )}
-                                    {cat.is_locked && (
-                                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">LOCKED</span>
-                                    )}
-                                    {cat.parent_category_name && (
-                                      <span className="text-[10px] text-[var(--role-text)]/50 whitespace-nowrap">
-                                        under {cat.parent_category_name}
-                                      </span>
-                                    )}
-                                    {canEditMatrix ? (
-                                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                                      <input type="number" step="0.01" min="0" value={budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount} onChange={e => setBudgetInputs(p => ({ ...p, [`cat_${cat.id}`]: e.target.value }))} className="w-20 px-2 py-1 text-right text-xs rounded border border-[var(--role-border)] bg-[var(--role-accent)]" disabled={cat.is_locked} />
-                                      <button onClick={() => { const v = parseFloat(budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount); if (v >= 0) updateCategoryBudget(cat.id, v); }} disabled={cat.is_locked} className="px-2 py-1 text-[10px] bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:opacity-50">✓</button>
-                                      {cat.is_locked ? (
-                                        <button onClick={() => unlockCategory(cat.id)} className="px-2 py-1 text-[10px] bg-amber-500 text-white rounded hover:bg-amber-600">Unlock</button>
-                                      ) : (
-                                        <button onClick={() => deleteCategory(cat.id)} className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded" title="Delete"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                    {/* Chevron */}
+                                    <svg className={`h-3.5 w-3.5 shrink-0 text-[var(--role-text)]/30 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                  </div>
+
+                                  {/* Expanded body */}
+                                  {isExpanded && (
+                                    <div className="px-3 pb-3 space-y-2 border-t border-[var(--role-border)]">
+                                      {/* Utilization bar + stats */}
+                                      <div className="pt-2">
+                                        {utilizationWarning && (
+                                          <span className="text-[10px] font-semibold text-amber-800 bg-amber-200 px-1.5 py-0.5 rounded mr-1" title="80%+ of approved budget used">
+                                            ⚠ {pct.toFixed(0)}% used
+                                          </span>
+                                        )}
+                                        {childrenWarning && (
+                                          <span className="text-[10px] font-semibold text-red-800 bg-red-200 px-1.5 py-0.5 rounded mr-1" title="Sub-categories exceed parent budget">
+                                            ⚠ Sub-cats: {displayMoney(childrenTotal)} &gt; {displayMoney(budget)}
+                                          </span>
+                                        )}
+                                        {hasChildren && !childrenWarning && (
+                                          <span className="text-[10px] text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded mr-1" title="Sub-categories total">
+                                            Sub-cats: {displayMoney(childrenTotal)}
+                                          </span>
+                                        )}
+                                        {cat.department_id === 'All' && (
+                                          <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mr-1">General</span>
+                                        )}
+                                        {cat.parent_category_name && (
+                                          <span className="text-[10px] text-[var(--role-text)]/50 whitespace-nowrap">
+                                            under {cat.parent_category_name}
+                                          </span>
+                                        )}
+                                        <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1.5 mb-1">
+                                          <div className={`h-1.5 rounded-full ${utilizationWarning ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                                        </div>
+                                        <div className="flex justify-between text-[10px] text-[var(--role-text)]/50">
+                                          <span>Used: <span className={`font-medium ${utilizationWarning ? 'text-amber-700' : 'text-amber-600'}`}>{displayMoney(used)}</span> + Committed: {displayMoney(committed)} ({pct.toFixed(1)}%)</span>
+                                          <span>Approved: {displayMoney(budget)} · Rem: <span className="text-emerald-600 font-medium">{displayMoney(rem)}</span></span>
+                                        </div>
+                                      </div>
+
+                                      {/* Budget input — only in expanded + canEditMatrix */}
+                                      {canEditMatrix && (
+                                        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                          <input type="number" step="0.01" min="0" value={budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount} onChange={e => setBudgetInputs(p => ({ ...p, [`cat_${cat.id}`]: e.target.value }))} className="w-24 px-2 py-1 text-right text-xs rounded border border-[var(--role-border)] bg-[var(--role-accent)]" disabled={cat.is_locked} />
+                                          <button onClick={() => { const v = parseFloat(budgetInputs[`cat_${cat.id}`] ?? cat.budget_amount); if (v >= 0) updateCategoryBudget(cat.id, v); }} disabled={cat.is_locked} className="px-2 py-1 text-[10px] bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:opacity-50">✓</button>
+                                        </div>
                                       )}
-                                    </div>
-                                    ) : (
-                                    <span className="text-sm font-semibold text-emerald-600">{displayMoney(budget)}</span>
-                                    )}
-                                  </div>
-                                  <div className="w-full bg-gray-200 rounded-full h-1.5 mb-1">
-                                    <div className={`h-1.5 rounded-full ${utilizationWarning ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                                  </div>
-                                  <div className="flex justify-between text-[10px] text-[var(--role-text)]/50">
-                                    <span>Used: <span className={`font-medium ${utilizationWarning ? 'text-amber-700' : 'text-amber-600'}`}>{displayMoney(used)}</span> + Committed: {displayMoney(committed)} ({pct.toFixed(1)}%)</span>
-                                    <span>Approved: {displayMoney(budget)} · Rem: <span className="text-emerald-600 font-medium">{displayMoney(rem)}</span></span>
-                                  </div>
-                                  {(revisionHistory[cat.id]?.length ?? 0) > 0 && (
-                                    <div className="mt-2 pt-2 border-t border-[var(--role-border)] text-[10px] text-[var(--role-text)]/60 space-y-1">
-                                      <p className="font-semibold">Revision history</p>
-                                      {revisionHistory[cat.id].slice(0, 3).map((entry: any) => (
-                                        <p key={entry.id}>
-                                          {formatDateTime(entry.approved_at || entry.created_at)} — {displayMoney(toNumber(entry.previous_amount))} → {displayMoney(toNumber(entry.approved_amount ?? entry.proposed_amount))} ({entry.revision_type?.replace(/_/g, ' ')})
-                                        </p>
-                                      ))}
+                                      {!canEditMatrix && (
+                                        <span className="text-sm font-semibold text-emerald-600">{displayMoney(budget)}</span>
+                                      )}
+
+                                      {/* Revision history */}
+                                      {(revisionHistory[cat.id]?.length ?? 0) > 0 && (
+                                        <div className="pt-2 border-t border-[var(--role-border)] text-[10px] text-[var(--role-text)]/60 space-y-1">
+                                          <p className="font-semibold">Revision history</p>
+                                          {revisionHistory[cat.id].slice(0, 3).map((entry: any) => (
+                                            <p key={entry.id}>
+                                              {formatDateTime(entry.approved_at || entry.created_at)} — {displayMoney(toNumber(entry.previous_amount))} → {displayMoney(toNumber(entry.approved_amount ?? entry.proposed_amount))} ({entry.revision_type?.replace(/_/g, ' ')})
+                                            </p>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
                               );
                             })}
                         </div>
-                        {orderedCategories.length === 0 && categorySearch.trim() && (
+                        {visibleOrderedCategories.length === 0 && categorySearch.trim() && (
                           <p className="text-sm text-center text-[var(--role-text)]/50 py-4">No categories match your search.</p>
                         )}
-                        {orderedCategories.length > CATEGORY_PAGE_SIZE && (
-                          <div className="mt-3 flex items-center justify-between rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] px-3 py-2">
-                            <span className="text-xs text-[var(--role-text)]/50">Page {categoryPage} / {Math.ceil(orderedCategories.length / CATEGORY_PAGE_SIZE)}</span>
-                            <div className="flex gap-2">
-                              <button onClick={() => setCategoryPage(p => Math.max(1, p - 1))} disabled={categoryPage === 1} className="btn-secondary !px-3 !py-1 !text-xs disabled:opacity-50">← Prev</button>
-                              <button onClick={() => setCategoryPage(p => Math.min(Math.ceil(orderedCategories.length / CATEGORY_PAGE_SIZE), p + 1))} disabled={categoryPage >= Math.ceil(orderedCategories.length / CATEGORY_PAGE_SIZE)} className="btn-secondary !px-3 !py-1 !text-xs disabled:opacity-50">Next →</button>
+                        {/* Pagination bar */}
+                        {visibleOrderedCategories.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {/* Count + page size selector */}
+                            <div className="flex items-center justify-between text-xs text-[var(--role-text)]/50">
+                              <span>
+                                Showing {Math.min((categoryPage - 1) * categoryPageSize + 1, visibleOrderedCategories.length)}–{Math.min(categoryPage * categoryPageSize, visibleOrderedCategories.length)} of {visibleOrderedCategories.length} categories
+                              </span>
+                              <select
+                                className="rounded border border-[var(--role-border)] bg-[var(--role-surface)] px-2 py-0.5 text-xs"
+                                value={categoryPageSize}
+                                onChange={e => { setCategoryPageSize(Number(e.target.value)); setCategoryPage(1); }}
+                              >
+                                <option value={5}>5 / page</option>
+                                <option value={10}>10 / page</option>
+                                <option value={20}>20 / page</option>
+                              </select>
                             </div>
+                            {/* Page number buttons */}
+                            {Math.ceil(visibleOrderedCategories.length / categoryPageSize) > 1 && (
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => setCategoryPage(p => Math.max(1, p - 1))}
+                                  disabled={categoryPage === 1}
+                                  className="rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] px-2.5 py-1 text-xs disabled:opacity-40 hover:bg-[var(--role-accent)] transition"
+                                >←</button>
+                                {(() => {
+                                  const total = Math.ceil(visibleOrderedCategories.length / categoryPageSize);
+                                  const pages: (number | '...')[] = [];
+                                  if (total <= 7) {
+                                    for (let i = 1; i <= total; i++) pages.push(i);
+                                  } else {
+                                    pages.push(1);
+                                    if (categoryPage > 3) pages.push('...');
+                                    for (let i = Math.max(2, categoryPage - 1); i <= Math.min(total - 1, categoryPage + 1); i++) pages.push(i);
+                                    if (categoryPage < total - 2) pages.push('...');
+                                    pages.push(total);
+                                  }
+                                  return pages.map((p, i) =>
+                                    p === '...' ? (
+                                      <span key={`ellipsis-${i}`} className="px-1.5 text-xs text-[var(--role-text)]/40">…</span>
+                                    ) : (
+                                      <button
+                                        key={p}
+                                        onClick={() => setCategoryPage(p as number)}
+                                        className={`min-w-[28px] rounded-lg border px-2 py-1 text-xs transition ${categoryPage === p ? 'border-[var(--role-primary)] bg-[var(--role-primary)] text-white' : 'border-[var(--role-border)] bg-[var(--role-surface)] hover:bg-[var(--role-accent)]'}`}
+                                      >{p}</button>
+                                    )
+                                  );
+                                })()}
+                                <button
+                                  onClick={() => setCategoryPage(p => Math.min(Math.ceil(visibleOrderedCategories.length / categoryPageSize), p + 1))}
+                                  disabled={categoryPage >= Math.ceil(visibleOrderedCategories.length / categoryPageSize)}
+                                  className="rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] px-2.5 py-1 text-xs disabled:opacity-40 hover:bg-[var(--role-accent)] transition"
+                                >→</button>
+                              </div>
+                            )}
                           </div>
                         )}
                         <div className="mt-3 pt-3 border-t border-[var(--role-border)] flex justify-between items-center">
@@ -1304,22 +1479,40 @@ const BudgetManagement = () => {
                     )}
                   </div>
 
-                  {/* Petty Cash */}
+                  {/* Petty Cash — collapsible */}
                   {canEditMatrix && (
-                  <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                      <h3 className="text-lg font-semibold text-[var(--role-text)]">Petty Cash Adjustment</h3>
-                      <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-surface)] px-4 py-2 text-sm text-[var(--role-text)]/60">Balance: <span className="font-semibold text-[var(--role-text)]">{displayMoney(breakdownTotals.petty_cash_balance)}</span></span>
-                    </div>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <select className="field-input sm:w-40" value={pettyCashForm.action} onChange={e => setPettyCashForm(p => ({ ...p, action: e.target.value as any }))}>
-                        <option value="replenish">Add Cash</option>
-                        <option value="disburse">Deduct Cash</option>
-                      </select>
-                      <input type="text" className="field-input flex-1" placeholder="Reason for adjustment" value={pettyCashForm.purpose} onChange={e => setPettyCashForm(p => ({ ...p, purpose: e.target.value }))} />
-                      <input type="number" step="0.01" className="field-input sm:w-40" placeholder="Amount" value={pettyCashForm.amount} onChange={e => setPettyCashForm(p => ({ ...p, amount: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') submitPettyCash(); }} />
-                      <button className="btn-success" onClick={submitPettyCash}>Save</button>
-                    </div>
+                  <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setPettyCashOpen(o => !o)}
+                      className="flex w-full items-center justify-between px-5 py-3 text-left hover:bg-[var(--role-accent)]/80 transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-[var(--role-text)]">Petty Cash Adjustment</h3>
+                        <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-surface)] px-2.5 py-0.5 text-xs text-[var(--role-text)]/60">
+                          Balance: <span className="font-semibold text-[var(--role-text)]">{displayMoney(breakdownTotals.petty_cash_balance)}</span>
+                        </span>
+                      </div>
+                      <svg
+                        className={`h-4 w-4 text-[var(--role-text)]/40 transition-transform ${pettyCashOpen ? 'rotate-180' : ''}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {pettyCashOpen && (
+                      <div className="border-t border-[var(--role-border)] px-5 py-4">
+                        <div className="flex flex-col gap-3 sm:flex-row">
+                          <select className="field-input sm:w-40" value={pettyCashForm.action} onChange={e => setPettyCashForm(p => ({ ...p, action: e.target.value as any }))}>
+                            <option value="replenish">Add Cash</option>
+                            <option value="disburse">Deduct Cash</option>
+                          </select>
+                          <input type="text" className="field-input flex-1" placeholder="Reason for adjustment" value={pettyCashForm.purpose} onChange={e => setPettyCashForm(p => ({ ...p, purpose: e.target.value }))} />
+                          <input type="number" step="0.01" className="field-input sm:w-40" placeholder="Amount" value={pettyCashForm.amount} onChange={e => setPettyCashForm(p => ({ ...p, amount: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') submitPettyCash(); }} />
+                          <button className="btn-success" onClick={submitPettyCash}>Save</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   )}
                 </div>
@@ -1327,7 +1520,10 @@ const BudgetManagement = () => {
                 {/* Right sidebar: Quick Totals + Recent Requests + Recent Petty Cash */}
                 <div className="space-y-6">
                   <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-                    <h3 className="text-lg font-semibold mb-4">Quick Totals</h3>
+                    <h3 className="text-sm font-semibold text-[var(--role-text)]">Quick Totals</h3>
+                    <p className="text-[10px] text-[var(--role-text)]/40 mt-0.5 mb-3">
+                      {selectedDepartment ? `${selectedDepartment.name} · FY ${activeFiscalYear}` : `Across all departments · FY ${activeFiscalYear}`}
+                    </p>
                     <div className="grid grid-cols-2 gap-3">
                       {[
                         { label: 'Requests', val: breakdownCounts.total_requests },
@@ -1354,7 +1550,11 @@ const BudgetManagement = () => {
                     <div className="space-y-3">
                       {selectedBreakdown.recent_requests.length === 0 && <p className="text-sm text-[var(--role-text)]/60">No recent requests.</p>}
                       {selectedBreakdown.recent_requests.slice((recentRequestsPage - 1) * RECENT_PAGE_SIZE, recentRequestsPage * RECENT_PAGE_SIZE).map((req: any) => (
-                        <div key={req.id} className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+                        <div
+                          key={req.id}
+                          className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4 cursor-pointer hover:border-[var(--role-secondary)]/40 hover:bg-[var(--role-accent)]/50 transition group"
+                          onClick={() => window.location.href = `/tracker`}
+                        >
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-semibold text-sm text-[var(--role-text)]">{req.item_name}</p>
@@ -1365,7 +1565,10 @@ const BudgetManagement = () => {
                                 <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-2 py-0.5 uppercase tracking-[0.12em]">{getRequestTypeLabel(req.request_type)}</span>
                               </div>
                             </div>
-                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize whitespace-nowrap ${statusTone(req.status)}`}>{req.status?.replace('_', ' ')}</span>
+                            <div className="flex items-center gap-1">
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize whitespace-nowrap ${statusTone(req.status)}`}>{req.status?.replace('_', ' ')}</span>
+                              <span className="text-[var(--role-text)]/0 group-hover:text-[var(--role-text)]/40 transition text-sm ml-1">→</span>
+                            </div>
                           </div>
                           <div className="mt-2 flex items-center justify-between text-sm">
                             <p className="font-semibold text-[var(--role-text)]">{displayMoney(toNumber(req.department_allocation_amount || req.amount))}</p>
