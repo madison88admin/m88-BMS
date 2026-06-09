@@ -40,14 +40,14 @@ const Layout = ({ children }: LayoutProps) => {
   // Close mobile menu on route change
   useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
 
-  const fetchNotifications = useCallback(async (token: string) => {
+  const fetchNotifications = useCallback(async () => {
     try {
       const res = await api.get('/api/notifications');
       setNotifications(Array.isArray(res.data) ? res.data : []);
     } catch { /* silent */ }
   }, []);
 
-  const prefetchCategories = useCallback(async (token: string) => {
+  const prefetchCategories = useCallback(async () => {
     try {
       // Check if cached data is still valid
       const budgetCache = localStorage.getItem(PREFETCH_KEY_BUDGET_CATEGORIES);
@@ -93,6 +93,17 @@ const Layout = ({ children }: LayoutProps) => {
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       toast.success('All notifications marked as read');
     } catch { /* silent */ }
+  };
+
+  const markOneRead = async (id: string) => {
+    // Optimistically mark as read
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    try {
+      await api.patch(`/api/notifications/${id}/read`, {});
+    } catch {
+      // Revert on failure
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: false } : n));
+    }
   };
 
   useEffect(() => {
@@ -145,20 +156,24 @@ const Layout = ({ children }: LayoutProps) => {
     };
 
     void bootstrap();
-    void fetchNotifications(token);
-    void prefetchCategories(token);
+    void fetchNotifications();
+    void prefetchCategories();
+
+    // Poll notifications every 30 seconds as a fallback
+    const notifPollId = setInterval(() => void fetchNotifications(), 30_000);
 
     let channel: any;
     if (supabase) {
       channel = supabase
         .channel('layout-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => { void fetchNotifications(token); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => { void fetchNotifications(); })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requests' }, () => { void bootstrap(); })
         .subscribe();
     }
 
     return () => {
       cancelled = true;
+      clearInterval(notifPollId);
       if (channel) void supabase?.removeChannel(channel);
     };
   }, [navigate, fetchNotifications, prefetchCategories]);
@@ -170,6 +185,7 @@ const Layout = ({ children }: LayoutProps) => {
 
   const getNavClassName = (path: string) => location.pathname === path ? 'nav-link-accent' : 'nav-link';
   const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -290,16 +306,16 @@ const Layout = ({ children }: LayoutProps) => {
         <Link to="/accounting" className={getNavClassName('/accounting')}>Accounting</Link>
       )}
       {user.role === 'accounting' && (
-        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Matrix</Link>
+        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Cost Center Dashboard</Link>
       )}
       {user.role === 'accounting' && (
         <Link to="/ticket-audit-log" className={getNavClassName('/ticket-audit-log')}>Ticket Audit Log</Link>
       )}
       {user.role === 'supervisor' && (
-        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Matrix</Link>
+        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Cost Center Dashboard</Link>
       )}
       {(user.role === 'vp' || user.role === 'president') && (
-        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Matrix</Link>
+        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Cost Center Dashboard</Link>
       )}
       {(user.role === 'vp' || user.role === 'president' || user.role === 'admin' || user.role === 'super_admin') && (
         <Link to="/delegations" className={getNavClassName('/delegations')}>Delegations</Link>
@@ -346,7 +362,7 @@ const Layout = ({ children }: LayoutProps) => {
                   </svg>
                   {unreadCount > 0 && (
                     <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
-                      {unreadCount}
+                      {unreadLabel}
                     </span>
                   )}
                 </button>
@@ -375,7 +391,8 @@ const Layout = ({ children }: LayoutProps) => {
                         notifications.slice(0, 15).map((notification: any) => (
                           <div
                             key={notification.id}
-                            className={`p-4 transition hover:bg-black/5 ${!notification.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}
+                            onClick={() => { if (!notification.is_read) markOneRead(notification.id); }}
+                            className={`p-4 transition hover:bg-black/5 cursor-pointer ${!notification.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}
                           >
                             <p className="text-sm text-[var(--role-text)]">{notification.message}</p>
                             <p className="mt-1 text-xs text-[var(--bms-muted)]">{notification.created_at ? formatDateTime(notification.created_at) : 'Just now'}</p>
@@ -403,7 +420,7 @@ const Layout = ({ children }: LayoutProps) => {
                 </svg>
                 {unreadCount > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm">
-                    {unreadCount}
+                    {unreadLabel}
                   </span>
                 )}
               </button>
@@ -422,7 +439,7 @@ const Layout = ({ children }: LayoutProps) => {
                       <p className="p-4 text-center text-sm text-[var(--bms-muted)]">No notifications</p>
                     ) : (
                       notifications.slice(0, 10).map((n: any) => (
-                        <div key={n.id} className={`p-3 text-xs ${!n.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}>
+                        <div key={n.id} onClick={() => { if (!n.is_read) markOneRead(n.id); }} className={`p-3 text-xs cursor-pointer hover:bg-black/5 transition ${!n.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}>
                           <p className="text-[var(--role-text)]">{n.message}</p>
                           <p className="mt-0.5 text-[var(--bms-muted)]">{n.created_at ? formatDateTime(n.created_at) : 'Just now'}</p>
                         </div>

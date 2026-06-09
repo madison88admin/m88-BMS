@@ -138,6 +138,8 @@ const BudgetManagement = () => {
   const [submittingProposal, setSubmittingProposal] = useState(false);
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
   const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
+  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
+  const [selectedNodeId, setSelectedNodeId] = useState<string>('');
 
   // Accounting, admin, and supervisor may lock/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
@@ -696,145 +698,204 @@ const BudgetManagement = () => {
 
   return (
     <div className="text-[var(--role-text)] page-transition">
-      {/* Header with overview cards + FX panel */}
+      {/* Header with compact summary bar */}
       <div className="page-header">
-        <div className="flex flex-col gap-6">
-          <div>
-            <h1 className="page-title">{isViewOnlyMatrix && !canEditMatrix ? 'Budget Matrix (View Only)' : 'Budget Matrix'}</h1>
-            <p className="page-subtitle">
-              {user?.role === 'supervisor'
-                ? 'Propose budgets and manage category locks for your department. Audit trail is tracked for super_admin.'
-                : user?.role === 'vp' || user?.role === 'president'
-                  ? 'View-only access to department budget proposals and approved matrices.'
-                  : 'Live FX conversion, department budgets, category management, and fiscal year planning.'}
-            </p>
-            <p className="mt-2 text-sm text-[var(--role-text)]/60">Active fiscal year: <span className="font-semibold text-[var(--role-text)]">FY {activeFiscalYear}</span></p>
-          </div>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.15fr)_360px]">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {overviewCards.map(card => (
-                <div key={card.label} className="group relative overflow-hidden rounded-[28px] border border-[var(--role-border)] bg-[var(--role-surface)] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-                  <div className={`absolute -right-10 top-0 h-24 w-24 rounded-full blur-2xl ${card.glow} opacity-10`} />
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--role-text)]/60">{card.label}</p>
-                  <p className="mt-3 break-words text-2xl font-bold leading-tight text-[var(--role-text)]">{card.value}</p>
-                  <p className="mt-3 border-t border-[var(--role-border)] pt-3 text-sm text-[var(--role-text)]/70">{card.helper}</p>
-                </div>
-              ))}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="page-title">{isViewOnlyMatrix && !canEditMatrix ? 'Cost Center Dashboard (View Only)' : 'Cost Center Dashboard'}</h1>
+              <p className="page-subtitle">
+                {user?.role === 'supervisor'
+                  ? 'Propose budgets and manage category locks for your department.'
+                  : user?.role === 'vp' || user?.role === 'president'
+                    ? 'View-only access to department budget proposals and approved matrices.'
+                    : 'Org-level cost center overview, department budgets, category management, and fiscal year planning.'}
+              </p>
             </div>
-            {/* M88 Manila Cost Center Summary Card - visible to Supervisor and Accounting */}
-            {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
-              <div className="group relative overflow-hidden rounded-[28px] border border-blue-500/30 bg-[var(--role-surface)] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-                <div className={`absolute -right-10 top-0 h-24 w-24 rounded-full blur-2xl bg-blue-500/10 opacity-10`} />
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--role-text)]/60">M88 Manila General Budget</p>
-                <div className="mt-3 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-[var(--role-text)]/70">Total</span>
-                    <span className="text-lg font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-[var(--role-text)]/70">Used</span>
-                    <span className="text-lg font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-[var(--role-text)]/70">Remaining</span>
-                    <span className={`text-lg font-bold ${toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-            {/* FX Card */}
-            <div className="relative overflow-hidden rounded-[32px] border border-[var(--role-border)] bg-[var(--role-surface)] p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--role-text)]/50">Exchange Rates</p>
-                  <p className="mt-2 text-2xl font-bold leading-none text-[var(--role-text)]">{fxRatePhp.toFixed(4)} <span className="text-sm font-normal text-[var(--role-text)]/60">PHP / USD</span></p>
-                  <p className="mt-1 text-2xl font-bold leading-none text-[var(--role-text)]">{(fxRateIdr / 1000).toFixed(3)}K <span className="text-sm font-normal text-[var(--role-text)]/60">IDR / USD</span></p>
-                </div>
-                <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${fxStatus === 'live' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700' : 'border-[var(--role-border)] bg-[var(--role-accent)] text-[var(--role-text)]/70'}`}>
-                  <span className={`h-2 w-2 rounded-full ${fxStatus === 'live' ? 'animate-pulse bg-emerald-500' : 'bg-[var(--role-text)]/30'}`} />
-                  {fxStatus === 'live' ? 'Live' : 'Fallback'}
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-[var(--role-text)]/50">Updated {fxRateUpdatedAt ? formatDateTime(fxRateUpdatedAt) : 'just now'}</p>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--role-border)]">
+            {/* Currency toggle */}
+            <button
+              className="btn-secondary !rounded-full !px-4 !py-2 !text-sm shrink-0"
+              onClick={() => setDisplayCurrency(c => c === 'PHP' ? 'USD' : c === 'USD' ? 'IDR' : 'PHP')}
+            >
+              {displayCurrency === 'PHP' ? 'Show in USD' : displayCurrency === 'USD' ? 'Show in IDR' : 'Show in PHP'}
+            </button>
+          </div>
+
+          {/* Compact summary bar */}
+          <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Annual Budget</span>
+              <span className="font-bold text-[var(--role-text)]">{displayMoney(overview.totalBudget)}</span>
+            </div>
+            <div className="h-4 w-px bg-[var(--role-border)]" />
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilized</span>
+              <span className="font-bold text-[var(--role-text)]">{displayMoney(overview.usedBudget)}</span>
+            </div>
+            <div className="h-4 w-px bg-[var(--role-border)]" />
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Available</span>
+              <span className="font-bold text-emerald-600">{displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))}</span>
+            </div>
+            <div className="h-4 w-px bg-[var(--role-border)]" />
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilization</span>
+              <span className="font-bold text-[var(--role-text)]">{formatPercent(overview.utilization)}</span>
+              <div className="h-2 w-20 overflow-hidden rounded-full bg-[var(--role-border)]">
                 <div className="h-full rounded-full bg-gradient-to-r from-[var(--role-primary)] to-[var(--role-secondary)]" style={{ width: `${Math.min(100, overview.utilization)}%` }} />
               </div>
-              <p className="mt-1 text-xs text-[var(--role-text)]/50">{formatPercent(overview.utilization)} budget utilized</p>
-              <div className="mt-3 flex gap-2">
-                <button className="btn-primary flex-1 text-sm" onClick={() => setDisplayCurrency(c => c === 'PHP' ? 'USD' : c === 'USD' ? 'IDR' : 'PHP')}>
-                  {displayCurrency === 'PHP' ? 'Show in USD' : displayCurrency === 'USD' ? 'Show in IDR' : 'Show in PHP'}
-                </button>
-                <button className="btn-secondary text-sm px-3" onClick={() => fetchExchangeRate(true)} title="Refresh FX">↻</button>
-              </div>
+            </div>
+            {/* FX info */}
+            <div className="h-4 w-px bg-[var(--role-border)]" />
+            <div className="flex items-center gap-2 text-xs text-[var(--role-text)]/50">
+              <span className={`inline-flex h-2 w-2 rounded-full ${fxStatus === 'live' ? 'animate-pulse bg-emerald-500' : 'bg-[var(--role-text)]/30'}`} />
+              <span>1 USD = {fxRatePhp.toFixed(2)} PHP</span>
+              {fxRateUpdatedAt && <span>· Synced {formatDateTime(fxRateUpdatedAt)}</span>}
+            </div>
+            {/* Refresh on right */}
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-[var(--role-text)]/40">Synced: {formatDateTime(selectedBreakdown?.generated_at)}</span>
+              <button
+                className="btn-secondary !rounded-full !px-3 !py-1.5 text-xs"
+                onClick={() => { fetchExchangeRate(true); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}
+              >↻ Refresh</button>
             </div>
           </div>
+
+          {/* M88 Manila cost center row — only for accounting/admin/supervisor */}
+          {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
+            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-blue-400/30 bg-blue-50/40 px-5 py-3 text-sm">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-blue-600/70 font-semibold">M88 Manila General</span>
+              <div className="h-4 w-px bg-blue-300/40" />
+              <span className="text-[var(--role-text)]/60">Total <span className="font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span></span>
+              <div className="h-4 w-px bg-blue-300/40" />
+              <span className="text-[var(--role-text)]/60">Used <span className="font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span></span>
+              <div className="h-4 w-px bg-blue-300/40" />
+              <span className="text-[var(--role-text)]/60">Remaining <span className={`font-semibold ${toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</span></span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Main Layout: dept list left, detail right */}
       <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
-        {/* Department List */}
+        {/* Left: Org Tree Navigation */}
         <div className="panel xl:sticky xl:top-24 xl:self-start">
-          <h2 className="text-lg font-bold mb-1">Departments</h2>
-          <p className="text-xs text-[var(--role-text)]/50 mb-4">Filtered per fiscal year. Legacy m88 entries hidden.</p>
+          <h2 className="text-base font-bold mb-1 text-[var(--role-text)]">Cost Centers</h2>
 
-          <div className="space-y-3 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4 mb-4">
-            <div className="flex flex-wrap gap-2">
-              {availableFiscalYears.map(y => (
-                <button key={y} onClick={() => setSelectedFiscalYear(y)} className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] transition ${selectedFiscalYear === y ? 'border-[var(--role-secondary)] bg-[var(--role-secondary)] text-[var(--role-text-inverse)]' : 'border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]/60 hover:border-[var(--role-secondary)]/50'}`}>
-                  FY {y}
-                </button>
-              ))}
-            </div>
-            <input className="field-input" placeholder="Filter by name…" value={departmentSearch} onChange={e => setDepartmentSearch(e.target.value)} />
-            <select className="field-input" value={budgetHealthFilter} onChange={e => setBudgetHealthFilter(e.target.value as any)}>
-              <option value="all">All Budget Health</option>
-              <option value="low">Low Utilization</option>
-              <option value="high">High Utilization</option>
-              <option value="critical">Critical Budget</option>
-            </select>
+          {/* FY toggle */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {availableFiscalYears.map(y => (
+              <button
+                key={y}
+                onClick={() => setSelectedFiscalYear(y)}
+                className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] transition ${selectedFiscalYear === y ? 'border-[var(--role-secondary)] bg-[var(--role-secondary)] text-white' : 'border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]/60 hover:border-[var(--role-secondary)]/50'}`}
+              >
+                FY {y}
+              </button>
+            ))}
           </div>
 
-          <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
+          {/* Root node: M88 Manila */}
+          <div className="mb-2">
+            <div
+              className="flex items-center gap-2 rounded-2xl border border-[var(--role-primary)]/30 bg-[var(--role-primary)]/8 px-3 py-2.5 cursor-pointer"
+              onClick={() => { setSelectedDepartmentId(''); setSelectedNodeId('root'); }}
+            >
+              <svg className="h-4 w-4 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-[var(--role-text)] truncate">M88 Manila</p>
+                <p className="text-[10px] text-[var(--role-text)]/50 uppercase tracking-[0.14em]">Master Cost Center</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Department tree */}
+          <div className="space-y-0.5 max-h-[600px] overflow-y-auto pl-3 border-l-2 border-[var(--role-border)]">
             {filteredDepts.map(dept => {
               const annual = toNumber(dept.annual_budget), used = toNumber(dept.used_budget);
               const remaining = toNumber(dept.remaining_budget || (annual - used));
               const utilization = annual > 0 ? (used / annual) * 100 : 0;
               const health = getBudgetHealth(dept);
               const isSelected = dept.id === selectedDepartmentId;
+              const isExpanded = expandedDepts.has(dept.id);
+              const deptCategories = dept.id === selectedDepartmentId && selectedBreakdown?.categories
+                ? enrichCategories(selectedBreakdown.categories)
+                : [];
+
               return (
-                <button key={dept.id} onClick={() => setSelectedDepartmentId(dept.id)} className={`w-full overflow-hidden rounded-[24px] border text-left transition ${isSelected ? 'border-[var(--role-secondary)]/50 bg-[var(--role-accent)] shadow-[0_8px_32px_rgba(0,0,0,0.06)]' : 'border-[var(--role-border)] bg-[var(--role-surface)] hover:border-[var(--role-secondary)]/30 hover:bg-[var(--role-accent)]/50'}`}>
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="inline-flex rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--role-text)]/60">{getDeptCode(dept.name)}</span>
-                        <p className="mt-1 font-semibold text-sm text-[var(--role-text)]">{dept.name}</p>
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--role-text)]/40">FY {dept.fiscal_year}</p>
+                <div key={dept.id}>
+                  {/* Department node */}
+                  <div
+                    className={`group flex items-start gap-2 rounded-xl px-2.5 py-2 cursor-pointer transition ${isSelected ? 'bg-[var(--role-accent)] border border-[var(--role-secondary)]/30' : 'hover:bg-[var(--role-accent)]/60 border border-transparent'}`}
+                    onClick={() => {
+                      setSelectedDepartmentId(dept.id);
+                      setSelectedNodeId(dept.id);
+                      setExpandedDepts(prev => {
+                        const next = new Set(prev);
+                        if (next.has(dept.id)) next.delete(dept.id); else next.add(dept.id);
+                        return next;
+                      });
+                    }}
+                  >
+                    {/* Expand/collapse chevron */}
+                    <svg
+                      className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--role-text)]/30 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-xs font-semibold text-[var(--role-text)] truncate">{dept.name}</p>
+                        <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--role-text)]/50 shrink-0">{getDeptCode(dept.name)}</span>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className="text-xs text-[var(--role-text)]/60">{formatPercent(utilization)}</span>
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${health === 'critical' ? 'border-red-500/20 bg-red-500/10 text-red-600' : health === 'high' ? 'border-orange-500/20 bg-orange-500/10 text-orange-600' : 'border-[var(--role-border)] bg-[var(--role-accent)] text-[var(--role-text)]/50'}`}>{health}</span>
+                      {/* Mini utilization bar */}
+                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--role-border)]">
+                        <div className="h-full rounded-full bg-gradient-to-r from-[var(--role-primary)] to-[var(--role-secondary)]" style={{ width: `${Math.min(utilization, 100)}%` }} />
                       </div>
-                    </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--role-border)]">
-                      <div className="h-full rounded-full bg-gradient-to-r from-[var(--role-primary)] to-[var(--role-secondary)]" style={{ width: `${Math.min(utilization, 100)}%` }} />
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-2 text-center">
-                        <p className="text-[10px] uppercase text-[var(--role-text)]/50">Total</p>
-                        <p className="font-semibold text-[var(--role-text)]">{displayMoney(annual)}</p>
-                      </div>
-                      {/* Removed 'Spent This Month' per Section 1.3 requirements */}
-                      <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-2 text-center">
-                        <p className="text-[10px] uppercase text-[var(--role-text)]/50">Remaining</p>
-                        <p className="font-semibold text-[var(--role-text)]">{displayMoney(remaining)}</p>
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-[var(--role-text)]/50">{displayMoney(remaining)} rem.</span>
+                        <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase ${health === 'critical' ? 'border-red-500/20 bg-red-500/10 text-red-600' : health === 'high' ? 'border-orange-500/20 bg-orange-500/10 text-orange-600' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'}`}>
+                          {health === 'critical' ? 'HIGH' : health === 'high' ? 'MED' : 'LOW'}
+                        </span>
                       </div>
                     </div>
                   </div>
-                </button>
+
+                  {/* Category children — shown when dept is expanded and selected */}
+                  {isExpanded && isSelected && deptCategories.length > 0 && (
+                    <div className="ml-4 mt-0.5 space-y-0.5 border-l border-[var(--role-border)] pl-2">
+                      {deptCategories
+                        .filter(c => !c.parent_category_id)
+                        .sort((a, b) => String(a.category_name).localeCompare(String(b.category_name)))
+                        .map(cat => (
+                          <div
+                            key={cat.id}
+                            className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 cursor-pointer transition text-xs ${selectedNodeId === cat.id ? 'bg-[var(--role-primary)]/10 text-[var(--role-primary)]' : 'text-[var(--role-text)]/70 hover:bg-[var(--role-accent)]'}`}
+                            onClick={(e) => { e.stopPropagation(); setSelectedNodeId(cat.id); }}
+                          >
+                            {cat.is_locked && (
+                              <svg className="h-3 w-3 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                              </svg>
+                            )}
+                            <span className="truncate">{cat.category_name}</span>
+                            <span className="ml-auto shrink-0 text-[10px] text-[var(--role-text)]/40">{cat.category_code}</span>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
               );
             })}
-            {filteredDepts.length === 0 && <p className="text-sm text-[var(--role-text)]/50 text-center py-6">No departments match filters.</p>}
+            {filteredDepts.length === 0 && (
+              <p className="py-6 text-center text-xs text-[var(--role-text)]/50">No departments for this fiscal year.</p>
+            )}
           </div>
         </div>
 
@@ -843,7 +904,6 @@ const BudgetManagement = () => {
           <div className="relative overflow-hidden rounded-[28px] border border-[var(--role-border)] bg-[var(--role-surface)] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
             <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[var(--role-primary)]/5 blur-3xl" />
             <div className="relative">
-              <p className="text-xs uppercase tracking-[0.22em] text-[var(--role-text)]/50">Budget Workspace</p>
               <h2 className="mt-2 text-3xl font-bold text-[var(--role-text)]">{selectedDepartment?.name || breakdownDept?.name || 'Select a department'}</h2>
               {(selectedDepartment || breakdownDept) && (
                 <span className="mt-2 inline-flex rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--role-text)]/70">
@@ -853,12 +913,9 @@ const BudgetManagement = () => {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] px-4 py-3 text-sm text-[var(--role-text)]/60 sm:flex-row sm:items-center sm:justify-between">
-            <span>Auto-refresh every 15s · Displaying in {displayCurrency}</span>
-            <div className="flex items-center gap-2">
-              <span>Synced: {formatDateTime(selectedBreakdown?.generated_at)}</span>
-              <button className="btn-secondary !rounded-full !px-3 !py-1.5 text-xs" onClick={() => { fetchExchangeRate(true); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}>Refresh</button>
-            </div>
+          <div className="mt-3 flex items-center justify-end gap-2 text-xs text-[var(--role-text)]/40">
+            <span>Displaying in {displayCurrency} · Synced: {formatDateTime(selectedBreakdown?.generated_at)}</span>
+            <button className="btn-secondary !rounded-full !px-3 !py-1.5 text-xs" onClick={() => { fetchExchangeRate(true); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}>↻</button>
           </div>
 
           {detailLoading ? (

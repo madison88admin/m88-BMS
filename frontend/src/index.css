@@ -133,39 +133,37 @@
   }
 
   .page-header {
-    @apply mb-6 space-y-2 sm:mb-8;
+    @apply mb-4 space-y-1 sm:mb-6;
   }
 
   .page-title {
-    @apply text-3xl font-bold tracking-tight text-[var(--role-text)] md:text-5xl;
+    @apply text-xl font-semibold tracking-tight text-[var(--role-text)] md:text-2xl;
   }
 
   .page-subtitle {
-    @apply max-w-full text-sm md:text-lg opacity-70;
+    @apply max-w-full text-xs md:text-sm opacity-60;
     color: var(--role-text);
   }
 
   .panel {
-    @apply rounded-[28px] border p-4 sm:p-6 shadow-[0_4px_20px_rgba(0,0,0,0.08)] backdrop-blur-xl;
+    @apply rounded-2xl border p-4 sm:p-5 shadow-[0_2px_8px_rgba(0,0,0,0.05)] backdrop-blur-xl;
     border-color: var(--role-border);
     background-color: var(--role-surface);
-    transition: all 220ms ease;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
   }
 
   .panel:hover {
-    transform: translateY(-2px);
-    border-color: var(--role-secondary);
-    box-shadow: 0 8px 30px rgba(45, 125, 107, 0.15);
+    border-color: rgba(45, 125, 107, 0.3);
+    box-shadow: 0 4px 16px rgba(45, 125, 107, 0.08);
   }
 
   .panel-muted {
-    @apply rounded-2xl border p-3 sm:p-4 backdrop-blur-md;
+    @apply rounded-xl border p-3 backdrop-blur-md;
     border-color: var(--role-border);
     background-color: var(--role-accent);
     transition:
-      transform 220ms ease,
-      border-color 220ms ease,
-      background-color 220ms ease;
+      border-color 180ms ease,
+      background-color 180ms ease;
   }
 
   .nav-surface {
@@ -177,7 +175,7 @@
   .nav-link {
     @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium text-[var(--role-text)] transition whitespace-nowrap shrink-0;
     border-color: var(--role-border);
-    background-color: rgba(45, 125, 107, 0.08);
+    background-color: rgba(45, 125, 107, 0.06);
   }
 
   .nav-link-accent {
@@ -208,58 +206,57 @@
   }
 
   .btn-primary {
-    @apply relative overflow-hidden rounded-xl bg-[var(--role-primary)] px-6 py-3 font-semibold text-white shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50;
+    @apply relative overflow-hidden rounded-xl bg-[var(--role-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50;
   }
 
   .btn-primary:hover:not(:disabled) {
-    box-shadow: 0 10px 25px -5px rgba(45, 125, 107, 0.4);
+    box-shadow: 0 4px 12px -2px rgba(45, 125, 107, 0.3);
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-2xl border px-5 py-3 font-semibold text-[var(--role-text)] transition-all;
+    @apply inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-medium text-[var(--role-text)] transition-all;
     border-color: var(--role-border);
     background-color: var(--role-surface);
   }
 
   .btn-secondary:hover:not(:disabled) {
-    border-color: var(--role-secondary);
+    border-color: rgba(45, 125, 107, 0.35);
     background-color: var(--role-accent);
-    transform: translateY(-1px);
   }
 
   .btn-success {
-    @apply inline-flex items-center justify-center rounded-2xl border px-5 py-3 font-semibold transition;
+    @apply inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-medium transition;
     border-color: #3D9480;
-    background-color: rgba(61, 148, 128, 0.15);
+    background-color: rgba(61, 148, 128, 0.12);
     color: #3D9480;
   }
 
   .btn-danger {
-    @apply inline-flex items-center justify-center rounded-2xl border px-5 py-3 font-semibold transition;
+    @apply inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-medium transition;
     border-color: #E63946;
-    background-color: rgba(230, 57, 70, 0.15);
+    background-color: rgba(230, 57, 70, 0.1);
     color: #E63946;
   }
 
   .field-label {
-    @apply mb-2 block text-sm font-semibold tracking-wide;
+    @apply mb-1 block text-xs font-medium;
     color: var(--role-text);
-    opacity: 0.8;
+    opacity: 0.65;
   }
 
   .field-input {
-    @apply w-full rounded-2xl border px-4 py-3 text-[var(--role-text)] outline-none transition placeholder:text-[var(--bms-muted)];
+    @apply w-full rounded-xl border px-3 py-2 text-sm text-[var(--role-text)] outline-none transition placeholder:text-[var(--bms-muted)];
     border-color: var(--role-border);
     background-color: var(--bms-bg-2);
   }
 
   .field-input:focus {
-    border-color: rgba(45, 125, 107, 0.5);
-    box-shadow: 0 0 0 3px rgba(45, 125, 107, 0.08), 0 4px 16px rgba(45, 125, 107, 0.15);
+    border-color: rgba(45, 125, 107, 0.45);
+    box-shadow: 0 0 0 2px rgba(45, 125, 107, 0.08);
   }
 
   .field-input:not(:placeholder-shown) {
-    border-color: rgba(45, 125, 107, 0.3);
+    border-color: rgba(45, 125, 107, 0.25);
   }
 
   .stat-card {
@@ -296,12 +293,12 @@
     animation-fill-mode: both;
   }
 
-  .page-stage > *:nth-child(1) { animation-delay: 40ms; }
-  .page-stage > *:nth-child(2) { animation-delay: 90ms; }
-  .page-stage > *:nth-child(3) { animation-delay: 140ms; }
-  .page-stage > *:nth-child(4) { animation-delay: 190ms; }
-  .page-stage > *:nth-child(5) { animation-delay: 240ms; }
-  .page-stage > *:nth-child(6) { animation-delay: 290ms; }
+  .page-stage > *:nth-child(1) { animation-delay: 20ms; }
+  .page-stage > *:nth-child(2) { animation-delay: 45ms; }
+  .page-stage > *:nth-child(3) { animation-delay: 70ms; }
+  .page-stage > *:nth-child(4) { animation-delay: 95ms; }
+  .page-stage > *:nth-child(5) { animation-delay: 120ms; }
+  .page-stage > *:nth-child(6) { animation-delay: 145ms; }
 
   .loading-orb {
     animation: pulseOrb 1.8s ease-in-out infinite;
@@ -350,12 +347,12 @@
   }
 
   .stat-label {
-    @apply text-sm font-medium uppercase tracking-[0.18em];
+    @apply text-xs font-medium uppercase tracking-[0.14em];
     color: var(--bms-muted);
   }
 
   .stat-value {
-    @apply mt-3 text-4xl font-bold text-[var(--role-secondary)];
+    @apply mt-2 text-2xl font-bold text-[var(--role-secondary)];
   }
 
   .table-shell {
@@ -410,8 +407,7 @@
 
   .panel-muted:hover,
   .stat-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(45, 125, 107, 0.25);
+    border-color: rgba(45, 125, 107, 0.2);
   }
 
   .bms-spinner {
@@ -446,7 +442,7 @@
 @keyframes pageEnter {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(6px);
   }
 
   to {
@@ -468,12 +464,12 @@
 @keyframes riseIn {
   from {
     opacity: 0;
-    transform: translateY(22px) scale(0.985);
+    transform: translateY(8px);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -652,14 +648,14 @@
 
   /* Card lift effect */
   .card-lift {
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), 
-                box-shadow 0.3s ease,
+    transition: transform 0.2s ease, 
+                box-shadow 0.2s ease,
                 border-color 0.2s ease;
   }
 
   .card-lift:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 40px -12px rgba(45, 125, 107, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px -8px rgba(45, 125, 107, 0.15);
   }
 
   /* Input focus glow */
