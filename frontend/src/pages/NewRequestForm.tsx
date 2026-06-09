@@ -82,7 +82,6 @@ const NewRequestForm = () => {
   const [selectedAdvance, setSelectedAdvance] = useState<CashAdvance | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
 
   // Selected main categories for hierarchical dropdowns
   const [reimbursementMainCategory, setReimbursementMainCategory] = useState('');
@@ -126,16 +125,6 @@ const NewRequestForm = () => {
       item.category === mainCategory && 
       isVisibleForRequestForm(item, canUse)
     );
-  };
-
-  const fetchM88ManilaCostCenter = async () => {
-    try {
-      const res = await api.get('/api/budget/cost-centers');
-      const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
-      setM88ManilaCostCenter(m88 || null);
-    } catch {
-      // Silent fail - cost center might not exist yet
-    }
   };
 
   const uploadSupportingFile = async (file: File) => {
@@ -364,9 +353,6 @@ const NewRequestForm = () => {
         const officialRes = await api.get(`/api/requests/official-list${initialRequestType ? `?request_type=${initialRequestType}` : ''}`);
         setOfficialList(officialRes.data || []);
 
-        // Fetch M88 Manila cost center for General Category budget info
-        fetchM88ManilaCostCenter();
-
         // If initial advance_id provided, select it
         if (initialAdvanceId) {
           const advance = advancesRes.data?.find((a: CashAdvance) => a.id === initialAdvanceId);
@@ -424,6 +410,10 @@ const NewRequestForm = () => {
 
     loadData();
 
+  }, [navigate, initialAdvanceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refresh official list when tab changes (separate from init to avoid full reload)
+  useEffect(() => {
     const refreshOfficialList = async () => {
       try {
         const requestTypeParam = activeTab === 'cash_advance' ? 'cash_advance' : activeTab === 'reimbursement' ? 'reimbursement' : '';
@@ -436,7 +426,7 @@ const NewRequestForm = () => {
     refreshOfficialList();
     const officialListIntervalId = setInterval(refreshOfficialList, 5000);
     return () => clearInterval(officialListIntervalId);
-  }, [navigate, initialAdvanceId, activeTab]);
+  }, [activeTab]);
 
   // Re-fetch categories when department or fiscal year changes
   useEffect(() => {
@@ -644,6 +634,16 @@ const NewRequestForm = () => {
       return;
     }
 
+    // Validate per-item amounts don't exceed original amounts
+    const overBudgetItems = liquidationForm.categoryItems.filter(item => {
+      const spent = parseFloat(item.amount_spent || '0');
+      return spent > item.original_amount;
+    });
+    if (overBudgetItems.length > 0) {
+      toast.error(`Amount spent cannot exceed the original amount for: ${overBudgetItems.map(i => i.item_label).join(', ')}`);
+      return;
+    }
+
     // Calculate total
     const totalSpent = liquidationForm.categoryItems.reduce((sum, item) => {
       return sum + (parseFloat(item.amount_spent || '0') || 0);
@@ -771,7 +771,8 @@ const NewRequestForm = () => {
                 value={reimbursementForm.department_id}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setReimbursementForm(prev => ({ ...prev, department_id: val, category_id: '', cost_center_id: '' }));
+                  setReimbursementForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
+                  setReimbursementMainCategory('');
                 }}
                 disabled={user?.role !== 'admin' && user?.role !== 'accounting'}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
@@ -1151,7 +1152,8 @@ const NewRequestForm = () => {
                 value={cashAdvanceForm.department_id}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setCashAdvanceForm(prev => ({ ...prev, department_id: val, cost_center_id: '' }));
+                  setCashAdvanceForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
+                  setCashAdvanceMainCategory('');
                 }}
                 disabled={user?.role !== 'admin' && user?.role !== 'accounting'}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
