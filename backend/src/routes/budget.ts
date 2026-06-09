@@ -578,14 +578,10 @@ router.get('/cost-centers', authenticate, async (req: any, res) => {
 
     let query = supabase
       .from('cost_centers')
-      .select('*, departments(name)')
+      .select('*')
       .eq('is_active', true);
 
-    if (department_id) {
-      query = query.eq('department_id', department_id);
-    }
-
-    const { data, error } = await query.order('cost_center_code');
+    const { data, error } = await query.order('name');
     if (error) throw error;
 
     res.json(data || []);
@@ -597,19 +593,20 @@ router.get('/cost-centers', authenticate, async (req: any, res) => {
 // POST /api/budget/cost-centers - Create cost center
 router.post('/cost-centers', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   try {
-    const { department_id, cost_center_code, cost_center_name, description } = req.body;
+    const { name, total_budget, fiscal_year, is_active } = req.body;
+
+    const costCenterData = {
+      name: name.trim(),
+      total_budget: parseFloat(total_budget),
+      used_amount: 0,
+      remaining_amount: parseFloat(total_budget),
+      fiscal_year: fiscal_year || new Date().getFullYear(),
+      is_active: is_active !== undefined ? is_active : true
+    };
 
     const { data, error } = await supabase
       .from('cost_centers')
-      .insert({
-        department_id,
-        cost_center_code: cost_center_code.toUpperCase(),
-        cost_center_name,
-        description,
-        is_active: true,
-        created_at: new Date(),
-        updated_at: new Date()
-      })
+      .insert(costCenterData)
       .select()
       .single();
 

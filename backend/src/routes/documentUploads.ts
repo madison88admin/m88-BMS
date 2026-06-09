@@ -9,6 +9,49 @@ const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 
+const syncDepartmentBudget = async (department_id: string, fiscal_year: number) => {
+  const { data: cats } = await supabase
+    .from('budget_categories')
+    .select('budget_amount')
+    .eq('department_id', department_id)
+    .eq('fiscal_year', fiscal_year)
+    .is('parent_category_id', null);
+  const total = (cats || []).reduce((s: number, c: any) => s + toNumber(c.budget_amount), 0);
+
+  const { data: dept } = await supabase
+    .from('departments')
+    .select('name')
+    .eq('id', department_id)
+    .single();
+
+  if (dept?.name) {
+    await supabase
+      .from('departments')
+      .update({ annual_budget: total, updated_at: new Date() })
+      .ilike('name', dept.name)
+      .eq('fiscal_year', fiscal_year);
+  }
+  return total;
+};
+
+const updateM88ManilaCostCenterBudget = async (fiscal_year: number) => {
+  const { data: departments } = await supabase
+    .from('departments')
+    .select('annual_budget')
+    .eq('fiscal_year', fiscal_year);
+  const total = (departments || []).reduce((s: number, d: any) => s + toNumber(d.annual_budget), 0);
+
+  await supabase
+    .from('cost_centers')
+    .update({ 
+      total_budget: total, 
+      remaining_amount: total,
+      updated_at: new Date() 
+    })
+    .eq('name', 'M88 Manila')
+    .eq('fiscal_year', fiscal_year);
+};
+
 const adjustBudgetForDocumentUpload = async (upload: any, deduct: boolean) => {
   const amount = toNumber(upload.amount);
   if (amount <= 0 || !upload.department_id || !upload.fiscal_year || !upload.category_code) {
@@ -317,6 +360,10 @@ router.post('/', authenticate, async (req: any, res) => {
             updated_at: new Date().toISOString(),
           });
       }
+
+      // Sync department budget and M88 Manila cost center
+      await syncDepartmentBudget(inserted.department_id, inserted.fiscal_year);
+      await updateM88ManilaCostCenterBudget(inserted.fiscal_year);
     }
     await logAuditEvent({
       user,
@@ -448,6 +495,8 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
 
     if (nextStatus === 'acknowledged' && current.status !== 'acknowledged') {
       await adjustBudgetForDocumentUpload({ ...current, department_id: effectiveDepartmentId }, true);
+      await syncDepartmentBudget(effectiveDepartmentId, current.fiscal_year);
+      await updateM88ManilaCostCenterBudget(current.fiscal_year);
       await logAuditEvent({
         user,
         actionType: 'budget_updated',
@@ -466,6 +515,8 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
     }
     if (nextStatus === 'returned' && current.status === 'acknowledged') {
       await adjustBudgetForDocumentUpload({ ...current, department_id: effectiveDepartmentId }, false);
+      await syncDepartmentBudget(effectiveDepartmentId, current.fiscal_year);
+      await updateM88ManilaCostCenterBudget(current.fiscal_year);
       await logAuditEvent({
         user,
         actionType: 'budget_updated',

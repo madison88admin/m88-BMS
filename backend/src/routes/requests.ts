@@ -609,6 +609,23 @@ const applyApprovedBudgetProposal = async (request: any) => {
       .eq('id', request.department_id);
   }
 
+  // Update M88 Manila cost center budget (sum of all departments' annual budgets)
+  const { data: allDepartments } = await supabase
+    .from('departments')
+    .select('annual_budget')
+    .eq('fiscal_year', request.fiscal_year);
+  const totalBudget = (allDepartments || []).reduce((s: number, d: any) => s + toNumber(d.annual_budget), 0);
+
+  await supabase
+    .from('cost_centers')
+    .update({ 
+      total_budget: totalBudget, 
+      remaining_amount: totalBudget,
+      updated_at: new Date() 
+    })
+    .eq('name', 'M88 Manila')
+    .eq('fiscal_year', request.fiscal_year);
+
   const category = requestedCategory.parent_category_id ? requestedCategory : (await resolveMainCategory(request.category_id));
   await supabase.from('budget_revision_history').insert({
     category_id: requestedCategory.id,

@@ -19,8 +19,7 @@ interface Category {
 
 interface CostCenter {
   id: string;
-  cost_center_code: string;
-  cost_center_name: string;
+  name: string;
 }
 
 interface CashAdvance {
@@ -336,7 +335,7 @@ const NewRequestForm = () => {
         const [departmentsRes, categoriesRes, costCentersRes] = await Promise.all([
           api.get('/api/departments'),
           api.get(`/api/budget/categories?department_id=${userData.department_id || ''}&fiscal_year=${currentFiscalYear}`),
-          api.get(`/api/budget/cost-centers?department_id=${userData.department_id || ''}`)
+          api.get('/api/cost-centers')
         ]);
 
         setDepartments(departmentsRes.data || []);
@@ -452,7 +451,7 @@ const NewRequestForm = () => {
         const currentFiscalYear = user?.fiscal_year || new Date().getFullYear();
         const [categoriesRes, costCentersRes] = await Promise.all([
           api.get(`/api/budget/categories?department_id=${targetDeptId}&fiscal_year=${currentFiscalYear}`),
-          api.get(`/api/budget/cost-centers?department_id=${targetDeptId}`)
+          api.get('/api/cost-centers')
         ]);
 
         const categoriesData = categoriesRes.data || [];
@@ -803,7 +802,7 @@ const NewRequestForm = () => {
                 readOnly
                 value={(() => {
                   const selected = costCenters.find(cc => cc.id === reimbursementForm.cost_center_id);
-                  return selected ? `${selected.cost_center_code} - ${selected.cost_center_name}` : 'Loading...';
+                  return selected ? selected.name : 'Loading...';
                 })()}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] cursor-not-allowed opacity-80"
               />
@@ -1183,7 +1182,7 @@ const NewRequestForm = () => {
                 readOnly
                 value={(() => {
                   const selected = costCenters.find(cc => cc.id === cashAdvanceForm.cost_center_id);
-                  return selected ? `${selected.cost_center_code} - ${selected.cost_center_name}` : 'Loading...';
+                  return selected ? selected.name : 'Loading...';
                 })()}
                 className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] cursor-not-allowed opacity-80"
               />
