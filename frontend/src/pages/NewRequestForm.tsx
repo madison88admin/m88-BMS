@@ -130,7 +130,7 @@ const NewRequestForm = () => {
 
   const fetchM88ManilaCostCenter = async () => {
     try {
-      const res = await api.get('/api/cost-centers');
+      const res = await api.get('/api/budget/cost-centers');
       const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
       setM88ManilaCostCenter(m88 || null);
     } catch {
@@ -335,7 +335,7 @@ const NewRequestForm = () => {
         const [departmentsRes, categoriesRes, costCentersRes] = await Promise.all([
           api.get('/api/departments'),
           api.get(`/api/budget/categories?department_id=${userData.department_id || ''}&fiscal_year=${currentFiscalYear}`),
-          api.get('/api/cost-centers')
+          api.get('/api/budget/cost-centers')
         ]);
 
         setDepartments(departmentsRes.data || []);
@@ -451,7 +451,7 @@ const NewRequestForm = () => {
         const currentFiscalYear = user?.fiscal_year || new Date().getFullYear();
         const [categoriesRes, costCentersRes] = await Promise.all([
           api.get(`/api/budget/categories?department_id=${targetDeptId}&fiscal_year=${currentFiscalYear}`),
-          api.get('/api/cost-centers')
+          api.get('/api/budget/cost-centers')
         ]);
 
         const categoriesData = categoriesRes.data || [];

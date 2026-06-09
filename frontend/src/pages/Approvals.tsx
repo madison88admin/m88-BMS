@@ -230,7 +230,7 @@ const Approvals = () => {
 
     // Fetch cost centers for accounting users
     if (['accounting', 'admin', 'super_admin'].includes(user.role)) {
-      api.get('/api/cost-centers')
+      api.get('/api/budget/cost-centers')
         .then((res) => setCostCenters(res.data || []))
         .catch((err) => console.error('Failed to fetch cost centers:', err));
     }

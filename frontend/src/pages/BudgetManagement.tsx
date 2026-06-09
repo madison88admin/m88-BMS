@@ -670,7 +670,7 @@ const BudgetManagement = () => {
 
   const fetchM88ManilaCostCenter = async () => {
     try {
-      const res = await api.get('/api/cost-centers', { params: { fiscal_year: selectedFiscalYear } });
+      const res = await api.get('/api/budget/cost-centers', { params: { fiscal_year: selectedFiscalYear } });
       const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
       setM88ManilaCostCenter(m88 || null);
     } catch {
