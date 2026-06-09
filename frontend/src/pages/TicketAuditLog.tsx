@@ -267,7 +267,11 @@ const TicketAuditLog = () => {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <p className="font-semibold">{getActionLabel(log.action_type)}</p>
-                      <p className="text-sm text-gray-600">{log.user_name} ({log.user_role})</p>
+                      <p className="text-sm text-gray-600">
+                        {log.user_name && log.user_name !== 'unknown' 
+                          ? log.user_name 
+                          : selectedRequest?.employee_name || 'Unknown User'} ({log.user_role || 'Unknown'})
+                      </p>
                     </div>
                     <p className="text-xs text-gray-400">{formatDateTime(log.created_at)}</p>
                   </div>

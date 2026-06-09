@@ -37,15 +37,18 @@ const syncDepartmentBudget = async (department_id: string, fiscal_year: number) 
 const updateM88ManilaCostCenterBudget = async (fiscal_year: number) => {
   const { data: departments } = await supabase
     .from('departments')
-    .select('annual_budget')
+    .select('annual_budget, used_budget')
     .eq('fiscal_year', fiscal_year);
-  const total = (departments || []).reduce((s: number, d: any) => s + toNumber(d.annual_budget), 0);
+  const totalBudget = (departments || []).reduce((s: number, d: any) => s + toNumber(d.annual_budget), 0);
+  const totalUsed = (departments || []).reduce((s: number, d: any) => s + toNumber(d.used_budget), 0);
+  const remainingAmount = totalBudget - totalUsed;
 
   await supabase
     .from('cost_centers')
     .update({ 
-      total_budget: total, 
-      remaining_amount: total,
+      total_budget: totalBudget, 
+      used_amount: totalUsed,
+      remaining_amount: remainingAmount,
       updated_at: new Date() 
     })
     .eq('name', 'M88 Manila')
@@ -571,3 +574,4 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
 });
 
 export default router;
+export { updateM88ManilaCostCenterBudget };

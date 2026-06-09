@@ -17,6 +17,7 @@ import {
   normalizeAllocations
 } from '../utils/budget';
 import { validateExpense, OFFICIAL_EXPENSE_LIST, mergeBudgetCategoriesIntoOfficialList, ExpenseItem } from '../utils/expenseValidator';
+import { updateM88ManilaCostCenterBudget } from './documentUploads';
 import {
   filterOfficialExpenseList,
   resolveOfficialExpenseList,
@@ -612,15 +613,18 @@ const applyApprovedBudgetProposal = async (request: any) => {
   // Update M88 Manila cost center budget (sum of all departments' annual budgets)
   const { data: allDepartments } = await supabase
     .from('departments')
-    .select('annual_budget')
+    .select('annual_budget, used_budget')
     .eq('fiscal_year', request.fiscal_year);
   const totalBudget = (allDepartments || []).reduce((s: number, d: any) => s + toNumber(d.annual_budget), 0);
+  const totalUsed = (allDepartments || []).reduce((s: number, d: any) => s + toNumber(d.used_budget), 0);
+  const remainingAmount = totalBudget - totalUsed;
 
   await supabase
     .from('cost_centers')
     .update({ 
       total_budget: totalBudget, 
-      remaining_amount: totalBudget,
+      used_amount: totalUsed,
+      remaining_amount: remainingAmount,
       updated_at: new Date() 
     })
     .eq('name', 'M88 Manila')
@@ -2935,6 +2939,10 @@ router.patch('/:id/release', authenticate, authorize('accounting', 'accounting_l
     // Invalidate department/budget caches so used_budget reflects immediately for all users
     invalidateCache('/api/departments');
     invalidateCache('/api/budget/categories');
+    
+    // Update M88 Manila cost center to sync used_amount
+    await updateM88ManilaCostCenterBudget(request.fiscal_year);
+    
     await notifyEmployee(request.employee_id, request.request_code, 'Request Released', `Your request ${request.request_code} has been released.`);
     res.json(released);
   } catch (releaseError: any) {
