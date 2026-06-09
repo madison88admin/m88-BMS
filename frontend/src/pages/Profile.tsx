@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
@@ -41,7 +41,7 @@ const Profile = () => {
     };
 
     void loadProfile();
-  }, [authHeaders]);
+  }, []);
 
   const handleSave = async () => {
     const trimmedName = name.trim();
