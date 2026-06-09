@@ -92,25 +92,30 @@ const getUtilizationBarColor = (pct: number) => {
 const getDeptIcon = (name?: string) => {
   const n = (name || '').toLowerCase();
   if (n.includes('it')) return (
+    // Laptop / device icon for IT
     <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
     </svg>
   );
   if (n.includes('finance') || n.includes('accounting') || n.includes('costing')) return (
+    // Receipt / calculator icon for Finance/Accounting/Costing
     <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M12 7h.01M9 7h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
     </svg>
   );
   if (n.includes('hr') || n.includes('human')) return (
+    // Users icon for HR
     <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   );
   if (n.includes('executive') || n.includes('president') || n.includes('vp')) return (
+    // Briefcase icon for Executive
     <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
     </svg>
   );
+  // Default: building icon
   return (
     <svg className="h-5 w-5 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -933,23 +938,27 @@ const BudgetManagement = () => {
 
                   {/* Category children — shown when dept is expanded and selected */}
                   {isExpanded && isSelected && deptCategories.length > 0 && (
-                    <div className="ml-4 mt-0.5 space-y-0.5 border-l border-[var(--role-border)] pl-2">
+                    <div className="relative ml-5 mt-0.5 space-y-0.5 pb-1">
+                      {/* Vertical connector line from parent */}
+                      <div className="absolute left-0 top-0 bottom-0 w-px bg-[var(--role-border)]" />
                       {deptCategories
                         .filter(c => !c.parent_category_id)
                         .sort((a, b) => String(a.category_name).localeCompare(String(b.category_name)))
                         .map(cat => (
                           <div
                             key={cat.id}
-                            className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 cursor-pointer transition text-xs ${selectedNodeId === cat.id ? 'bg-[var(--role-primary)]/10 text-[var(--role-primary)]' : 'text-[var(--role-text)]/70 hover:bg-[var(--role-accent)]'}`}
+                            className={`relative flex items-center gap-1.5 rounded-lg pl-4 pr-2 py-1.5 cursor-pointer transition text-xs ${selectedNodeId === cat.id ? 'bg-[var(--role-primary)]/10 text-[var(--role-primary)]' : 'text-[var(--role-text)]/70 hover:bg-[var(--role-accent)]'}`}
                             onClick={(e) => { e.stopPropagation(); setSelectedNodeId(cat.id); }}
                           >
+                            {/* Horizontal tick connector */}
+                            <div className="absolute left-0 top-1/2 w-3 h-px bg-[var(--role-border)]" />
                             {cat.is_locked && (
                               <svg className="h-3 w-3 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                               </svg>
                             )}
                             <span className="truncate">{cat.category_name}</span>
-                            <span className="ml-auto shrink-0 text-[10px] text-[var(--role-text)]/40">{cat.category_code}</span>
+                            <span className="ml-auto shrink-0 text-[10px] text-[var(--role-text)]/40 font-mono">{cat.category_code}</span>
                           </div>
                         ))
                       }
@@ -1006,89 +1015,82 @@ const BudgetManagement = () => {
             <div className="mt-4 space-y-6">
               {/* Unlock Budget Matrix — accounting/admin/supervisor can manage locks */}
               {canEditMatrix && lockedCategories.length > 0 && (
-                <div className="rounded-[24px] border-2 border-amber-400/50 bg-amber-50/60 p-5">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/20 border border-amber-400/30">
-                        <svg className="h-6 w-6 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <p className="text-lg font-semibold text-amber-900">
-                          {lockedCategories.length} Locked Categor{lockedCategories.length !== 1 ? 'ies' : 'y'}
-                        </p>
-                        <p className="max-w-xl text-sm text-amber-700/85">
-                          The budget matrix is locked after approval. Unlock categories to allow new proposals, edits, and mid-period revisions.
-                        </p>
-                      </div>
+                <div className="rounded-[24px] border border-amber-400/50 bg-amber-50/60 overflow-hidden">
+                  {/* Accordion header — always visible */}
+                  <button
+                    type="button"
+                    onClick={() => setShowAllLockedCategories(prev => !prev)}
+                    className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-amber-100/40 transition"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 border border-amber-400/30">
+                      <svg className="h-4 w-4 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-amber-900 text-sm">
+                      {lockedCategories.length} Locked Categor{lockedCategories.length !== 1 ? 'ies' : 'y'}
+                    </span>
+                    <span className="rounded-full bg-amber-500/20 border border-amber-400/30 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                      {lockedCategories.length}
+                    </span>
+                    <div className="ml-auto flex items-center gap-3" onClick={e => e.stopPropagation()}>
                       <button
                         onClick={async () => {
-                          const locked = lockedCategories;
-                          const token = localStorage.getItem('token');
                           let ok = 0;
                           await Promise.all(
-                            locked.map(async (cat) => {
+                            lockedCategories.map(async (cat) => {
                               try {
                                 await api.patch(`/api/budget/categories/${cat.id}/unlock`, {});
                                 ok++;
-                              } catch {
-                                /* skip */
-                              }
+                              } catch { /* skip */ }
                             })
                           );
                           if (ok > 0) toast.success(`Unlocked ${ok} categor${ok !== 1 ? 'ies' : 'y'}`);
                           if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
                         }}
-                        className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 transition"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 transition"
                       >
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
                         </svg>
                         Unlock All
                       </button>
-                      <button
-                        onClick={() => setShowAllLockedCategories((prev) => !prev)}
-                        className="text-sm text-amber-900/90 underline underline-offset-2"
-                      >
-                        {showAllLockedCategories ? 'Hide locked list' : `View all ${lockedCategories.length}`}
-                      </button>
                     </div>
-                  </div>
+                    <svg
+                      className={`h-4 w-4 text-amber-700/50 transition-transform ${showAllLockedCategories ? 'rotate-180' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
 
-                  <div className="mt-4 space-y-3">
-                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                      {(showAllLockedCategories ? lockedCategories : lockedCategories.slice(0, 8)).map((cat) => (
-                        <div key={cat.id} className="flex items-center justify-between gap-3 rounded-2xl border border-amber-300/60 bg-white/90 px-3 py-3 shadow-sm">
-                          <div className="min-w-0">
-                            <p className="font-semibold text-sm text-[var(--role-text)] truncate">{cat.category_name}</p>
-                            <p className="mt-1 text-[11px] text-amber-700/80">{cat.category_code}</p>
+                  {/* Accordion body — collapsed by default */}
+                  {showAllLockedCategories && (
+                    <div className="border-t border-amber-300/40 px-5 py-4">
+                      <p className="mb-3 text-xs text-amber-700/80">
+                        The budget matrix is locked after approval. Unlock categories to allow new proposals, edits, and mid-period revisions.
+                      </p>
+                      <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                        {lockedCategories.map((cat) => (
+                          <div key={cat.id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-300/50 bg-white/80 px-3 py-2">
+                            <div className="min-w-0 flex items-center gap-2">
+                              <span className="font-mono text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded shrink-0">{cat.category_code}</span>
+                              <p className="text-xs font-medium text-[var(--role-text)] truncate">{cat.category_name}</p>
+                            </div>
+                            <button
+                              onClick={() => unlockCategory(cat.id)}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
+                              aria-label={`Unlock ${cat.category_name}`}
+                            >
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                              </svg>
+                            </button>
                           </div>
-                          <button
-                            onClick={() => unlockCategory(cat.id)}
-                            className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
-                            aria-label={`Unlock ${cat.category_name}`}
-                          >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-
-                    {!showAllLockedCategories && lockedCategories.length > 8 && (
-                      <button
-                        onClick={() => setShowAllLockedCategories(true)}
-                        className="text-sm text-amber-900/90 underline underline-offset-2"
-                      >
-                        Show all {lockedCategories.length} locked categories
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               )}
 
