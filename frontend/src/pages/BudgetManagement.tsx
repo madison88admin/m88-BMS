@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
@@ -86,7 +86,20 @@ const getUtilizationColor = (pct: number) => {
 const getUtilizationBarColor = (pct: number) => {
   if (pct >= 80) return 'bg-red-500';
   if (pct >= 50) return 'bg-amber-500';
-  return 'bg-emerald-500';
+  return 'bg-green-500';
+};
+
+// Inline style fallback — guarantees color even if Tailwind JIT purges dynamic class
+const getUtilizationStyle = (pct: number): React.CSSProperties => {
+  if (pct >= 80) return { color: '#ef4444' };   // red-500
+  if (pct >= 50) return { color: '#f59e0b' };   // amber-500
+  return { color: '#16a34a' };                   // green-600
+};
+
+const getUtilizationBarStyle = (pct: number): React.CSSProperties => {
+  if (pct >= 80) return { backgroundColor: '#ef4444' };
+  if (pct >= 50) return { backgroundColor: '#f59e0b' };
+  return { backgroundColor: '#16a34a' };
 };
 
 const getDeptIcon = (name?: string) => {
@@ -801,9 +814,9 @@ const BudgetManagement = () => {
             <div className="h-4 w-px bg-[var(--role-border)]" />
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilization</span>
-              <span className={`font-bold ${getUtilizationColor(overview.utilization)}`}>{formatPercent(overview.utilization)}</span>
+              <span className="font-bold" style={getUtilizationStyle(overview.utilization)}>{formatPercent(overview.utilization)}</span>
               <div className="h-2 w-20 overflow-hidden rounded-full bg-[var(--role-border)]">
-                <div className={`h-full rounded-full ${getUtilizationBarColor(overview.utilization)}`} style={{ width: `${Math.min(100, overview.utilization)}%` }} />
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100, overview.utilization)}%`, ...getUtilizationBarStyle(overview.utilization) }} />
               </div>
             </div>
             {/* FX info */}
@@ -825,8 +838,13 @@ const BudgetManagement = () => {
 
           {/* M88 Manila cost center row — only for accounting/admin/supervisor */}
           {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
-            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm text-sm">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">M88 Manila General</span>
+            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-semibold">M88 Manila General</span>
+              </div>
               <div className="h-4 w-px bg-[var(--role-border)]" />
               <div className="flex items-center gap-2">
                 <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Total</span>
@@ -840,7 +858,9 @@ const BudgetManagement = () => {
               <div className="h-4 w-px bg-[var(--role-border)]" />
               <div className="flex items-center gap-2">
                 <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Remaining</span>
-                <span className={`font-bold ${toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}</span>
+                <span className="font-bold" style={{ color: toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? '#16a34a' : '#ef4444' }}>
+                  {formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}
+                </span>
               </div>
             </div>
           )}
@@ -925,7 +945,7 @@ const BudgetManagement = () => {
                       </div>
                       {/* Mini utilization bar */}
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--role-border)]">
-                        <div className={`h-full rounded-full ${getUtilizationBarColor(utilization)}`} style={{ width: `${Math.min(utilization, 100)}%` }} />
+                        <div className="h-full rounded-full" style={{ width: `${Math.min(utilization, 100)}%`, ...getUtilizationBarStyle(utilization) }} />
                       </div>
                       <div className="mt-1 flex items-center justify-between gap-2">
                         <span className="text-[10px] text-[var(--role-text)]/50">{displayMoney(remaining)} rem.</span>
@@ -992,7 +1012,7 @@ const BudgetManagement = () => {
               {breakdownTotals && breakdownDept && (
                 <p className="mt-0.5 text-xs text-[var(--role-text)]/50">
                   {displayMoney(breakdownTotals.used_budget)} utilized of {displayMoney(breakdownTotals.annual_budget)} total
-                  {' '}(<span className={getUtilizationColor(breakdownDept.utilization_percentage)}>{formatPercent(breakdownDept.utilization_percentage)}</span>)
+                  {' '}(<span style={getUtilizationStyle(breakdownDept.utilization_percentage)}>{formatPercent(breakdownDept.utilization_percentage)}</span>)
                   {breakdownDept.remaining_budget != null && (
                     <> · <span className="text-emerald-600 font-medium">{displayMoney(breakdownDept.remaining_budget)} remaining</span></>
                   )}
