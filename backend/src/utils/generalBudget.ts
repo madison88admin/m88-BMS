@@ -36,22 +36,50 @@ export const findOrCreateM88ManilaCostCenter = async (fiscalYear: number) => {
 };
 
 /**
- * Update M88 Manila cost center budget when General Category budget is saved/updated
+ * Update M88 Manila cost center budget
+ * M88 Manila total_budget = sum of all departments' annual budgets for the fiscal year
  */
 export const updateM88ManilaCostCenterBudget = async (
   fiscalYear: number,
-  budgetAmount: number,
-  previousBudgetAmount: number = 0,
   user: any
 ) => {
   const costCenter = await findOrCreateM88ManilaCostCenter(fiscalYear);
-  const difference = budgetAmount - previousBudgetAmount;
+
+  // Calculate total annual budget from all departments for this fiscal year
+  const { data: departments, error: deptError } = await supabase
+    .from('departments')
+    .select('annual_budget')
+    .eq('fiscal_year', fiscalYear);
+
+  if (deptError) throw deptError;
+
+  const departmentsTotalBudget = departments.reduce((sum, dept) => sum + toNumber(dept.annual_budget), 0);
+
+  // Calculate total released amount from General Category requests
+  const { data: requests, error: reqError } = await supabase
+    .from('expense_requests')
+    .select('amount, category_id')
+    .eq('fiscal_year', fiscalYear)
+    .eq('status', 'released');
+
+  if (reqError) throw reqError;
+
+  // Filter for General Category requests
+  const generalCategoryRequests = await Promise.all(
+    requests.map(async (req) => {
+      const isGeneral = await isGeneralCategory(req.category_id);
+      return isGeneral ? toNumber(req.amount) : 0;
+    })
+  );
+
+  const totalReleasedAmount = generalCategoryRequests.reduce((sum, amount) => sum + amount, 0);
 
   const { data, error } = await supabase
     .from('cost_centers')
     .update({
-      total_budget: toNumber(costCenter.total_budget) + difference,
-      remaining_amount: toNumber(costCenter.remaining_amount) + difference
+      total_budget: departmentsTotalBudget,
+      used_amount: totalReleasedAmount,
+      remaining_amount: departmentsTotalBudget - totalReleasedAmount
     })
     .eq('id', costCenter.id)
     .select()
@@ -68,7 +96,7 @@ export const updateM88ManilaCostCenterBudget = async (
     recordLabel: costCenter.name,
     oldValue: { total_budget: costCenter.total_budget },
     newValue: { total_budget: data.total_budget },
-    remarks: `General category budget updated: ${difference >= 0 ? '+' : ''}${difference} to M88 Manila cost center`
+    remarks: `M88 Manila cost center updated: Total = ${departmentsTotalBudget}, Used = ${totalReleasedAmount}, Remaining = ${departmentsTotalBudget - totalReleasedAmount}`
   });
 
   return data;

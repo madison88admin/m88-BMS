@@ -286,10 +286,8 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
     await syncDepartmentBudget(department_id, targetFY);
     await syncMainCategoryRemaining(parent_category_id || data.id);
 
-    // Auto-store General Category budgets to M88 Manila cost center
-    if (department_id === 'All') {
-      await updateM88ManilaCostCenterBudget(targetFY, requestedBudget, 0, req.user);
-    }
+    // Update M88 Manila cost center budget (sum of all departments' annual budgets)
+    await updateM88ManilaCostCenterBudget(targetFY, req.user);
 
     // Invalidate cache for budget categories
     invalidateCache('/api/budget/categories');
@@ -511,11 +509,8 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
     await syncMainCategoryRemaining(current.parent_category_id);
     await syncMainCategoryRemaining(nextParentCategoryId || id);
 
-    // Auto-store General Category budgets to M88 Manila cost center
-    if (current.department_id === 'All') {
-      const previousBudget = toNumber(current.budget_amount);
-      await updateM88ManilaCostCenterBudget(current.fiscal_year, requestedBudget, previousBudget, req.user);
-    }
+    // Update M88 Manila cost center budget (sum of all departments' annual budgets)
+    await updateM88ManilaCostCenterBudget(current.fiscal_year, req.user);
 
     // Invalidate cache for budget categories
     invalidateCache('/api/budget/categories');

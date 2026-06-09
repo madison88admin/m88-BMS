@@ -1,8 +1,9 @@
--- Migration Script: Recalculate M88 Manila Cost Center Budget from Historical General Category Requests
+-- Migration Script: Recalculate M88 Manila Cost Center Budget
 -- 
--- This script recalculates the M88 Manila cost center budget based on all historical
--- General Category requests that have been released. It ensures the M88 Manila budget
--- reflects the actual dual deductions that should have occurred.
+-- This script recalculates the M88 Manila cost center budget.
+-- M88 Manila total_budget = sum of all departments' annual budgets for the fiscal year
+-- M88 Manila used_amount = total released amount from General Category requests
+-- M88 Manila remaining_amount = total_budget - used_amount
 --
 -- Run this script in your Supabase SQL editor or via psql
 
@@ -15,14 +16,14 @@ DO $$
 DECLARE
     fiscal_year_record RECORD;
     m88_cost_center_id TEXT;
+    departments_total_budget NUMERIC;
     total_released_amount NUMERIC;
-    current_total_budget NUMERIC;
     new_used_amount NUMERIC;
     new_remaining_amount NUMERIC;
 BEGIN
     -- Loop through each fiscal year
     FOR fiscal_year_record IN 
-        SELECT DISTINCT fiscal_year FROM budget_categories WHERE department_id::text = 'All'
+        SELECT DISTINCT fiscal_year FROM departments
         UNION
         SELECT DISTINCT fiscal_year FROM cost_centers WHERE name = 'M88 Manila'
     LOOP
@@ -38,6 +39,11 @@ BEGIN
             RETURNING id INTO m88_cost_center_id;
         END IF;
         
+        -- Calculate total annual budget from all departments for this fiscal year
+        SELECT COALESCE(SUM(annual_budget), 0) INTO departments_total_budget
+        FROM departments
+        WHERE fiscal_year = fiscal_year_record.fiscal_year;
+        
         -- Calculate total amount from released General Category requests for this fiscal year
         SELECT COALESCE(SUM(er.amount), 0) INTO total_released_amount
         FROM expense_requests er
@@ -47,24 +53,20 @@ BEGIN
           AND er.status = 'released'
           AND er.fiscal_year = fiscal_year_record.fiscal_year;
         
-        -- Get current total budget for M88 Manila
-        SELECT total_budget INTO current_total_budget
-        FROM cost_centers
-        WHERE id = m88_cost_center_id;
-        
         -- Calculate new values
         new_used_amount := total_released_amount;
-        new_remaining_amount := current_total_budget - total_released_amount;
+        new_remaining_amount := departments_total_budget - total_released_amount;
         
         -- Update M88 Manila cost center
         UPDATE cost_centers
-        SET used_amount = new_used_amount,
+        SET total_budget = departments_total_budget,
+            used_amount = new_used_amount,
             remaining_amount = new_remaining_amount,
             updated_at = NOW()
-        WHERE id = m88_cost_center_id;
+        WHERE id = m88_cost_center_id::uuid;
         
-        RAISE NOTICE 'Updated M88 Manila for fiscal year %: Used = %, Remaining = %', 
-            fiscal_year_record.fiscal_year, new_used_amount, new_remaining_amount;
+        RAISE NOTICE 'Updated M88 Manila for fiscal year %: Total = %, Used = %, Remaining = %', 
+            fiscal_year_record.fiscal_year, departments_total_budget, new_used_amount, new_remaining_amount;
     END LOOP;
 END $$;
 

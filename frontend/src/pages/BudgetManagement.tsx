@@ -138,8 +138,6 @@ const BudgetManagement = () => {
   const [submittingProposal, setSubmittingProposal] = useState(false);
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
   const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
-  const [showGeneralCategoryConfirm, setShowGeneralCategoryConfirm] = useState(false);
-  const [pendingGeneralCategoryUpdate, setPendingGeneralCategoryUpdate] = useState<{id: string, amount: number} | null>(null);
 
   // Accounting, admin, and supervisor may lock/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
@@ -189,17 +187,23 @@ const BudgetManagement = () => {
   const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || new Date().getFullYear();
 
   const overview = useMemo(() => {
-    const totalBudget = filteredDepts.reduce((s, d) => s + toNumber(d.annual_budget), 0);
-    const usedBudget = filteredDepts.reduce((s, d) => s + toNumber(d.used_budget), 0);
-    const monthlySpent = filteredDepts.reduce((s, d) => s + toNumber(d.monthly_spent), 0);
+    // When a department is selected, show that department's budget only
+    // When no department is selected, show sum of all departments
+    const targetDepts = selectedDepartmentId 
+      ? filteredDepts.filter(d => d.id === selectedDepartmentId)
+      : filteredDepts;
+    
+    const totalBudget = targetDepts.reduce((s, d) => s + toNumber(d.annual_budget), 0);
+    const usedBudget = targetDepts.reduce((s, d) => s + toNumber(d.used_budget), 0);
+    const monthlySpent = targetDepts.reduce((s, d) => s + toNumber(d.monthly_spent), 0);
     return {
-      totalDepartments: filteredDepts.length,
+      totalDepartments: targetDepts.length,
       totalBudget,
       usedBudget,
       monthlySpent,
       utilization: totalBudget > 0 ? (usedBudget / totalBudget) * 100 : 0
     };
-  }, [filteredDepts]);
+  }, [filteredDepts, selectedDepartmentId]);
 
   const displayAmount = (v: number) => {
     const n = toNumber(v);
@@ -225,20 +229,47 @@ const BudgetManagement = () => {
     [selectedBreakdown?.categories]
   );
 
-  // Apply client-side visibility filter for non-accounting viewers when listing main categories
+  // Apply client-side visibility filter for non-accounting viewers when listing categories
   const visibleEnrichedCategories = useMemo(() => {
     try {
       const raw = localStorage.getItem('prefetch_expense_categories');
       const expenseCache = raw ? JSON.parse(raw).data : null;
       if (!expenseCache || !user) return enrichedCategories;
-      // find department name if selectedDepartment exists
+      
       const deptName = selectedDepartment?.name || '';
-      const { filterCategoriesForUser } = require('../utils/budgetVisibility');
-      // filter returns only main categories per rules — we need full enriched list, so filter then expand
-      const filteredMain = filterCategoriesForUser(enrichedCategories || [], user, deptName);
-      // keep only categories whose id is in filteredMain (main categories) or their children if user should see sub-categories
-      const mainIds = new Set(filteredMain.map((c: any) => c.id));
-      return enrichedCategories.filter(c => !c.parent_category_id ? mainIds.has(c.id) : mainIds.has(c.parent_category_id));
+      const { filterCategoriesForUser, mapDepartmentNameToShort } = require('../utils/budgetVisibility');
+      const deptShort = mapDepartmentNameToShort(deptName);
+      
+      // Build set of allowed main category codes from expense_categories cache
+      const allowedMainCodes = new Set<string>();
+      expenseCache.forEach((ec: any) => {
+        const code = String(ec.main_category_code || '').trim();
+        const dept = String(ec.department || '').trim();
+        if (!code) return;
+        if (dept === 'All') { allowedMainCodes.add(code); return; }
+        if (deptShort && dept === deptShort) { allowedMainCodes.add(code); return; }
+      });
+      
+      // Filter categories based on department restrictions
+      return enrichedCategories.filter(c => {
+        const code = String(c.category_code || '').trim();
+        
+        // For main categories: only show if code is in allowed list
+        if (!c.parent_category_id) {
+          return allowedMainCodes.has(code);
+        }
+        
+        // For sub-categories: show if parent is allowed AND sub-category department is 'All' or matches department
+        const parentCode = String(c.parent_category_code || '').trim();
+        if (!allowedMainCodes.has(parentCode)) return false;
+        
+        // Get sub-category's department from expense cache
+        const subCatDept = expenseCache.find((ec: any) => ec.category_code === code);
+        if (!subCatDept) return true; // If not found, allow (fallback)
+        
+        const subDept = String(subCatDept.department || '').trim();
+        return subDept === 'All' || (deptShort && subDept === deptShort);
+      });
     } catch (err) {
       return enrichedCategories;
     }
@@ -407,14 +438,7 @@ const BudgetManagement = () => {
         }
       }
     }
-    
-    // Show confirmation dialog for General Category budget saves
-    if (category?.department_id === 'All') {
-      setPendingGeneralCategoryUpdate({ id: catId, amount: budget });
-      setShowGeneralCategoryConfirm(true);
-      return;
-    }
-    
+
     try {
       await api.put(`/api/budget/categories/${catId}`, { budget_amount: budget });
       toast.success('Category budget updated!');
@@ -1334,45 +1358,6 @@ const BudgetManagement = () => {
           )}
         </div>
       </div>
-
-      {/* General Category Budget Confirmation Dialog */}
-      {showGeneralCategoryConfirm && pendingGeneralCategoryUpdate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="panel max-w-md w-full mx-4">
-            <div className="p-6">
-              <h3 className="text-lg font-semibold text-[var(--role-text)] mb-4">Confirm General Category Budget Update</h3>
-              <p className="text-sm text-[var(--role-text)]/70 mb-6">
-                This amount will also be added to the M88 Manila General Budget. Confirm?
-              </p>
-              <div className="flex gap-3 justify-end">
-                <button
-                  onClick={() => {
-                    setShowGeneralCategoryConfirm(false);
-                    setPendingGeneralCategoryUpdate(null);
-                  }}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      await api.put(`/api/budget/categories/${pendingGeneralCategoryUpdate.id}`, { budget_amount: pendingGeneralCategoryUpdate.amount });
-                      toast.success('Category budget updated and M88 Manila cost center updated!');
-                      if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); await fetchM88ManilaCostCenter(); }
-                    } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to update category')); }
-                    setShowGeneralCategoryConfirm(false);
-                    setPendingGeneralCategoryUpdate(null);
-                  }}
-                  className="btn-primary"
-                >
-                  Confirm
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Add Department Panel */}
       <div className="panel">
