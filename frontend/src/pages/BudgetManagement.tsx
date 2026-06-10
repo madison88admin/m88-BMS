@@ -1024,6 +1024,153 @@ const BudgetManagement = () => {
         </div>
       </div>
 
+      {/* Analytics Section */}
+      <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[var(--role-text)]">Analytics</h3>
+            <p className="text-xs text-[var(--role-text)]/50 mt-0.5">Budget insights and expense trends</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--role-text)]/60">FY:</label>
+              <select
+                value={analyticsFiscalYear}
+                onChange={(e) => setAnalyticsFiscalYear(Number(e.target.value))}
+                className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                {availableFiscalYears.map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+          <div className="mb-4 flex items-center justify-between rounded-lg bg-[var(--role-surface)] px-3 py-2">
+            <span className="text-xs text-[var(--role-text)]/60">
+              Showing: {filterExpenseType !== 'all' ? filterExpenseType.replace('_', ' ') : 'All Types'} · {filterBudgetCategory !== 'all' ? visibleEnrichedCategories.find(c => c.id === filterBudgetCategory)?.category_name : 'All Categories'}
+            </span>
+            <button
+              onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
+              className="text-xs text-[var(--role-primary)] hover:text-[var(--role-secondary)]"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {analyticsLoading ? (
+          <div className="py-8 text-center text-[var(--role-text)]/60">Loading analytics data…</div>
+        ) : analyticsData ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Chart 1: Budget vs Expense by Month */}
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Budget vs Expense — FY{analyticsFiscalYear}</h4>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={analyticsData.budgetVsExpense}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
+                  <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Legend />
+                  <Bar dataKey="budget" fill="var(--role-primary)" name="Budget" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 2: Expense Trend by Fiscal Year */}
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Expense Trend FY2022–FY2026</h4>
+              <ResponsiveContainer width="100%" height={200}>
+                <ComposedChart data={analyticsData.expenseTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="fy" stroke="var(--role-text)" fontSize={10} />
+                  <YAxis yAxisId="left" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Legend />
+                  <Bar yAxisId="left" dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="right" dataKey="utilPct" stroke="var(--role-primary)" strokeWidth={2} name="% of Budget" dot={{ fill: 'var(--role-primary)', r: 4 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 3: Monthly Comparison 2025 vs 2026 */}
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Monthly Expenses — 2025 vs 2026</h4>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={analyticsData.monthlyComparison}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
+                  <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Legend />
+                  <Bar dataKey="2025" fill="var(--role-secondary)" name="2025" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="2026" fill="var(--role-primary)" name="2026" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 4: Top 5 Expenses by Amount */}
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 Expenses by Amount</h4>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={analyticsData.top5ByAmount} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis type="number" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <YAxis dataKey="name" type="category" width={100} stroke="var(--role-text)" fontSize={10} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 5: Top 5 by Budget Utilization % */}
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4 md:col-span-2">
+              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 by Budget Utilization %</h4>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={analyticsData.top5ByUtil}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="name" stroke="var(--role-text)" fontSize={10} />
+                  <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
+                  />
+                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                    {analyticsData.top5ByUtil.map((entry: any, index: number) => (
+                      <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        ) : (
+          <div className="py-8 text-center text-[var(--role-text)]/60">No data available for this period</div>
+        )}
+      </div>
+
       {/* Main Layout: dept list left, detail right */}
       <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
         {/* Left: Org Tree Navigation */}
@@ -1270,153 +1417,6 @@ const BudgetManagement = () => {
                   )}
                 </div>
               )}
-
-              {/* Analytics Section */}
-              <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[var(--role-text)]">Analytics</h3>
-                    <p className="text-xs text-[var(--role-text)]/50 mt-0.5">Budget insights and expense trends</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-[var(--role-text)]/60">FY:</label>
-                      <select
-                        value={analyticsFiscalYear}
-                        onChange={(e) => setAnalyticsFiscalYear(Number(e.target.value))}
-                        className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                      >
-                        {availableFiscalYears.map(y => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
-                  <div className="mb-4 flex items-center justify-between rounded-lg bg-[var(--role-surface)] px-3 py-2">
-                    <span className="text-xs text-[var(--role-text)]/60">
-                      Showing: {filterExpenseType !== 'all' ? filterExpenseType.replace('_', ' ') : 'All Types'} · {filterBudgetCategory !== 'all' ? visibleEnrichedCategories.find(c => c.id === filterBudgetCategory)?.category_name : 'All Categories'}
-                    </span>
-                    <button
-                      onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
-                      className="text-xs text-[var(--role-primary)] hover:text-[var(--role-secondary)]"
-                    >
-                      ×
-                    </button>
-                  </div>
-                )}
-
-                {analyticsLoading ? (
-                  <div className="py-8 text-center text-[var(--role-text)]/60">Loading analytics data…</div>
-                ) : analyticsData ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Chart 1: Budget vs Expense by Month */}
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Budget vs Expense — FY{analyticsFiscalYear}</h4>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <BarChart data={analyticsData.budgetVsExpense}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                          <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
-                          <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                          <Tooltip
-                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                            labelStyle={{ color: 'var(--role-text)' }}
-                            formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
-                          />
-                          <Legend />
-                          <Bar dataKey="budget" fill="var(--role-primary)" name="Budget" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    {/* Chart 2: Expense Trend by Fiscal Year */}
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Expense Trend FY2022–FY2026</h4>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <ComposedChart data={analyticsData.expenseTrend}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                          <XAxis dataKey="fy" stroke="var(--role-text)" fontSize={10} />
-                          <YAxis yAxisId="left" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                          <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
-                          <Tooltip
-                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                            labelStyle={{ color: 'var(--role-text)' }}
-                            formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatMoney(Number(value || 0), 'PHP')}
-                          />
-                          <Legend />
-                          <Bar yAxisId="left" dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
-                          <Line yAxisId="right" dataKey="utilPct" stroke="var(--role-primary)" strokeWidth={2} name="% of Budget" dot={{ fill: 'var(--role-primary)', r: 4 }} />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    {/* Chart 3: Monthly Comparison 2025 vs 2026 */}
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Monthly Expenses — 2025 vs 2026</h4>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <BarChart data={analyticsData.monthlyComparison}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                          <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
-                          <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                          <Tooltip
-                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                            labelStyle={{ color: 'var(--role-text)' }}
-                            formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
-                          />
-                          <Legend />
-                          <Bar dataKey="2025" fill="var(--role-secondary)" name="2025" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="2026" fill="var(--role-primary)" name="2026" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    {/* Chart 4: Top 5 Expenses by Amount */}
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 Expenses by Amount</h4>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <BarChart data={analyticsData.top5ByAmount} layout="vertical">
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                          <XAxis type="number" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                          <YAxis dataKey="name" type="category" width={100} stroke="var(--role-text)" fontSize={10} />
-                          <Tooltip
-                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                            labelStyle={{ color: 'var(--role-text)' }}
-                            formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
-                          />
-                          <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    {/* Chart 5: Top 5 by Budget Utilization % */}
-                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4 md:col-span-2">
-                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 by Budget Utilization %</h4>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <BarChart data={analyticsData.top5ByUtil}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                          <XAxis dataKey="name" stroke="var(--role-text)" fontSize={10} />
-                          <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
-                          <Tooltip
-                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                            labelStyle={{ color: 'var(--role-text)' }}
-                            formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
-                          />
-                          <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-                            {analyticsData.top5ByUtil.map((entry: any, index: number) => (
-                              <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="py-8 text-center text-[var(--role-text)]/60">No data available for this period</div>
-                )}
-              </div>
 
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.1fr)_340px]">
                 <div className="space-y-6">
