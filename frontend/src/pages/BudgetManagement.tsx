@@ -971,9 +971,12 @@ const BudgetManagement = () => {
       // Chart 5: Top 5 by utilization % (use visibleEnrichedCategories)
       let filteredCategories = visibleEnrichedCategories;
       if (filterBudgetCategory !== 'all') {
-        filteredCategories = visibleEnrichedCategories.filter(cat =>
-          cat.parent_category_id === filterBudgetCategory || cat.id === filterBudgetCategory
-        );
+        const filterVal = filterBudgetCategory.toLowerCase();
+        filteredCategories = visibleEnrichedCategories.filter(cat => {
+          const catName = cat.category_name?.toLowerCase() || '';
+          const parentName = cat.parent_category_name?.toLowerCase() || '';
+          return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
+        });
       }
       const top5ByUtil = filteredCategories
         .filter(cat => toNumber(cat.budget_amount) > 0)
