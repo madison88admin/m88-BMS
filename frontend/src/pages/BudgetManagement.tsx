@@ -998,7 +998,7 @@ const BudgetManagement = () => {
   useEffect(() => {
     if (!selectedDepartmentId && analyticsDeptId === '') return;
     fetchAnalyticsData();
-  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, visibleEnrichedCategories, filterExpenseType, filterBudgetCategory]);
+  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, filterExpenseType, filterBudgetCategory]);
 
   if (loading) return <PageSkeleton />;
 
