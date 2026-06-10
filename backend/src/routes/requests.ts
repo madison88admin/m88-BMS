@@ -2482,11 +2482,12 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
   // Determine next status based on request type and amount
   const budgetFlow = isBudgetWorkflow(request.request_type);
   const requestAmount = toNumber(request.amount);
-  const PRESIDENT_THRESHOLD = 500;
-  
-  const nextStatus = budgetFlow 
-    ? (requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp')
-    : 'pending_vp';
+  const currency = request.metadata?.currency || 'PHP';
+  const expensePresidentThreshold = getPresidentThreshold(currency);
+
+  const nextStatus = budgetFlow
+    ? (requestAmount >= BUDGET_PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp')
+    : (requestAmount >= expensePresidentThreshold ? 'pending_president' : 'pending_vp');
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2512,10 +2513,12 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
       old_value: request.status,
       new_value: nextStatus,
       note: budgetFlow
-        ? requestAmount >= PRESIDENT_THRESHOLD
+        ? requestAmount >= BUDGET_PRESIDENT_THRESHOLD
           ? 'Accounting approved budget proposal — forwarded to President for final approval'
           : 'Accounting approved budget proposal — forwarded to VP for final approval'
-        : 'Accounting approved request — forwarded to VP review'
+        : nextStatus === 'pending_president'
+          ? 'Accounting approved request — forwarded to President review'
+          : 'Accounting approved request — forwarded to VP review'
     }
   ]);
 
@@ -2532,18 +2535,28 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     });
   }
 
-  await notifyVp(
-    budgetFlow
-      ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
-      : `Request ${request.request_code} requires VP review.`
-  );
+  if (nextStatus === 'pending_president') {
+    await notifyPresident(
+      budgetFlow
+        ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires President review.`
+        : `Request ${request.request_code} requires President review.`
+    );
+  } else {
+    await notifyVp(
+      budgetFlow
+        ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
+        : `Request ${request.request_code} requires VP review.`
+    );
+  }
 
   if (!budgetFlow) {
     await notifyEmployee(
       request.employee_id,
       request.request_code,
       'Request Approved',
-      `Your request ${request.request_code} has moved to VP review.`
+      nextStatus === 'pending_president'
+        ? `Your request ${request.request_code} has moved to President review.`
+        : `Your request ${request.request_code} has moved to VP review.`
     );
   }
 
@@ -2985,6 +2998,9 @@ router.patch('/:id/return', authenticate, authorize('supervisor', 'accounting', 
       returned_by: req.user.id,
       returned_at: new Date(),
       return_reason: reason,
+      co_approved_by: null,
+      co_approved_at: null,
+      co_approver_role: null,
       updated_at: new Date()
     })
     .eq('id', id)
@@ -3142,6 +3158,9 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
       returned_by: null,
       returned_at: null,
       return_reason: null,
+      co_approved_by: null,
+      co_approved_at: null,
+      co_approver_role: null,
       revision_count: Number(request.revision_count || 0) + 1,
       updated_at: new Date()
     })
@@ -3786,14 +3805,13 @@ router.post('/bulk-approve-accounting', authenticate, authorize('accounting', 'a
     return res.status(404).json({ error: 'No pending budget proposals found for this department' });
   }
 
-  const PRESIDENT_THRESHOLD = 500;
   const approvedRequests = [];
   const failedRequests = [];
 
   for (const request of requests) {
     try {
       const requestAmount = toNumber(request.amount);
-      const nextStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+      const nextStatus = requestAmount >= BUDGET_PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
 
       const { data: updatedRequest, error: updateError } = await supabase
         .from('expense_requests')
@@ -3974,7 +3992,7 @@ router.post('/bulk-approve-executive', authenticate, authorize('vp', 'president'
       const proposalAmount = toNumber(request.amount);
 
       if (targetStage === 'vp') {
-        if (proposalAmount >= PRESIDENT_THRESHOLD) {
+        if (proposalAmount >= BUDGET_PRESIDENT_THRESHOLD) {
           const { data: updatedRequest, error: updateError } = await supabase
             .from('expense_requests')
             .update({ status: 'pending_president', updated_at: new Date() })
@@ -4013,7 +4031,7 @@ router.post('/bulk-approve-executive', authenticate, authorize('vp', 'president'
           approvedRequests.push(updatedRequest);
         }
       } else {
-        if (proposalAmount < PRESIDENT_THRESHOLD) {
+        if (proposalAmount < BUDGET_PRESIDENT_THRESHOLD) {
           failedRequests.push({
             request_code: request.request_code,
             error: 'Budget amount is below threshold and requires VP final approval.',
