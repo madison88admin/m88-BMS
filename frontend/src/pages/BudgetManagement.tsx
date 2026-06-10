@@ -210,6 +210,7 @@ const BudgetManagement = () => {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsFiscalYear, setAnalyticsFiscalYear] = useState<number>(new Date().getFullYear());
   const [analyticsDeptId, setAnalyticsDeptId] = useState<string>('');
+  const [analyticsDept, setAnalyticsDept] = useState<string>('all');
   const [deptCategoryMap, setDeptCategoryMap] = useState<Record<string, string[]>>({});
   const [allCategoryNames, setAllCategoryNames] = useState<string[]>([]);
 
@@ -319,6 +320,14 @@ const BudgetManagement = () => {
     if (v >= 1000000) return `₱${(v / 1000000).toFixed(1)}M`;
     if (v >= 1000) return `₱${(v / 1000).toFixed(1)}K`;
     return `₱${v.toFixed(0)}`;
+  };
+
+  // Format currency for tooltips
+  const formatCurrency = (val: number): string => {
+    const v = toNumber(val);
+    if (v >= 1_000_000) return `₱${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `₱${(v / 1_000).toFixed(1)}K`;
+    return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
   };
 
   // Analytics chart color scheme
@@ -874,6 +883,16 @@ const BudgetManagement = () => {
       const res = await api.get('/api/requests', { params });
       const requests = Array.isArray(res.data) ? res.data : [];
 
+      // Fetch all requests for all fiscal years for expense trend chart
+      const allFiscalYears = [2022, 2023, 2024, 2025, 2026];
+      const allRequestsPromises = allFiscalYears.map(fy => {
+        const fyParams: any = { fiscal_year: fy };
+        if (analyticsDeptId) fyParams.department_id = analyticsDeptId;
+        return api.get('/api/requests', { params: fyParams });
+      });
+      const allRequestsResponses = await Promise.all(allRequestsPromises);
+      const allRequests = allRequestsResponses.flatMap(r => Array.isArray(r.data) ? r.data : []);
+
       // Apply expense type filter
       let filteredRequests = requests;
       if (filterExpenseType !== 'all') {
@@ -907,9 +926,9 @@ const BudgetManagement = () => {
         return { month, budget: 0, expense }; // budget: requires dept budget data
       });
 
-      // Chart 2: Expense trend by fiscal year
+      // Chart 2: Expense trend by fiscal year (use all requests for all FYs)
       const fyGroups: Record<number, { expense: number; budget: number }> = {};
-      filteredRequests.forEach((r: any) => {
+      allRequests.forEach((r: any) => {
         const fy = Number(r.fiscal_year || new Date(r.created_at).getFullYear());
         if (!fyGroups[fy]) fyGroups[fy] = { expense: 0, budget: 0 };
         if (['released', 'approved'].includes(r.status)) {
@@ -1116,6 +1135,19 @@ const BudgetManagement = () => {
                 ))}
               </select>
             </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--role-text)]/60">Dept:</label>
+              <select
+                value={analyticsDept}
+                onChange={(e) => setAnalyticsDept(e.target.value)}
+                className="px-3 py-1.5 text-xs rounded-full border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                <option value="all">All Departments</option>
+                {visibleDepartments.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -1150,14 +1182,14 @@ const BudgetManagement = () => {
                   <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
-                    formatter={(value: any) => formatChartValue(Number(value || 0))}
+                    formatter={(value: any) => formatCurrency(Number(value || 0))}
                   />
-                  <Legend />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                   <Bar dataKey="budget" fill={BUDGET_COLOR} name="Budget" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="budget" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                    <LabelList dataKey="budget" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatCurrency(Number(v || 0))} />
                   </Bar>
                   <Bar dataKey="expense" fill={EXPENSE_COLOR} name="Expense" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="expense" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                    <LabelList dataKey="expense" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatCurrency(Number(v || 0))} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -1177,11 +1209,11 @@ const BudgetManagement = () => {
                   <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
-                    formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatChartValue(Number(value || 0))}
+                    formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatCurrency(Number(value || 0))}
                   />
-                  <Legend />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                   <Bar yAxisId="left" dataKey="expense" fill={EXPENSE_COLOR} name="Expense" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="expense" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                    <LabelList dataKey="expense" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatCurrency(Number(v || 0))} />
                   </Bar>
                   <Line yAxisId="right" dataKey="utilPct" stroke={BUDGET_COLOR} strokeWidth={2} name="% of Budget" dot={{ fill: BUDGET_COLOR, r: 4 }} />
                 </ComposedChart>
@@ -1201,14 +1233,14 @@ const BudgetManagement = () => {
                   <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
-                    formatter={(value: any) => formatChartValue(Number(value || 0))}
+                    formatter={(value: any) => formatCurrency(Number(value || 0))}
                   />
-                  <Legend />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                   <Bar dataKey="2025" fill={BUDGET_COLOR_LIGHT} name="2025" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="2025" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                    <LabelList dataKey="2025" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatCurrency(Number(v || 0))} />
                   </Bar>
                   <Bar dataKey="2026" fill={BUDGET_COLOR} name="2026" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="2026" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                    <LabelList dataKey="2026" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatCurrency(Number(v || 0))} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -1227,10 +1259,10 @@ const BudgetManagement = () => {
                   <YAxis dataKey="name" type="category" width={100} stroke="var(--role-text)" fontSize={11} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
-                    formatter={(value: any) => formatChartValue(Number(value || 0))}
+                    formatter={(value: any) => formatCurrency(Number(value || 0))}
                   />
                   <Bar dataKey="amount" fill={EXPENSE_COLOR} radius={[0, 4, 4, 0]}>
-                    <LabelList dataKey="amount" position="right" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                    <LabelList dataKey="amount" position="right" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatCurrency(Number(v || 0))} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
