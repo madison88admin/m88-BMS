@@ -15,6 +15,7 @@ import {
   Legend,
   ResponsiveContainer,
   ComposedChart,
+  LabelList,
 } from 'recharts';
 
 const DEFAULT_FX_RATE_PHP = 56.0;
@@ -301,6 +302,19 @@ const BudgetManagement = () => {
     return n;
   };
   const displayMoney = (v: number) => formatMoney(displayAmount(v), displayCurrency);
+
+  // Analytics chart number formatter
+  const formatChartValue = (value: number): string => {
+    const v = toNumber(value);
+    if (v >= 1000000) return `₱${(v / 1000000).toFixed(1)}M`;
+    if (v >= 1000) return `₱${(v / 1000).toFixed(1)}K`;
+    return `₱${v.toFixed(0)}`;
+  };
+
+  // Analytics chart color scheme
+  const BUDGET_COLOR = '#2D6A4F';
+  const EXPENSE_COLOR = '#E97316';
+  const BUDGET_COLOR_LIGHT = 'rgba(45, 106, 79, 0.5)';
 
   const selectedDepartment = filteredDepts.find(d => d.id === selectedDepartmentId);
   const breakdownDept = selectedBreakdown?.department;
@@ -1030,10 +1044,15 @@ const BudgetManagement = () => {
 
       {/* Analytics Section */}
       <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-[var(--role-text)]">Analytics</h3>
-            <p className="text-xs text-[var(--role-text)]/50 mt-0.5">Budget insights and expense trends</p>
+        <div className="flex items-center justify-between mb-4 pb-4 border-b border-[var(--role-border)]">
+          <div className="flex items-center gap-3">
+            <svg className="h-5 w-5 text-[var(--role-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <div>
+              <h3 className="text-[18px] font-bold text-[var(--role-text)]">Analytics</h3>
+              <p className="text-[12px] text-[var(--role-text)]/50 mt-0.5">Budget insights and expense trends</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2">
@@ -1041,7 +1060,7 @@ const BudgetManagement = () => {
               <select
                 value={analyticsFiscalYear}
                 onChange={(e) => setAnalyticsFiscalYear(Number(e.target.value))}
-                className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                className="px-3 py-1.5 text-xs rounded-full border border-[var(--role-border)] bg-[var(--role-surface)]"
               >
                 {availableFiscalYears.map(y => (
                   <option key={y} value={y}>{y}</option>
@@ -1070,100 +1089,124 @@ const BudgetManagement = () => {
         ) : analyticsData ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Chart 1: Budget vs Expense by Month */}
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Budget vs Expense — FY{analyticsFiscalYear}</h4>
-              <ResponsiveContainer width="100%" height={200}>
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5" style={{ borderTop: '3px solid #2D6A4F' }}>
+              <div className="mb-4 pb-3 border-b border-[var(--role-border)]">
+                <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Budget vs Expense — FY{analyticsFiscalYear}</h4>
+                <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Monthly budget allocation vs actual spend</p>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={analyticsData.budgetVsExpense}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
-                  <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
+                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
+                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                    contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
+                    formatter={(value: any) => formatChartValue(Number(value || 0))}
                   />
                   <Legend />
-                  <Bar dataKey="budget" fill="var(--role-primary)" name="Budget" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="budget" fill={BUDGET_COLOR} name="Budget" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="budget" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                  </Bar>
+                  <Bar dataKey="expense" fill={EXPENSE_COLOR} name="Expense" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="expense" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             {/* Chart 2: Expense Trend by Fiscal Year */}
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Expense Trend FY2022–FY2026</h4>
-              <ResponsiveContainer width="100%" height={200}>
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5" style={{ borderTop: '3px solid #E97316' }}>
+              <div className="mb-4 pb-3 border-b border-[var(--role-border)]">
+                <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Expense Trend FY2022–FY2026</h4>
+                <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Year-over-year total expense with % of budget</p>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
                 <ComposedChart data={analyticsData.expenseTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="fy" stroke="var(--role-text)" fontSize={10} />
-                  <YAxis yAxisId="left" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                  <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
+                  <XAxis dataKey="fy" stroke="var(--role-text)" fontSize={11} />
+                  <YAxis yAxisId="left" stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
+                  <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatMoney(Number(value || 0), 'PHP')}
+                    contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
+                    formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatChartValue(Number(value || 0))}
                   />
                   <Legend />
-                  <Bar yAxisId="left" dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
-                  <Line yAxisId="right" dataKey="utilPct" stroke="var(--role-primary)" strokeWidth={2} name="% of Budget" dot={{ fill: 'var(--role-primary)', r: 4 }} />
+                  <Bar yAxisId="left" dataKey="expense" fill={EXPENSE_COLOR} name="Expense" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="expense" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                  </Bar>
+                  <Line yAxisId="right" dataKey="utilPct" stroke={BUDGET_COLOR} strokeWidth={2} name="% of Budget" dot={{ fill: BUDGET_COLOR, r: 4 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
 
             {/* Chart 3: Monthly Comparison 2025 vs 2026 */}
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Monthly Expenses — 2025 vs 2026</h4>
-              <ResponsiveContainer width="100%" height={200}>
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5" style={{ borderTop: '3px solid #2D6A4F' }}>
+              <div className="mb-4 pb-3 border-b border-[var(--role-border)]">
+                <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Monthly Expenses — 2025 vs 2026</h4>
+                <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Month-by-month comparison across fiscal years</p>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={analyticsData.monthlyComparison}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
-                  <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
+                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} />
+                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                    contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
+                    formatter={(value: any) => formatChartValue(Number(value || 0))}
                   />
                   <Legend />
-                  <Bar dataKey="2025" fill="var(--role-secondary)" name="2025" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="2026" fill="var(--role-primary)" name="2026" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="2025" fill={BUDGET_COLOR_LIGHT} name="2025" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="2025" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                  </Bar>
+                  <Bar dataKey="2026" fill={BUDGET_COLOR} name="2026" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="2026" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             {/* Chart 4: Top 5 Expenses by Amount */}
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 Expenses by Amount</h4>
-              <ResponsiveContainer width="100%" height={200}>
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5" style={{ borderTop: '3px solid #E97316' }}>
+              <div className="mb-4 pb-3 border-b border-[var(--role-border)]">
+                <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Top 5 Expenses by Amount</h4>
+                <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Highest spending categories this fiscal year</p>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={analyticsData.top5ByAmount} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis type="number" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                  <YAxis dataKey="name" type="category" width={100} stroke="var(--role-text)" fontSize={10} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
+                  <XAxis type="number" stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
+                  <YAxis dataKey="name" type="category" width={100} stroke="var(--role-text)" fontSize={11} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                    contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
+                    formatter={(value: any) => formatChartValue(Number(value || 0))}
                   />
-                  <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="amount" fill={EXPENSE_COLOR} radius={[0, 4, 4, 0]}>
+                    <LabelList dataKey="amount" position="right" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatChartValue(Number(v || 0))} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             {/* Chart 5: Top 5 by Budget Utilization % */}
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4 md:col-span-2">
-              <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 by Budget Utilization %</h4>
-              <ResponsiveContainer width="100%" height={200}>
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5 md:col-span-2" style={{ borderTop: '3px solid #2D6A4F' }}>
+              <div className="mb-4 pb-3 border-b border-[var(--role-border)]">
+                <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Top 5 by Budget Utilization %</h4>
+                <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Categories with highest budget consumption</p>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={analyticsData.top5ByUtil}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="name" stroke="var(--role-text)" fontSize={10} />
-                  <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--role-text)" fontSize={11} />
+                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
+                    contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
                     formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
                   />
                   <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
                     {analyticsData.top5ByUtil.map((entry: any, index: number) => (
-                      <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
+                      <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'}>
+                        <LabelList dataKey="pct" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => `${Number(v || 0).toFixed(1)}%`} />
+                      </Bar>
                     ))}
                   </Bar>
                 </BarChart>
@@ -1171,7 +1214,12 @@ const BudgetManagement = () => {
             </div>
           </div>
         ) : (
-          <div className="py-8 text-center text-[var(--role-text)]/60">No data available for this period</div>
+          <div className="py-12 text-center text-[var(--role-text)]/60">
+            <svg className="h-12 w-12 mx-auto mb-3 text-[var(--role-text)]/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <p className="text-sm">No data available for the selected filters</p>
+          </div>
         )}
       </div>
 
