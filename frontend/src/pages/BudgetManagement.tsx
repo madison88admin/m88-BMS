@@ -4,12 +4,23 @@ import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
 import { formatMoney, formatDateTime, formatPercent, toNumber , getErrorMessage } from '../utils/format';
 import { supabase } from '../lib/supabase';
+import {
+  BarChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ComposedChart,
+} from 'recharts';
 
 const DEFAULT_FX_RATE_PHP = 56.0;
 const DEFAULT_FX_RATE_IDR = 15800.0;
 const FX_ENDPOINT = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=PHP,IDR';
 const RECENT_PAGE_SIZE = 4;
-const CATEGORY_PAGE_SIZE = 5;
 
 const enrichCategories = (categories: any[]) => {
   const nameById = new Map(categories.map((category) => [category.id, category.category_name]));
@@ -75,18 +86,6 @@ const getBudgetHealth = (dept: any) => {
   if (utilization >= 90) return 'critical';
   if (utilization >= 70) return 'high';
   return 'low';
-};
-
-const getUtilizationColor = (pct: number) => {
-  if (pct >= 80) return 'text-red-500';
-  if (pct >= 50) return 'text-amber-500';
-  return 'text-green-600';
-};
-
-const getUtilizationBarColor = (pct: number) => {
-  if (pct >= 80) return 'bg-red-500';
-  if (pct >= 50) return 'bg-amber-500';
-  return 'bg-green-500';
 };
 
 // Inline style fallback — guarantees color even if Tailwind JIT purges dynamic class
@@ -183,8 +182,8 @@ const BudgetManagement = () => {
   const [fxStatus, setFxStatus] = useState<'live' | 'fallback'>('fallback');
   const [displayCurrency, setDisplayCurrency] = useState<'PHP' | 'USD' | 'IDR'>('PHP');
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(new Date().getFullYear());
-  const [departmentSearch, setDepartmentSearch] = useState('');
-  const [budgetHealthFilter, setBudgetHealthFilter] = useState<'all' | 'low' | 'high' | 'critical'>('all');
+  const [departmentSearch] = useState('');
+  const [budgetHealthFilter] = useState<'all' | 'low' | 'high' | 'critical'>('all');
   const [newDept, setNewDept] = useState({ name: '', fiscal_year: new Date().getFullYear() });
   const [pettyCashForm, setPettyCashForm] = useState({ amount: '', purpose: '', action: 'replenish' as 'replenish' | 'disburse' });
   const [categoryPage, setCategoryPage] = useState(1);
@@ -204,6 +203,12 @@ const BudgetManagement = () => {
   const [showInactive, setShowInactive] = useState(true);
   const [categoryPageSize, setCategoryPageSize] = useState(5);
   const [openOverflowId, setOpenOverflowId] = useState<string | null>(null);
+  const [categoryExpenseTypeFilter, setCategoryExpenseTypeFilter] = useState<string>('all');
+  const [categoryParentFilter, setCategoryParentFilter] = useState<string>('all');
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsFiscalYear, setAnalyticsFiscalYear] = useState<number>(new Date().getFullYear());
+  const [analyticsDeptId, setAnalyticsDeptId] = useState<string>('');
 
   // Accounting, admin, and supervisor may lock/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
@@ -278,11 +283,6 @@ const BudgetManagement = () => {
     return n;
   };
   const displayMoney = (v: number) => formatMoney(displayAmount(v), displayCurrency);
-  const secondaryMoney = (v: number) => {
-    const n = toNumber(v);
-    if (displayCurrency === 'PHP') return formatMoney(toUsd(n, fxRatePhp), 'USD');
-    return formatMoney(n, 'PHP');
-  };
 
   const selectedDepartment = filteredDepts.find(d => d.id === selectedDepartmentId);
   const breakdownDept = selectedBreakdown?.department;
@@ -303,7 +303,7 @@ const BudgetManagement = () => {
       if (!expenseCache || !user) return enrichedCategories;
       
       const deptName = selectedDepartment?.name || '';
-      const { filterCategoriesForUser, mapDepartmentNameToShort } = require('../utils/budgetVisibility');
+      const { mapDepartmentNameToShort } = require('../utils/budgetVisibility');
       const deptShort = mapDepartmentNameToShort(deptName);
       
       // Build set of allowed main category codes from expense_categories cache
@@ -379,14 +379,34 @@ const BudgetManagement = () => {
   const categoryAllocationRemaining = Math.max(0, editableBudgetValue - categoryAllocatedTotal);
 
   const visibleOrderedCategories = useMemo(() => {
-    if (showInactive) return orderedCategories;
-    return orderedCategories.filter(({ cat }) => {
-      const used = toNumber(cat.used_amount);
-      const committed = toNumber(cat.committed_amount);
-      const budget = toNumber(cat.budget_amount);
-      return !(used === 0 && committed === 0 && budget === 0);
-    });
-  }, [orderedCategories, showInactive]);
+    let result = orderedCategories;
+
+    // Apply inactive filter
+    if (!showInactive) {
+      result = result.filter(({ cat }) => {
+        const used = toNumber(cat.used_amount);
+        const committed = toNumber(cat.committed_amount);
+        const budget = toNumber(cat.budget_amount);
+        return !(used === 0 && committed === 0 && budget === 0);
+      });
+    }
+
+    // Apply parent category filter
+    if (categoryParentFilter !== 'all') {
+      result = result.filter(({ cat }) =>
+        cat.id === categoryParentFilter || cat.parent_category_id === categoryParentFilter
+      );
+    }
+
+    // Expense type filter — frontend-only approximation
+    // Note: Full implementation requires backend to return request_types per category
+    if (categoryExpenseTypeFilter !== 'all') {
+      // For now, show all categories when expense type filter is set
+      // (this is a placeholder — backend needs to return request type breakdown per category)
+    }
+
+    return result;
+  }, [orderedCategories, showInactive, categoryParentFilter, categoryExpenseTypeFilter]);
 
   const paginatedCategories = useMemo(
     () => visibleOrderedCategories.slice((categoryPage - 1) * categoryPageSize, categoryPage * categoryPageSize),
@@ -443,7 +463,6 @@ const BudgetManagement = () => {
   }, [filteredDepts]);
 
   const fetchDepartments = async (showError = true) => {
-    const token = localStorage.getItem('token');
     try {
       const res = await api.get('/api/departments');
       const depts = Array.isArray(res.data) ? res.data : [];
@@ -461,7 +480,6 @@ const BudgetManagement = () => {
   };
 
   const fetchBreakdown = async (deptId: string, showLoading = true, showToast = true) => {
-    const token = localStorage.getItem('token');
     if (showLoading) setDetailLoading(true);
     setDetailError('');
     try {
@@ -487,8 +505,6 @@ const BudgetManagement = () => {
   };
 
   const updateCategoryBudget = async (catId: string, budget: number) => {
-    const token = localStorage.getItem('token');
-    
     // Validation for sub-categories: ensure budget doesn't exceed parent category
     const category = enrichedCategories.find(c => c.id === catId);
     if (category?.parent_category_id) {
@@ -525,7 +541,6 @@ const BudgetManagement = () => {
   };
 
   const addNewCategory = async () => {
-    const token = localStorage.getItem('token');
     if (!selectedDepartmentId || !newCategory.category_code || !newCategory.category_name) { toast.error('Fill in category code and name'); return; }
     if (!isNewMainCategory && !newCategory.parent_category_id) { toast.error('Select a parent category for sub-categories'); return; }
     try {
@@ -545,7 +560,6 @@ const BudgetManagement = () => {
 
   const deleteCategory = async (catId: string) => {
     if (!confirm('Delete this category?')) return;
-    const token = localStorage.getItem('token');
     try {
       await api.delete(`/api/budget/categories/${catId}`);
       toast.success('Category deleted!');
@@ -565,7 +579,6 @@ const BudgetManagement = () => {
     if (!selectedDepartmentId || !selectedDepartment) { toast.error('Select a department first'); return; }
     if (!confirm('Reset ALL current categories to department defaults?')) return;
     const defaults = getDeptCategories(selectedDepartment.name);
-    const token = localStorage.getItem('token');
     try {
       toast.loading(`Resetting to ${defaults.length} standard categories...`, { id: 'init-cats' });
       const existing = await api.get(`/api/budget/categories?department_id=${selectedDepartmentId}&fiscal_year=${selectedFiscalYear}`);
@@ -577,7 +590,6 @@ const BudgetManagement = () => {
   };
 
   const createDepartment = async () => {
-    const token = localStorage.getItem('token');
     try {
       await api.post('/api/departments', { name: newDept.name, fiscal_year: newDept.fiscal_year });
       toast.success('Department created!');
@@ -587,7 +599,6 @@ const BudgetManagement = () => {
   };
 
   const createNextFiscalYearDepts = async () => {
-    const token = localStorage.getItem('token');
     const nextFY = (availableFiscalYears[0] || new Date().getFullYear()) + 1;
     const base = filteredDepts[0] || visibleDepartments[0];
     try {
@@ -603,7 +614,6 @@ const BudgetManagement = () => {
     const amount = toNumber(pettyCashForm.amount);
     if (amount <= 0) { toast.error('Enter a valid amount'); return; }
     if (!pettyCashForm.purpose.trim()) { toast.error('Reason is required'); return; }
-    const token = localStorage.getItem('token');
     try {
       const ep = pettyCashForm.action === 'replenish' ? '/api/petty-cash/replenish' : '/api/petty-cash/disburse';
       await api.post(ep, { department_id: selectedDepartmentId, amount, purpose: pettyCashForm.purpose });
@@ -614,7 +624,6 @@ const BudgetManagement = () => {
   };
 
   const unlockCategory = async (catId: string) => {
-    const token = localStorage.getItem('token');
     try {
       await api.patch(`/api/budget/categories/${catId}/unlock`, {});
       toast.success('Category unlocked');
@@ -625,7 +634,6 @@ const BudgetManagement = () => {
   const lockAllCategories = async () => {
     if (!selectedDepartmentId || enrichedCategories.length === 0) return;
     if (!confirm(`Lock all ${enrichedCategories.length} categories?`)) return;
-    const token = localStorage.getItem('token');
     try {
       toast.loading('Locking all categories…', { id: 'lockAll' });
       await Promise.all(
@@ -643,7 +651,6 @@ const BudgetManagement = () => {
   const unlockAllCategories = async () => {
     if (!selectedDepartmentId || enrichedCategories.length === 0) return;
     if (!confirm(`Unlock all ${enrichedCategories.length} categories?`)) return;
-    const token = localStorage.getItem('token');
     try {
       toast.loading('Unlocking all categories…', { id: 'unlockAll' });
       await Promise.all(
@@ -673,7 +680,6 @@ const BudgetManagement = () => {
       return;
     }
 
-    const token = localStorage.getItem('token');
     setSubmittingProposal(true);
     try {
       for (const { category, amount } of proposals) {
@@ -712,7 +718,6 @@ const BudgetManagement = () => {
       return;
     }
 
-    const token = localStorage.getItem('token');
     setSubmittingProposal(true);
     try {
       for (const { category, amount } of revisions) {
@@ -737,7 +742,6 @@ const BudgetManagement = () => {
   };
 
   const loadRevisionHistory = async (categoryId: string) => {
-    const token = localStorage.getItem('token');
     try {
       const res = await api.get(`/api/audit-logs/budget-revisions/${categoryId}`);
       setRevisionHistory((prev) => ({ ...prev, [categoryId]: res.data || [] }));
@@ -760,15 +764,99 @@ const BudgetManagement = () => {
     }
   };
 
-  if (loading) return <PageSkeleton />;
+  const fetchAnalyticsData = async () => {
+    setAnalyticsLoading(true);
+    try {
+      // Fetch all requests for the selected fiscal year and department
+      const params: any = { fiscal_year: analyticsFiscalYear };
+      if (analyticsDeptId) params.department_id = analyticsDeptId;
+      const res = await api.get('/api/requests', { params });
+      const requests = Array.isArray(res.data) ? res.data : [];
 
-  const overviewCards = [
-    { label: 'Departments', value: overview.totalDepartments.toString(), helper: 'Active in view', glow: 'bg-[var(--role-primary)]' },
-    { label: 'Budget Pool', value: displayMoney(overview.totalBudget), helper: secondaryMoney(overview.totalBudget), glow: 'bg-[var(--role-secondary)]' },
-    { label: 'Used', value: displayMoney(overview.usedBudget), helper: `Remaining ${displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))}`, glow: 'bg-[var(--role-primary)]' },
-    // Removed 'Spent This Month' per Section 1.3 requirements
-    { label: 'Utilization', value: formatPercent(overview.utilization), helper: `${displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))} available`, glow: 'bg-[var(--role-secondary)]' },
-  ];
+      // Process data for charts
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+      // Chart 1: Budget vs Expense by month (current FY)
+      const budgetVsExpense = months.map((month, idx) => {
+        const monthRequests = requests.filter((r: any) => {
+          const d = new Date(r.submitted_at || r.created_at);
+          return d.getMonth() === idx && d.getFullYear() === analyticsFiscalYear;
+        });
+        const expense = monthRequests
+          .filter((r: any) => ['released', 'approved'].includes(r.status))
+          .reduce((sum: number, r: any) => sum + toNumber(r.amount), 0);
+        return { month, budget: 0, expense }; // budget: requires dept budget data
+      });
+
+      // Chart 2: Expense trend by fiscal year
+      const fyGroups: Record<number, { expense: number; budget: number }> = {};
+      requests.forEach((r: any) => {
+        const fy = Number(r.fiscal_year || new Date(r.created_at).getFullYear());
+        if (!fyGroups[fy]) fyGroups[fy] = { expense: 0, budget: 0 };
+        if (['released', 'approved'].includes(r.status)) {
+          fyGroups[fy].expense += toNumber(r.amount);
+        }
+      });
+      const expenseTrend = Object.entries(fyGroups)
+        .sort(([a], [b]) => Number(a) - Number(b))
+        .map(([fy, data]) => ({
+          fy: `FY${fy}`,
+          expense: data.expense,
+          utilPct: data.budget > 0 ? (data.expense / data.budget) * 100 : 0
+        }));
+
+      // Chart 3: Monthly comparison 2025 vs 2026
+      const monthlyComparison = months.map((month, idx) => {
+        const get = (yr: number) => requests
+          .filter((r: any) => {
+            const d = new Date(r.submitted_at || r.created_at);
+            return d.getMonth() === idx && d.getFullYear() === yr && ['released', 'approved'].includes(r.status);
+          })
+          .reduce((sum: number, r: any) => sum + toNumber(r.amount), 0);
+        return { month, '2025': get(2025), '2026': get(2026) };
+      });
+
+      // Chart 4: Top 5 expenses by amount
+      const categoryTotals: Record<string, { name: string; amount: number }> = {};
+      requests
+        .filter((r: any) => ['released', 'approved'].includes(r.status))
+        .forEach((r: any) => {
+          const cat = r.category || r.main_category || 'Uncategorized';
+          if (!categoryTotals[cat]) categoryTotals[cat] = { name: cat, amount: 0 };
+          categoryTotals[cat].amount += toNumber(r.amount);
+        });
+      const top5ByAmount = Object.values(categoryTotals)
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 5);
+
+      // Chart 5: Top 5 by utilization % (use visibleEnrichedCategories)
+      const top5ByUtil = visibleEnrichedCategories
+        .filter(cat => toNumber(cat.budget_amount) > 0)
+        .map(cat => ({
+          name: cat.category_name,
+          pct: (toNumber(cat.used_amount) / toNumber(cat.budget_amount)) * 100
+        }))
+        .sort((a, b) => b.pct - a.pct)
+        .slice(0, 5);
+
+      setAnalyticsData({ budgetVsExpense, expenseTrend, monthlyComparison, top5ByAmount, top5ByUtil });
+    } catch (err) {
+      console.error('Failed to fetch analytics data:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setAnalyticsDeptId(selectedDepartmentId);
+  }, [selectedDepartmentId]);
+
+  useEffect(() => {
+    if (!selectedDepartmentId && analyticsDeptId === '') return;
+    fetchAnalyticsData();
+  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, visibleEnrichedCategories]);
+
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="text-[var(--role-text)] page-transition">
@@ -794,6 +882,35 @@ const BudgetManagement = () => {
               {displayCurrency === 'PHP' ? 'Show in USD' : displayCurrency === 'USD' ? 'Show in IDR' : 'Show in PHP'}
             </button>
           </div>
+
+          {/* M88 Manila cost center row — only for accounting/admin/supervisor */}
+          {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
+            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-semibold">M88 MANILA</span>
+              </div>
+              <div className="h-4 w-px bg-[var(--role-border)]" />
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Total</span>
+                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span>
+              </div>
+              <div className="h-4 w-px bg-[var(--role-border)]" />
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Used</span>
+                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span>
+              </div>
+              <div className="h-4 w-px bg-[var(--role-border)]" />
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Remaining</span>
+                <span className="font-bold" style={{ color: toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? '#16a34a' : '#ef4444' }}>
+                  {formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Compact summary bar */}
           <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm">
@@ -835,35 +952,6 @@ const BudgetManagement = () => {
               >↻ Refresh</button>
             </div>
           </div>
-
-          {/* M88 Manila cost center row — only for accounting/admin/supervisor */}
-          {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
-            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm">
-              <div className="flex items-center gap-2">
-                <svg className="h-4 w-4 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-semibold">M88 Manila General</span>
-              </div>
-              <div className="h-4 w-px bg-[var(--role-border)]" />
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Total</span>
-                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span>
-              </div>
-              <div className="h-4 w-px bg-[var(--role-border)]" />
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Used</span>
-                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span>
-              </div>
-              <div className="h-4 w-px bg-[var(--role-border)]" />
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Remaining</span>
-                <span className="font-bold" style={{ color: toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? '#16a34a' : '#ef4444' }}>
-                  {formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -1169,6 +1257,45 @@ const BudgetManagement = () => {
                       ))}
                     </div>
 
+                    {/* Category Filters */}
+                    <div className="mb-4 flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-[var(--role-text)]/60">Expense Type:</label>
+                        <select
+                          value={categoryExpenseTypeFilter}
+                          onChange={(e) => setCategoryExpenseTypeFilter(e.target.value)}
+                          className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                        >
+                          <option value="all">All Types</option>
+                          <option value="reimbursement">Reimbursement</option>
+                          <option value="cash_advance">Cash Advance</option>
+                          <option value="direct_expense">Direct Expense</option>
+                          <option value="petty_cash">Petty Cash</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-[var(--role-text)]/60">Budget Category:</label>
+                        <select
+                          value={categoryParentFilter}
+                          onChange={(e) => setCategoryParentFilter(e.target.value)}
+                          className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                        >
+                          <option value="all">All Categories</option>
+                          {visibleEnrichedCategories.filter(c => !c.parent_category_id).map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.category_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {(categoryExpenseTypeFilter !== 'all' || categoryParentFilter !== 'all') && (
+                        <button
+                          onClick={() => { setCategoryExpenseTypeFilter('all'); setCategoryParentFilter('all'); }}
+                          className="text-xs text-[var(--role-primary)] underline hover:text-[var(--role-secondary)]"
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </div>
+
                     {selectedBreakdown?.categories?.length > 0 && (
                       <div className="mb-3 flex gap-2">
                         <button onClick={async () => { if (!confirm('Delete ALL categories?')) return; try { toast.loading('Clearing…', { id: 'clr' }); await Promise.all(selectedBreakdown.categories.map((c: any) => api.delete(`/api/budget/categories/${c.id}`))); toast.success('Cleared!', { id: 'clr' }); await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); } catch { toast.error('Failed', { id: 'clr' }); } }} className="text-xs bg-red-100 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-200 transition">🗑 Clear All</button>
@@ -1390,7 +1517,7 @@ const BudgetManagement = () => {
                                           </span>
                                         )}
                                         <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1.5 mb-1">
-                                          <div className={`h-1.5 rounded-full ${utilizationWarning ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                                          <div className="h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%`, ...getUtilizationBarStyle(pct) }} />
                                         </div>
                                         <div className="flex justify-between text-[10px] text-[var(--role-text)]/50">
                                           <span>Used: <span className={`font-medium ${utilizationWarning ? 'text-amber-700' : 'text-amber-600'}`}>{displayMoney(used)}</span> + Committed: {displayMoney(committed)} ({pct.toFixed(1)}%)</span>
@@ -1645,6 +1772,149 @@ const BudgetManagement = () => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Analytics Dashboard Section */}
+      <div className="panel mt-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-[var(--role-text)]">Analytics</h2>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--role-text)]/60">Fiscal Year:</label>
+              <select
+                value={analyticsFiscalYear}
+                onChange={(e) => setAnalyticsFiscalYear(Number(e.target.value))}
+                className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                {availableFiscalYears.map(y => (
+                  <option key={y} value={y}>FY {y}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--role-text)]/60">Department:</label>
+              <select
+                value={analyticsDeptId}
+                onChange={(e) => setAnalyticsDeptId(e.target.value)}
+                className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+              >
+                <option value="">All Departments</option>
+                {filteredDepts.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {analyticsLoading ? (
+          <div className="py-16 text-center text-[var(--role-text)]/60">Loading analytics data…</div>
+        ) : analyticsData ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Chart 1: Budget vs Expense by Month */}
+            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
+              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Budget vs Expense — FY{analyticsFiscalYear}</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={analyticsData.budgetVsExpense}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} />
+                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Legend />
+                  <Bar dataKey="budget" fill="var(--role-primary)" name="Budget" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 2: Expense Trend by Fiscal Year */}
+            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
+              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Expense Trend FY2022–FY2026</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <ComposedChart data={analyticsData.expenseTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="fy" stroke="var(--role-text)" fontSize={11} />
+                  <YAxis yAxisId="left" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Legend />
+                  <Bar yAxisId="left" dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="right" dataKey="utilPct" stroke="var(--role-primary)" strokeWidth={2} name="% of Budget" dot={{ fill: 'var(--role-primary)', r: 4 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 3: Monthly Comparison 2025 vs 2026 */}
+            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
+              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Monthly Expenses — 2025 vs 2026</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={analyticsData.monthlyComparison}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} />
+                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Legend />
+                  <Bar dataKey="2025" fill="var(--role-secondary)" name="2025" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="2026" fill="var(--role-primary)" name="2026" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 4: Top 5 Expenses by Amount */}
+            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
+              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Top 5 Expenses by Amount</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={analyticsData.top5ByAmount} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis type="number" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                  <YAxis dataKey="name" type="category" width={120} stroke="var(--role-text)" fontSize={11} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                  />
+                  <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Chart 5: Top 5 by Budget Utilization % */}
+            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5 md:col-span-2">
+              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Top 5 by Budget Utilization %</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={analyticsData.top5ByUtil}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                  <XAxis dataKey="name" stroke="var(--role-text)" fontSize={11} />
+                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                    labelStyle={{ color: 'var(--role-text)' }}
+                    formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
+                  />
+                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                    {analyticsData.top5ByUtil.map((entry: any, index: number) => (
+                      <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        ) : (
+          <div className="py-16 text-center text-[var(--role-text)]/60">No data available for this period</div>
+        )}
       </div>
 
       {/* Add Department Panel */}
