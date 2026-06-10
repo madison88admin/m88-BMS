@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
   ComposedChart,
   LabelList,
+  Cell,
 } from 'recharts';
 
 const DEFAULT_FX_RATE_PHP = 56.0;
@@ -1285,10 +1286,9 @@ const BudgetManagement = () => {
                   />
                   <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
                     {analyticsData.top5ByUtil.map((entry: any, index: number) => (
-                      <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'}>
-                        <LabelList dataKey="pct" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => `${Number(v || 0).toFixed(1)}%`} />
-                      </Bar>
+                      <Cell key={`cell-${index}`} fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
                     ))}
+                    <LabelList dataKey="pct" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => `${Number(v || 0).toFixed(1)}%`} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
