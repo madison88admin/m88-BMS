@@ -203,8 +203,8 @@ const BudgetManagement = () => {
   const [showInactive, setShowInactive] = useState(true);
   const [categoryPageSize, setCategoryPageSize] = useState(5);
   const [openOverflowId, setOpenOverflowId] = useState<string | null>(null);
-  const [categoryExpenseTypeFilter, setCategoryExpenseTypeFilter] = useState<string>('all');
-  const [categoryParentFilter, setCategoryParentFilter] = useState<string>('all');
+  const [filterExpenseType, setFilterExpenseType] = useState<string>('all');
+  const [filterBudgetCategory, setFilterBudgetCategory] = useState<string>('all');
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsFiscalYear, setAnalyticsFiscalYear] = useState<number>(new Date().getFullYear());
@@ -392,21 +392,21 @@ const BudgetManagement = () => {
     }
 
     // Apply parent category filter
-    if (categoryParentFilter !== 'all') {
+    if (filterBudgetCategory !== 'all') {
       result = result.filter(({ cat }) =>
-        cat.id === categoryParentFilter || cat.parent_category_id === categoryParentFilter
+        cat.id === filterBudgetCategory || cat.parent_category_id === filterBudgetCategory
       );
     }
 
     // Expense type filter — frontend-only approximation
     // Note: Full implementation requires backend to return request_types per category
-    if (categoryExpenseTypeFilter !== 'all') {
+    if (filterExpenseType !== 'all') {
       // For now, show all categories when expense type filter is set
       // (this is a placeholder — backend needs to return request type breakdown per category)
     }
 
     return result;
-  }, [orderedCategories, showInactive, categoryParentFilter, categoryExpenseTypeFilter]);
+  }, [orderedCategories, showInactive, filterBudgetCategory, filterExpenseType]);
 
   const paginatedCategories = useMemo(
     () => visibleOrderedCategories.slice((categoryPage - 1) * categoryPageSize, categoryPage * categoryPageSize),
@@ -773,12 +773,30 @@ const BudgetManagement = () => {
       const res = await api.get('/api/requests', { params });
       const requests = Array.isArray(res.data) ? res.data : [];
 
+      // Apply expense type filter
+      let filteredRequests = requests;
+      if (filterExpenseType !== 'all') {
+        filteredRequests = requests.filter((r: any) => r.request_type === filterExpenseType);
+      }
+
+      // Apply budget category filter
+      if (filterBudgetCategory !== 'all') {
+        const parentCategory = visibleEnrichedCategories.find(c => c.id === filterBudgetCategory);
+        if (parentCategory) {
+          filteredRequests = filteredRequests.filter((r: any) => {
+            const category = visibleEnrichedCategories.find(c => c.category_name === r.category || c.category_name === r.main_category);
+            if (!category) return false;
+            return category.parent_category_id === filterBudgetCategory || category.id === filterBudgetCategory;
+          });
+        }
+      }
+
       // Process data for charts
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
       // Chart 1: Budget vs Expense by month (current FY)
       const budgetVsExpense = months.map((month, idx) => {
-        const monthRequests = requests.filter((r: any) => {
+        const monthRequests = filteredRequests.filter((r: any) => {
           const d = new Date(r.submitted_at || r.created_at);
           return d.getMonth() === idx && d.getFullYear() === analyticsFiscalYear;
         });
@@ -790,7 +808,7 @@ const BudgetManagement = () => {
 
       // Chart 2: Expense trend by fiscal year
       const fyGroups: Record<number, { expense: number; budget: number }> = {};
-      requests.forEach((r: any) => {
+      filteredRequests.forEach((r: any) => {
         const fy = Number(r.fiscal_year || new Date(r.created_at).getFullYear());
         if (!fyGroups[fy]) fyGroups[fy] = { expense: 0, budget: 0 };
         if (['released', 'approved'].includes(r.status)) {
@@ -807,7 +825,7 @@ const BudgetManagement = () => {
 
       // Chart 3: Monthly comparison 2025 vs 2026
       const monthlyComparison = months.map((month, idx) => {
-        const get = (yr: number) => requests
+        const get = (yr: number) => filteredRequests
           .filter((r: any) => {
             const d = new Date(r.submitted_at || r.created_at);
             return d.getMonth() === idx && d.getFullYear() === yr && ['released', 'approved'].includes(r.status);
@@ -818,7 +836,7 @@ const BudgetManagement = () => {
 
       // Chart 4: Top 5 expenses by amount
       const categoryTotals: Record<string, { name: string; amount: number }> = {};
-      requests
+      filteredRequests
         .filter((r: any) => ['released', 'approved'].includes(r.status))
         .forEach((r: any) => {
           const cat = r.category || r.main_category || 'Uncategorized';
@@ -830,7 +848,13 @@ const BudgetManagement = () => {
         .slice(0, 5);
 
       // Chart 5: Top 5 by utilization % (use visibleEnrichedCategories)
-      const top5ByUtil = visibleEnrichedCategories
+      let filteredCategories = visibleEnrichedCategories;
+      if (filterBudgetCategory !== 'all') {
+        filteredCategories = visibleEnrichedCategories.filter(cat =>
+          cat.parent_category_id === filterBudgetCategory || cat.id === filterBudgetCategory
+        );
+      }
+      const top5ByUtil = filteredCategories
         .filter(cat => toNumber(cat.budget_amount) > 0)
         .map(cat => ({
           name: cat.category_name,
@@ -854,7 +878,7 @@ const BudgetManagement = () => {
   useEffect(() => {
     if (!selectedDepartmentId && analyticsDeptId === '') return;
     fetchAnalyticsData();
-  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, visibleEnrichedCategories]);
+  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, visibleEnrichedCategories, filterExpenseType, filterBudgetCategory]);
 
   if (loading) return <PageSkeleton />;
 
@@ -885,53 +909,98 @@ const BudgetManagement = () => {
 
           {/* M88 Manila cost center row — only for accounting/admin/supervisor */}
           {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'admin') && m88ManilaCostCenter && (
-            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm">
-              <div className="flex items-center gap-2">
-                <svg className="h-4 w-4 text-[var(--role-text)]/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-semibold">M88 MANILA</span>
+            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5 shadow-sm">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <svg className="h-5 w-5 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  <span className="text-[13px] font-semibold uppercase tracking-[0.16em] text-[var(--role-text)]">M88 MANILA</span>
+                </div>
+                <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--role-text)]/40 font-semibold">MASTER COST CENTER</span>
               </div>
-              <div className="h-4 w-px bg-[var(--role-border)]" />
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Total</span>
-                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</span>
-              </div>
-              <div className="h-4 w-px bg-[var(--role-border)]" />
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Used</span>
-                <span className="font-bold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</span>
-              </div>
-              <div className="h-4 w-px bg-[var(--role-border)]" />
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Remaining</span>
-                <span className="font-bold" style={{ color: toNumber(m88ManilaCostCenter.remaining_amount) > 0 ? '#16a34a' : '#ef4444' }}>
-                  {formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}
-                </span>
+              <div className="flex gap-6">
+                <div className="flex-1">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Total</p>
+                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</p>
+                </div>
+                <div className="flex-1">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Used</p>
+                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</p>
+                </div>
+                <div className="flex-1">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Remaining</p>
+                  <p className="text-[20px] font-semibold" style={{
+                    color: (() => {
+                      const remaining = toNumber(m88ManilaCostCenter.remaining_amount);
+                      const total = toNumber(m88ManilaCostCenter.total_budget);
+                      const pct = total > 0 ? (remaining / total) * 100 : 0;
+                      if (pct >= 50) return '#16a34a';
+                      if (pct >= 20) return '#f59e0b';
+                      return '#ef4444';
+                    })()
+                  }}>
+                    {formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}
+                  </p>
+                </div>
               </div>
             </div>
           )}
 
+          {/* Dashboard-wide filters */}
+          <div className="flex flex-wrap items-center gap-4 px-5 py-3">
+            <span className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/60 font-semibold">Filter by:</span>
+            <select
+              value={filterExpenseType}
+              onChange={(e) => setFilterExpenseType(e.target.value)}
+              className="px-3 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
+            >
+              <option value="all">All Types</option>
+              <option value="reimbursement">Reimbursement</option>
+              <option value="cash_advance">Cash Advance</option>
+              <option value="direct_expense">Direct Expense</option>
+              <option value="petty_cash">Petty Cash</option>
+            </select>
+            <select
+              value={filterBudgetCategory}
+              onChange={(e) => setFilterBudgetCategory(e.target.value)}
+              className="px-3 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
+            >
+              <option value="all">All Categories</option>
+              {visibleEnrichedCategories.filter(c => !c.parent_category_id).map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.category_name}</option>
+              ))}
+            </select>
+            {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+              <button
+                onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
+                className="text-xs text-[var(--role-primary)] underline hover:text-[var(--role-secondary)]"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
           {/* Compact summary bar */}
-          <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] px-5 py-3 shadow-sm">
+          <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-[var(--role-accent)]/50 px-5 py-3">
             <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Annual Budget</span>
-              <span className="font-bold text-[var(--role-text)]">{displayMoney(overview.totalBudget)}</span>
+              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Annual Budget</span>
+              <span className="font-semibold text-[13px] text-[var(--role-text)]">{displayMoney(overview.totalBudget)}</span>
             </div>
             <div className="h-4 w-px bg-[var(--role-border)]" />
             <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilized</span>
-              <span className="font-bold text-[var(--role-text)]">{displayMoney(overview.usedBudget)}</span>
+              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilized</span>
+              <span className="font-semibold text-[13px] text-[var(--role-text)]">{displayMoney(overview.usedBudget)}</span>
             </div>
             <div className="h-4 w-px bg-[var(--role-border)]" />
             <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Available</span>
-              <span className="font-bold text-emerald-600">{displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))}</span>
+              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Available</span>
+              <span className="font-semibold text-[13px] text-emerald-600">{displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))}</span>
             </div>
             <div className="h-4 w-px bg-[var(--role-border)]" />
             <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilization</span>
-              <span className="font-bold" style={getUtilizationStyle(overview.utilization)}>{formatPercent(overview.utilization)}</span>
+              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilization</span>
+              <span className="font-semibold text-[13px]" style={getUtilizationStyle(overview.utilization)}>{formatPercent(overview.utilization)}</span>
               <div className="h-2 w-20 overflow-hidden rounded-full bg-[var(--role-border)]">
                 <div className="h-full rounded-full" style={{ width: `${Math.min(100, overview.utilization)}%`, ...getUtilizationBarStyle(overview.utilization) }} />
               </div>
@@ -1202,6 +1271,153 @@ const BudgetManagement = () => {
                 </div>
               )}
 
+              {/* Analytics Section */}
+              <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--role-text)]">Analytics</h3>
+                    <p className="text-xs text-[var(--role-text)]/50 mt-0.5">Budget insights and expense trends</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-[var(--role-text)]/60">FY:</label>
+                      <select
+                        value={analyticsFiscalYear}
+                        onChange={(e) => setAnalyticsFiscalYear(Number(e.target.value))}
+                        className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                      >
+                        {availableFiscalYears.map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+                  <div className="mb-4 flex items-center justify-between rounded-lg bg-[var(--role-surface)] px-3 py-2">
+                    <span className="text-xs text-[var(--role-text)]/60">
+                      Showing: {filterExpenseType !== 'all' ? filterExpenseType.replace('_', ' ') : 'All Types'} · {filterBudgetCategory !== 'all' ? visibleEnrichedCategories.find(c => c.id === filterBudgetCategory)?.category_name : 'All Categories'}
+                    </span>
+                    <button
+                      onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
+                      className="text-xs text-[var(--role-primary)] hover:text-[var(--role-secondary)]"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
+                {analyticsLoading ? (
+                  <div className="py-8 text-center text-[var(--role-text)]/60">Loading analytics data…</div>
+                ) : analyticsData ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Chart 1: Budget vs Expense by Month */}
+                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Budget vs Expense — FY{analyticsFiscalYear}</h4>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={analyticsData.budgetVsExpense}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                          <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
+                          <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                            labelStyle={{ color: 'var(--role-text)' }}
+                            formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                          />
+                          <Legend />
+                          <Bar dataKey="budget" fill="var(--role-primary)" name="Budget" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Chart 2: Expense Trend by Fiscal Year */}
+                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Expense Trend FY2022–FY2026</h4>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <ComposedChart data={analyticsData.expenseTrend}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                          <XAxis dataKey="fy" stroke="var(--role-text)" fontSize={10} />
+                          <YAxis yAxisId="left" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                          <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                            labelStyle={{ color: 'var(--role-text)' }}
+                            formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatMoney(Number(value || 0), 'PHP')}
+                          />
+                          <Legend />
+                          <Bar yAxisId="left" dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
+                          <Line yAxisId="right" dataKey="utilPct" stroke="var(--role-primary)" strokeWidth={2} name="% of Budget" dot={{ fill: 'var(--role-primary)', r: 4 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Chart 3: Monthly Comparison 2025 vs 2026 */}
+                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Monthly Expenses — 2025 vs 2026</h4>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={analyticsData.monthlyComparison}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                          <XAxis dataKey="month" stroke="var(--role-text)" fontSize={10} />
+                          <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                            labelStyle={{ color: 'var(--role-text)' }}
+                            formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                          />
+                          <Legend />
+                          <Bar dataKey="2025" fill="var(--role-secondary)" name="2025" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="2026" fill="var(--role-primary)" name="2026" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Chart 4: Top 5 Expenses by Amount */}
+                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
+                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 Expenses by Amount</h4>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={analyticsData.top5ByAmount} layout="vertical">
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                          <XAxis type="number" stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
+                          <YAxis dataKey="name" type="category" width={100} stroke="var(--role-text)" fontSize={10} />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                            labelStyle={{ color: 'var(--role-text)' }}
+                            formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
+                          />
+                          <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Chart 5: Top 5 by Budget Utilization % */}
+                    <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4 md:col-span-2">
+                      <h4 className="text-xs font-semibold text-[var(--role-text)] mb-3">Top 5 by Budget Utilization %</h4>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={analyticsData.top5ByUtil}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
+                          <XAxis dataKey="name" stroke="var(--role-text)" fontSize={10} />
+                          <YAxis stroke="var(--role-text)" fontSize={10} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
+                            labelStyle={{ color: 'var(--role-text)' }}
+                            formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
+                          />
+                          <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                            {analyticsData.top5ByUtil.map((entry: any, index: number) => (
+                              <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-[var(--role-text)]/60">No data available for this period</div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.1fr)_340px]">
                 <div className="space-y-6">
                   {/* Category Management */}
@@ -1255,45 +1471,6 @@ const BudgetManagement = () => {
                           <span className="font-bold">{displayMoney(s.val)}</span>
                         </div>
                       ))}
-                    </div>
-
-                    {/* Category Filters */}
-                    <div className="mb-4 flex flex-wrap items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-[var(--role-text)]/60">Expense Type:</label>
-                        <select
-                          value={categoryExpenseTypeFilter}
-                          onChange={(e) => setCategoryExpenseTypeFilter(e.target.value)}
-                          className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                        >
-                          <option value="all">All Types</option>
-                          <option value="reimbursement">Reimbursement</option>
-                          <option value="cash_advance">Cash Advance</option>
-                          <option value="direct_expense">Direct Expense</option>
-                          <option value="petty_cash">Petty Cash</option>
-                        </select>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-[var(--role-text)]/60">Budget Category:</label>
-                        <select
-                          value={categoryParentFilter}
-                          onChange={(e) => setCategoryParentFilter(e.target.value)}
-                          className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                        >
-                          <option value="all">All Categories</option>
-                          {visibleEnrichedCategories.filter(c => !c.parent_category_id).map(cat => (
-                            <option key={cat.id} value={cat.id}>{cat.category_name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      {(categoryExpenseTypeFilter !== 'all' || categoryParentFilter !== 'all') && (
-                        <button
-                          onClick={() => { setCategoryExpenseTypeFilter('all'); setCategoryParentFilter('all'); }}
-                          className="text-xs text-[var(--role-primary)] underline hover:text-[var(--role-secondary)]"
-                        >
-                          Clear filters
-                        </button>
-                      )}
                     </div>
 
                     {selectedBreakdown?.categories?.length > 0 && (
@@ -1772,149 +1949,6 @@ const BudgetManagement = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Analytics Dashboard Section */}
-      <div className="panel mt-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-[var(--role-text)]">Analytics</h2>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-[var(--role-text)]/60">Fiscal Year:</label>
-              <select
-                value={analyticsFiscalYear}
-                onChange={(e) => setAnalyticsFiscalYear(Number(e.target.value))}
-                className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                {availableFiscalYears.map(y => (
-                  <option key={y} value={y}>FY {y}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-[var(--role-text)]/60">Department:</label>
-              <select
-                value={analyticsDeptId}
-                onChange={(e) => setAnalyticsDeptId(e.target.value)}
-                className="px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                <option value="">All Departments</option>
-                {filteredDepts.map(d => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {analyticsLoading ? (
-          <div className="py-16 text-center text-[var(--role-text)]/60">Loading analytics data…</div>
-        ) : analyticsData ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Chart 1: Budget vs Expense by Month */}
-            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Budget vs Expense — FY{analyticsFiscalYear}</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={analyticsData.budgetVsExpense}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} />
-                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
-                  />
-                  <Legend />
-                  <Bar dataKey="budget" fill="var(--role-primary)" name="Budget" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Chart 2: Expense Trend by Fiscal Year */}
-            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Expense Trend FY2022–FY2026</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <ComposedChart data={analyticsData.expenseTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="fy" stroke="var(--role-text)" fontSize={11} />
-                  <YAxis yAxisId="left" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                  <YAxis yAxisId="right" orientation="right" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any, name: any) => name === 'utilPct' ? `${Number(value || 0).toFixed(1)}%` : formatMoney(Number(value || 0), 'PHP')}
-                  />
-                  <Legend />
-                  <Bar yAxisId="left" dataKey="expense" fill="#f59e0b" name="Expense" radius={[4, 4, 0, 0]} />
-                  <Line yAxisId="right" dataKey="utilPct" stroke="var(--role-primary)" strokeWidth={2} name="% of Budget" dot={{ fill: 'var(--role-primary)', r: 4 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Chart 3: Monthly Comparison 2025 vs 2026 */}
-            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Monthly Expenses — 2025 vs 2026</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={analyticsData.monthlyComparison}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} />
-                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
-                  />
-                  <Legend />
-                  <Bar dataKey="2025" fill="var(--role-secondary)" name="2025" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="2026" fill="var(--role-primary)" name="2026" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Chart 4: Top 5 Expenses by Amount */}
-            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
-              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Top 5 Expenses by Amount</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={analyticsData.top5ByAmount} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis type="number" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000000).toFixed(1)}M`} />
-                  <YAxis dataKey="name" type="category" width={120} stroke="var(--role-text)" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any) => formatMoney(Number(value || 0), 'PHP')}
-                  />
-                  <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Chart 5: Top 5 by Budget Utilization % */}
-            <div className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-accent)] p-5 md:col-span-2">
-              <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Top 5 by Budget Utilization %</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={analyticsData.top5ByUtil}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--role-border)" opacity={0.2} />
-                  <XAxis dataKey="name" stroke="var(--role-text)" fontSize={11} />
-                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: 'var(--role-surface)', border: '1px solid var(--role-border)', borderRadius: '8px' }}
-                    labelStyle={{ color: 'var(--role-text)' }}
-                    formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
-                  />
-                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-                    {analyticsData.top5ByUtil.map((entry: any, index: number) => (
-                      <Bar key={`bar-${index}`} dataKey="pct" fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        ) : (
-          <div className="py-16 text-center text-[var(--role-text)]/60">No data available for this period</div>
-        )}
       </div>
 
       {/* Add Department Panel */}
