@@ -251,9 +251,27 @@ const BudgetManagement = () => {
       const matchYear = !selectedFiscalYear || Number(d.fiscal_year) === Number(selectedFiscalYear);
       const matchName = !q || String(d.name || '').toLowerCase().includes(q);
       const matchHealth = budgetHealthFilter === 'all' || getBudgetHealth(d) === budgetHealthFilter;
-      return matchYear && matchName && matchHealth;
+
+      // Filter by budget category
+      let matchCategory = true;
+      if (filterBudgetCategory !== 'all') {
+        const deptBreakdown = selectedBreakdown?.department_id === d.id ? selectedBreakdown : null;
+        if (deptBreakdown?.categories) {
+          const hasMatchingCategory = deptBreakdown.categories.some((cat: any) =>
+            cat.id === filterBudgetCategory || cat.parent_category_id === filterBudgetCategory
+          );
+          matchCategory = hasMatchingCategory;
+        } else {
+          matchCategory = false;
+        }
+      }
+
+      // Filter by expense type (simplified - show all departments for now, will be filtered at request level)
+      const matchExpenseType = true;
+
+      return matchYear && matchName && matchHealth && matchCategory && matchExpenseType;
     });
-  }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter]);
+  }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter, filterBudgetCategory, selectedBreakdown]);
 
   const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || new Date().getFullYear();
 
@@ -289,6 +307,26 @@ const BudgetManagement = () => {
   const breakdownTotals = selectedBreakdown?.totals;
   const breakdownCounts = selectedBreakdown?.counts;
   const editableBudgetValue = breakdownTotals?.annual_budget ?? toNumber(selectedDepartment?.annual_budget);
+
+  // Filter Quick Totals by expense type
+  const filteredBreakdownCounts = useMemo(() => {
+    if (filterExpenseType === 'all') return breakdownCounts;
+
+    const recentRequests = selectedBreakdown?.recent_requests || [];
+    const filteredRequests = recentRequests.filter((r: any) => r.request_type === filterExpenseType);
+
+    const totalRequests = filteredRequests.length;
+    const releasedRequests = filteredRequests.filter((r: any) => r.status === 'released').length;
+    const directExpenses = filteredRequests.filter((r: any) => r.request_type === 'direct_expense').length;
+    const pettyCashTransactions = filteredRequests.filter((r: any) => r.request_type === 'petty_cash').length;
+
+    return {
+      total_requests: totalRequests,
+      released_requests: releasedRequests,
+      direct_expenses: directExpenses,
+      petty_cash_transactions: pettyCashTransactions,
+    };
+  }, [breakdownCounts, filterExpenseType, selectedBreakdown?.recent_requests]);
 
   const enrichedCategories = useMemo(
     () => enrichCategories(selectedBreakdown?.categories || []),
@@ -947,40 +985,6 @@ const BudgetManagement = () => {
             </div>
           )}
 
-          {/* Dashboard-wide filters */}
-          <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-            <span className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/60 font-semibold">Filter by:</span>
-            <select
-              value={filterExpenseType}
-              onChange={(e) => setFilterExpenseType(e.target.value)}
-              className="px-3 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
-            >
-              <option value="all">All Types</option>
-              <option value="reimbursement">Reimbursement</option>
-              <option value="cash_advance">Cash Advance</option>
-              <option value="direct_expense">Direct Expense</option>
-              <option value="petty_cash">Petty Cash</option>
-            </select>
-            <select
-              value={filterBudgetCategory}
-              onChange={(e) => setFilterBudgetCategory(e.target.value)}
-              className="px-3 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
-            >
-              <option value="all">All Categories</option>
-              {visibleEnrichedCategories.filter(c => !c.parent_category_id).map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.category_name}</option>
-              ))}
-            </select>
-            {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
-              <button
-                onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
-                className="text-xs text-[var(--role-primary)] underline hover:text-[var(--role-secondary)]"
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-
           {/* Compact summary bar */}
           <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-[var(--role-accent)]/50 px-5 py-3">
             <div className="flex items-center gap-2">
@@ -1175,7 +1179,12 @@ const BudgetManagement = () => {
       <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
         {/* Left: Org Tree Navigation */}
         <div className="panel xl:sticky xl:top-24 xl:self-start">
-          <h2 className="text-base font-bold mb-1 text-[var(--role-text)]">Cost Centers</h2>
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-base font-bold text-[var(--role-text)]">Cost Centers</h2>
+            {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+              <span className="h-2 w-2 rounded-full bg-amber-500" title="Filters active — some departments or categories may be hidden" />
+            )}
+          </div>
 
           {/* FY toggle */}
           <div className="flex flex-wrap gap-1.5 mb-3">
@@ -1206,6 +1215,39 @@ const BudgetManagement = () => {
             </div>
           </div>
 
+          {/* Filters */}
+          <div className="mb-3 space-y-2">
+            <select
+              value={filterExpenseType}
+              onChange={(e) => setFilterExpenseType(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
+            >
+              <option value="all">All Types</option>
+              <option value="reimbursement">Reimbursement</option>
+              <option value="cash_advance">Cash Advance</option>
+              <option value="direct_expense">Direct Expense</option>
+              <option value="petty_cash">Petty Cash</option>
+            </select>
+            <select
+              value={filterBudgetCategory}
+              onChange={(e) => setFilterBudgetCategory(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
+            >
+              <option value="all">All Categories</option>
+              {visibleEnrichedCategories.filter(c => !c.parent_category_id).map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.category_name}</option>
+              ))}
+            </select>
+            {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+              <button
+                onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
+                className="w-full text-xs text-[var(--role-primary)] hover:text-[var(--role-secondary)] text-left"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
           {/* Department tree */}
           <div className="space-y-0.5 max-h-[600px] overflow-y-auto pl-3 border-l-2 border-[var(--role-border)]">
             {filteredDepts.map(dept => {
@@ -1227,6 +1269,7 @@ const BudgetManagement = () => {
                     onClick={() => {
                       setSelectedDepartmentId(dept.id);
                       setSelectedNodeId(dept.id);
+                      setFilterBudgetCategory('all');
                       setExpandedDepts(prev => {
                         const next = new Set(prev);
                         if (next.has(dept.id)) next.delete(dept.id); else next.add(dept.id);
@@ -1267,6 +1310,13 @@ const BudgetManagement = () => {
                       <div className="absolute left-0 top-0 bottom-0 w-px bg-[var(--role-border)]" />
                       {deptCategories
                         .filter(c => !c.parent_category_id)
+                        .filter(c => {
+                          // Filter by budget category
+                          if (filterBudgetCategory !== 'all') {
+                            return c.id === filterBudgetCategory || c.parent_category_id === filterBudgetCategory;
+                          }
+                          return true;
+                        })
                         .sort((a, b) => String(a.category_name).localeCompare(String(b.category_name)))
                         .map(cat => (
                           <div
@@ -1852,10 +1902,10 @@ const BudgetManagement = () => {
                     </p>
                     <div className="grid grid-cols-2 gap-3">
                       {[
-                        { label: 'Requests', val: breakdownCounts.total_requests },
-                        { label: 'Disbursed', val: breakdownCounts.released_requests },
-                        { label: 'Direct Exp.', val: breakdownCounts.direct_expenses },
-                        { label: 'Petty Txns', val: breakdownCounts.petty_cash_transactions },
+                        { label: 'Requests', val: filteredBreakdownCounts?.total_requests ?? 0 },
+                        { label: 'Disbursed', val: filteredBreakdownCounts?.released_requests ?? 0 },
+                        { label: 'Direct Exp.', val: filteredBreakdownCounts?.direct_expenses ?? 0 },
+                        { label: 'Petty Txns', val: filteredBreakdownCounts?.petty_cash_transactions ?? 0 },
                       ].map(s => (
                         <div key={s.label} className="rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
                           <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/60">{s.label}</p>
