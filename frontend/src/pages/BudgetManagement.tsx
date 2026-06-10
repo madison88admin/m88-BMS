@@ -210,6 +210,8 @@ const BudgetManagement = () => {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsFiscalYear, setAnalyticsFiscalYear] = useState<number>(new Date().getFullYear());
   const [analyticsDeptId, setAnalyticsDeptId] = useState<string>('');
+  const [deptCategoryMap, setDeptCategoryMap] = useState<Record<string, string[]>>({});
+  const [allCategoryNames, setAllCategoryNames] = useState<string[]>([]);
 
   // Accounting, admin, and supervisor may lock/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
@@ -253,26 +255,34 @@ const BudgetManagement = () => {
       const matchName = !q || String(d.name || '').toLowerCase().includes(q);
       const matchHealth = budgetHealthFilter === 'all' || getBudgetHealth(d) === budgetHealthFilter;
 
-      // Filter by budget category
+      // Filter by budget category using deptCategoryMap
       let matchCategory = true;
       if (filterBudgetCategory !== 'all') {
+        const deptId = String(d.id || d.department_id || '');
+        const deptCats = deptCategoryMap[deptId] || [];
+        const filterVal = filterBudgetCategory.toLowerCase();
+        const hasMatch = deptCats.some(name => name.includes(filterVal) || filterVal.includes(name));
+        matchCategory = hasMatch;
+      }
+
+      // Filter by expense type
+      let matchExpenseType = true;
+      if (filterExpenseType !== 'all') {
         const deptBreakdown = selectedBreakdown?.department_id === d.id ? selectedBreakdown : null;
-        if (deptBreakdown?.categories) {
-          const hasMatchingCategory = deptBreakdown.categories.some((cat: any) =>
-            cat.id === filterBudgetCategory || cat.parent_category_id === filterBudgetCategory
+        if (deptBreakdown?.recent_requests) {
+          const hasMatchingExpenseType = deptBreakdown.recent_requests.some((req: any) =>
+            req.request_type === filterExpenseType
           );
-          matchCategory = hasMatchingCategory;
+          matchExpenseType = hasMatchingExpenseType;
         } else {
-          matchCategory = false;
+          // If no breakdown data for this department, show it (we can't determine if it has matching expense types)
+          matchExpenseType = true;
         }
       }
 
-      // Filter by expense type (simplified - show all departments for now, will be filtered at request level)
-      const matchExpenseType = true;
-
       return matchYear && matchName && matchHealth && matchCategory && matchExpenseType;
     });
-  }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter, filterBudgetCategory, selectedBreakdown]);
+  }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter, filterBudgetCategory, filterExpenseType, selectedBreakdown, deptCategoryMap]);
 
   const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || new Date().getFullYear();
 
@@ -443,11 +453,14 @@ const BudgetManagement = () => {
       });
     }
 
-    // Apply parent category filter
+    // Apply parent category filter (now using name matching)
     if (filterBudgetCategory !== 'all') {
-      result = result.filter(({ cat }) =>
-        cat.id === filterBudgetCategory || cat.parent_category_id === filterBudgetCategory
-      );
+      const filterVal = filterBudgetCategory.toLowerCase();
+      result = result.filter(({ cat }) => {
+        const catName = cat.category_name?.toLowerCase() || '';
+        const parentName = cat.parent_category_name?.toLowerCase() || '';
+        return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
+      });
     }
 
     // Expense type filter — frontend-only approximation
@@ -495,6 +508,42 @@ const BudgetManagement = () => {
   useEffect(() => {
     setCategoryPage(1);
   }, [categorySearch, selectedDepartmentId]);
+
+  // Fetch categories for all departments to build department-to-category map
+  useEffect(() => {
+    if (!departments || departments.length === 0) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const fetchAllDeptCategories = async () => {
+      const map: Record<string, string[]> = {};
+      const allNames = new Set<string>();
+
+      await Promise.all(
+        departments.map(async (dept) => {
+          try {
+            const res = await api.get(`/api/budget/categories?department_id=${dept.id}&fiscal_year=${selectedFiscalYear}`);
+            const cats = Array.isArray(res.data) ? res.data : [];
+            map[String(dept.id)] = cats.flatMap((c: any) => [
+              c.category_name?.toLowerCase(),
+              c.parent_category_name?.toLowerCase()
+            ].filter(Boolean));
+
+            // Collect all unique category names for dropdown
+            cats.forEach((c: any) => {
+              if (c.parent_category_name) allNames.add(c.parent_category_name);
+              else if (c.category_name) allNames.add(c.category_name);
+            });
+          } catch { map[String(dept.id)] = []; }
+        })
+      );
+
+      setDeptCategoryMap(map);
+      setAllCategoryNames(Array.from(allNames).sort());
+    };
+
+    fetchAllDeptCategories();
+  }, [departments, selectedFiscalYear]);
 
   useEffect(() => {
     if (!selectedDepartmentId) return;
@@ -1073,7 +1122,7 @@ const BudgetManagement = () => {
         {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-[var(--role-surface)] px-3 py-2">
             <span className="text-xs text-[var(--role-text)]/60">
-              Showing: {filterExpenseType !== 'all' ? filterExpenseType.replace('_', ' ') : 'All Types'} · {filterBudgetCategory !== 'all' ? visibleEnrichedCategories.find(c => c.id === filterBudgetCategory)?.category_name : 'All Categories'}
+              Showing: {filterExpenseType !== 'all' ? filterExpenseType.replace('_', ' ') : 'All Types'} · {filterBudgetCategory !== 'all' ? filterBudgetCategory : 'All Categories'}
             </span>
             <button
               onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
@@ -1282,8 +1331,8 @@ const BudgetManagement = () => {
               className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
             >
               <option value="all">All Categories</option>
-              {visibleEnrichedCategories.filter(c => !c.parent_category_id).map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.category_name}</option>
+              {allCategoryNames.map(name => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
             {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
@@ -1317,7 +1366,6 @@ const BudgetManagement = () => {
                     onClick={() => {
                       setSelectedDepartmentId(dept.id);
                       setSelectedNodeId(dept.id);
-                      setFilterBudgetCategory('all');
                       setExpandedDepts(prev => {
                         const next = new Set(prev);
                         if (next.has(dept.id)) next.delete(dept.id); else next.add(dept.id);
@@ -1359,9 +1407,12 @@ const BudgetManagement = () => {
                       {deptCategories
                         .filter(c => !c.parent_category_id)
                         .filter(c => {
-                          // Filter by budget category
+                          // Filter by budget category (now using name matching)
                           if (filterBudgetCategory !== 'all') {
-                            return c.id === filterBudgetCategory || c.parent_category_id === filterBudgetCategory;
+                            const catName = c.category_name?.toLowerCase() || '';
+                            const parentName = c.parent_category_name?.toLowerCase() || '';
+                            const filterVal = filterBudgetCategory.toLowerCase();
+                            return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
                           }
                           return true;
                         })
