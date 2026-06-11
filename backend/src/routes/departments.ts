@@ -266,6 +266,47 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
       userRole: req.user.role,
       departmentNameById
     });
+
+    // Calculate pending approval amounts per category
+    const categoryIds = categories.map((cat: any) => cat.id);
+    const { data: pendingRequestsByCategory, error: pendingCategoryError } = await supabase
+      .from('expense_requests')
+      .select('category_id, amount')
+      .in('category_id', categoryIds)
+      .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'])
+      .eq('fiscal_year', Number(selectedDepartment.fiscal_year));
+
+    if (!pendingCategoryError && pendingRequestsByCategory) {
+      const pendingByCategoryMap = new Map<string, { amount: number; count: number }>(
+        pendingRequestsByCategory.reduce((acc: any[], req: any) => {
+          const existing = acc.find((item: any) => item.category_id === req.category_id);
+          if (existing) {
+            existing.amount += parseFloat(req.amount || 0);
+            existing.count += 1;
+          } else {
+            acc.push({ category_id: req.category_id, amount: parseFloat(req.amount || 0), count: 1 });
+          }
+          return acc;
+        }, []).map((item: any) => [item.category_id, { amount: item.amount, count: item.count }])
+      );
+
+      // Enrich categories with pending approval data
+      categories = categories.map((cat: any) => {
+        const pendingData = pendingByCategoryMap.get(cat.id) || { amount: 0, count: 0 };
+        const used = toNumber(cat.used_amount || 0);
+        const committed = toNumber(cat.committed_amount || 0);
+        const pendingApproval = pendingData.amount;
+        const budget = toNumber(cat.budget_amount || 0);
+        const available = Math.max(0, budget - used - committed - pendingApproval);
+
+        return {
+          ...cat,
+          pending_approval_amount: pendingApproval,
+          pending_approval_count: pendingData.count,
+          available_amount: available
+        };
+      });
+    }
   } catch (categoryError: any) {
     return res.status(400).json({ error: categoryError?.message || categoryError });
   }

@@ -1611,9 +1611,9 @@ const BudgetManagement = () => {
                       )}
                     </div>
 
-                    {/* Budget / Pending / Available summary */}
-                    <div className="mb-4 flex gap-2 text-xs">
-                      {[{ label: 'Budget', val: editableBudgetValue, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' }, { label: 'Pending', val: selectedBreakdown?.department?.pending_budget || 0, cls: 'bg-amber-50 border-amber-100 text-amber-700' }, { label: 'Available', val: selectedBreakdown?.department?.available_budget || 0, cls: 'bg-blue-50 border-blue-100 text-blue-700' }].map(s => (
+                    {/* Budget / Committed / Pending Approval / Available summary */}
+                    <div className="mb-4 flex gap-1 text-xs">
+                      {[{ label: 'Budget', val: editableBudgetValue, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' }, { label: 'Committed', val: enrichedCategories.reduce((sum, cat) => sum + toNumber(cat.committed_amount || 0), 0), cls: 'bg-blue-50 border-blue-100 text-blue-700' }, { label: 'Pending', val: selectedBreakdown?.department?.pending_budget || 0, cls: 'bg-amber-50 border-amber-100 text-amber-700' }, { label: 'Available', val: selectedBreakdown?.department?.available_budget || 0, cls: 'bg-gray-50 border-gray-100 text-gray-700' }].map(s => (
                         <div key={s.label} className={`flex-1 p-2 rounded-lg border text-center ${s.cls}`}>
                           <span className="block text-[10px] uppercase font-semibold">{s.label}</span>
                           <span className="font-bold">{displayMoney(s.val)}</span>
@@ -1843,11 +1843,12 @@ const BudgetManagement = () => {
                                         )}
                                         <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1.5 mb-1 flex overflow-hidden">
                                           <div className="h-1.5 bg-emerald-500 rounded-l-full" style={{ width: `${Math.min((used / budget) * 100, 100)}%` }} />
-                                          <div className="h-1.5 bg-amber-500" style={{ width: `${Math.min((committed / budget) * 100, 100)}%` }} />
-                                          <div className="h-1.5 bg-gray-300 rounded-r-full" style={{ width: `${Math.max(0, 100 - ((used + committed) / budget) * 100)}%` }} />
+                                          <div className="h-1.5 bg-blue-500" style={{ width: `${Math.min((committed / budget) * 100, 100)}%` }} />
+                                          <div className="h-1.5 bg-amber-500" style={{ width: `${Math.min((toNumber(cat.pending_approval_amount || 0) / budget) * 100, 100)}%` }} />
+                                          <div className="h-1.5 bg-gray-300 rounded-r-full" style={{ width: `${Math.max(0, 100 - ((used + committed + toNumber(cat.pending_approval_amount || 0)) / budget) * 100)}%` }} />
                                         </div>
                                         <div className="flex justify-between text-[10px] text-[var(--role-text)]/50">
-                                          <span>Used: <span className="font-medium text-emerald-600">{displayMoney(used)}</span> | Pending: <span className="font-medium text-amber-600">{displayMoney(committed)}</span> | Available: <span className="font-medium text-gray-600">{displayMoney(rem)}</span></span>
+                                          <span>Used: <span className="font-medium text-emerald-600">{displayMoney(used)}</span> | Committed: <span className="font-medium text-blue-600">{displayMoney(committed)}</span> | Pending: <span className="font-medium text-amber-600">{displayMoney(toNumber(cat.pending_approval_amount || 0))}</span> | Available: <span className="font-medium text-gray-600">{displayMoney(toNumber(cat.available_amount || rem))}</span></span>
                                         </div>
                                       </div>
 
