@@ -180,8 +180,6 @@ const BudgetManagement = () => {
   const [categorySearch, setCategorySearch] = useState('');
   const [fxRatePhp, setFxRatePhp] = useState(DEFAULT_FX_RATE_PHP);
   const [fxRateIdr, setFxRateIdr] = useState(DEFAULT_FX_RATE_IDR);
-  const [fxRateUpdatedAt, setFxRateUpdatedAt] = useState('');
-  const [fxStatus, setFxStatus] = useState<'live' | 'fallback'>('fallback');
   const [displayCurrency, setDisplayCurrency] = useState<'PHP' | 'USD' | 'IDR'>('PHP');
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(new Date().getFullYear());
   const [departmentSearch] = useState('');
@@ -287,25 +285,6 @@ const BudgetManagement = () => {
   }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter, filterBudgetCategory, filterExpenseType, selectedBreakdown, deptCategoryMap]);
 
   const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || new Date().getFullYear();
-
-  const overview = useMemo(() => {
-    // When a department is selected, show that department's budget only
-    // When no department is selected, show sum of all departments
-    const targetDepts = selectedDepartmentId 
-      ? filteredDepts.filter(d => d.id === selectedDepartmentId)
-      : filteredDepts;
-    
-    const totalBudget = targetDepts.reduce((s, d) => s + toNumber(d.annual_budget), 0);
-    const usedBudget = targetDepts.reduce((s, d) => s + toNumber(d.used_budget), 0);
-    const monthlySpent = targetDepts.reduce((s, d) => s + toNumber(d.monthly_spent), 0);
-    return {
-      totalDepartments: targetDepts.length,
-      totalBudget,
-      usedBudget,
-      monthlySpent,
-      utilization: totalBudget > 0 ? (usedBudget / totalBudget) * 100 : 0
-    };
-  }, [filteredDepts, selectedDepartmentId]);
 
   const displayAmount = (v: number) => {
     const n = toNumber(v);
@@ -448,7 +427,6 @@ const BudgetManagement = () => {
       return sum;
     }, 0);
   }, [enrichedCategories]);
-  const categoryAllocationRemaining = Math.max(0, editableBudgetValue - categoryAllocatedTotal);
 
   const visibleOrderedCategories = useMemo(() => {
     let result = orderedCategories;
@@ -611,8 +589,7 @@ const BudgetManagement = () => {
       const php = toNumber(data?.rates?.PHP); const idr = toNumber(data?.rates?.IDR);
       if (php > 0) setFxRatePhp(php);
       if (idr > 0) setFxRateIdr(idr);
-      if (php > 0 || idr > 0) { setFxRateUpdatedAt(data?.date || new Date().toISOString()); setFxStatus('live'); }
-    } catch { setFxStatus('fallback'); if (showToast) toast.error('Failed to refresh exchange rate'); }
+    } catch { if (showToast) toast.error('Failed to refresh exchange rate'); }
   };
 
   const updateCategoryBudget = async (catId: string, budget: number) => {
