@@ -273,8 +273,25 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
   const breakdownTotal = totals.released_requests_total + totals.direct_expenses_total;
   const remainingBudget = totals.annual_budget - totals.used_budget;
   const pendingTotal = totals.pending_supervisor_total + totals.pending_accounting_total;
-  const committedBudget = totals.used_budget + pendingTotal;
-  const availableBudget = totals.annual_budget - totals.used_budget - pendingTotal;
+  const pendingVpTotal = requests
+    .filter(request => request.status === 'pending_vp')
+    .reduce((sum, request) => {
+      const allocations = normalizeAllocations(request, allocationsByRequestId.get(request.id) || []);
+      return sum + allocations
+        .filter((allocation) => relatedDepartmentIds.includes(allocation.department_id))
+        .reduce((allocationSum, allocation) => allocationSum + toNumber(allocation.amount), 0);
+    }, 0);
+  const pendingPresidentTotal = requests
+    .filter(request => request.status === 'pending_president')
+    .reduce((sum, request) => {
+      const allocations = normalizeAllocations(request, allocationsByRequestId.get(request.id) || []);
+      return sum + allocations
+        .filter((allocation) => relatedDepartmentIds.includes(allocation.department_id))
+        .reduce((allocationSum, allocation) => allocationSum + toNumber(allocation.amount), 0);
+    }, 0);
+  const totalPending = pendingTotal + pendingVpTotal + pendingPresidentTotal;
+  const committedBudget = totals.used_budget + totalPending;
+  const availableBudget = totals.annual_budget - totals.used_budget - totalPending;
   const pendingCount = requestsWithDepartmentShare.filter(request => 
     request.status === 'pending_supervisor' || 
     request.status === 'pending_accounting' ||
@@ -287,7 +304,7 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
       ...department,
       annual_budget: totals.annual_budget,
       used_budget: totals.used_budget,
-      pending_budget: pendingTotal,
+      pending_budget: totalPending,
       pending_count: pendingCount,
       available_budget: availableBudget,
       petty_cash_balance: totals.petty_cash_balance,
