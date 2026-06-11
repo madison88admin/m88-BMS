@@ -7,10 +7,10 @@
 
 # Production API routing — choose ONE:
 #
-# Option A (Render backend — current production default):
+# Option A (Railway backend — current production default):
 [[redirects]]
   from = "/api/*"
-  to = "https://m88-bms.onrender.com/api/:splat"
+  to = "https://m88-bms-production.up.railway.app/api/:splat"
   status = 200
 
 # Option B (Netlify Functions — sequential approval parity):
