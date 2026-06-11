@@ -901,6 +901,9 @@ const Admin = () => {
     return formatMoney(numValue, 'PHP');
   };
   const remainingBudget = Math.max(overview.totalBudget - overview.usedBudget, 0);
+  const pendingBudget = selectedBreakdown?.department?.pending_budget || 0;
+  const availableBudget = Math.max(overview.totalBudget - overview.usedBudget - pendingBudget, 0);
+  const pendingCount = selectedBreakdown?.department?.pending_count || 0;
   const overviewCards = [
     {
       label: 'Departments',
@@ -911,14 +914,31 @@ const Admin = () => {
     {
       label: 'Budget Pool',
       value: displayMoney(overview.totalBudget),
-      helper: secondaryMoney(overview.totalBudget),
+      helper: `Pending: ${displayMoney(pendingBudget)}`,
       glow: 'bg-[var(--role-secondary)]'
     },
     {
-      label: 'Used',
+      label: 'UTILIZED',
       value: displayMoney(overview.usedBudget),
-      helper: `Remaining ${displayMoney(remainingBudget)}`,
+      helper: `Released expenses`,
       glow: 'bg-[var(--role-primary)]'
+    },
+    {
+      label: 'PENDING APPROVAL',
+      value: displayMoney(pendingBudget),
+      helper: `${pendingCount} requests`,
+      glow: pendingBudget > 0 ? 'bg-amber-500' : 'bg-[var(--role-secondary)]'
+    },
+    {
+      label: 'AVAILABLE',
+      value: displayMoney(availableBudget),
+      helper: `Budget Pool - Utilized - Pending`,
+      glow: (() => {
+        const pct = overview.totalBudget > 0 ? (availableBudget / overview.totalBudget) * 100 : 0;
+        if (pct >= 50) return 'bg-emerald-500';
+        if (pct >= 20) return 'bg-amber-500';
+        return 'bg-red-500';
+      })()
     },
     {
       label: 'Utilization',

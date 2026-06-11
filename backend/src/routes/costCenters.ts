@@ -11,7 +11,7 @@ router.get('/', authenticate, authorize('accounting', 'admin', 'super_admin'), a
   try {
     const fiscalYear = req.query.fiscal_year ? parseInt(req.query.fiscal_year as string) : new Date().getFullYear();
     
-    const { data, error } = await supabase
+    const { data: costCenters, error } = await supabase
       .from('cost_centers')
       .select('*')
       .eq('fiscal_year', fiscalYear)
@@ -19,7 +19,72 @@ router.get('/', authenticate, authorize('accounting', 'admin', 'super_admin'), a
       .order('name', { ascending: true });
 
     if (error) return res.status(400).json({ error: error.message });
-    res.json(data);
+
+    // Fetch pending requests for General Categories (department = 'All')
+    const { data: pendingRequests, error: pendingError } = await supabase
+      .from('expense_requests')
+      .select('id, amount, department_id, category_id, status')
+      .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'])
+      .eq('fiscal_year', fiscalYear);
+
+    if (pendingError) return res.status(400).json({ error: pendingError.message });
+
+    // Fetch budget categories to identify General Categories
+    const { data: budgetCategories, error: categoriesError } = await supabase
+      .from('budget_categories')
+      .select('id, category_code')
+      .eq('fiscal_year', fiscalYear);
+
+    if (categoriesError) return res.status(400).json({ error: categoriesError.message });
+
+    // Fetch expense categories to identify General Categories (department = 'All')
+    const categoryCodes = budgetCategories?.map(bc => bc.category_code) || [];
+    const { data: expenseCategories, error: expenseCategoriesError } = await supabase
+      .from('expense_categories')
+      .select('code, department')
+      .in('code', categoryCodes);
+
+    if (expenseCategoriesError) return res.status(400).json({ error: expenseCategoriesError.message });
+
+    // Create a map of category_code to department
+    const categoryDepartmentMap = new Map(
+      expenseCategories?.map(ec => [ec.code, ec.department]) || []
+    );
+
+    // Filter pending requests for General Categories
+    const generalCategoryPendingRequests = pendingRequests?.filter(request => {
+      const category = budgetCategories?.find(bc => bc.id === request.category_id);
+      if (!category) return false;
+      const department = categoryDepartmentMap.get(category.category_code);
+      return department === 'All';
+    }) || [];
+
+    // Calculate pending totals for General Categories
+    const generalPendingAmount = generalCategoryPendingRequests.reduce((sum, req) => sum + (parseFloat(req.amount) || 0), 0);
+    const generalPendingCount = generalCategoryPendingRequests.length;
+    const generalDepartmentsCount = new Set(generalCategoryPendingRequests.map(req => req.department_id)).size;
+
+    // Enrich cost centers with pending data
+    const enrichedCostCenters = (costCenters || []).map(costCenter => {
+      if (costCenter.name.toLowerCase().includes('m88 manila')) {
+        return {
+          ...costCenter,
+          pending_amount: generalPendingAmount,
+          pending_count: generalPendingCount,
+          departments_count: generalDepartmentsCount,
+          available_amount: parseFloat(costCenter.total_budget) - parseFloat(costCenter.used_amount) - generalPendingAmount
+        };
+      }
+      return {
+        ...costCenter,
+        pending_amount: 0,
+        pending_count: 0,
+        departments_count: 0,
+        available_amount: parseFloat(costCenter.total_budget) - parseFloat(costCenter.used_amount)
+      };
+    });
+
+    res.json(enrichedCostCenters);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

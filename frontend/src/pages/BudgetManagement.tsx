@@ -1039,77 +1039,64 @@ const BudgetManagement = () => {
                   <svg className="h-5 w-5 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
-                  <span className="text-[13px] font-semibold uppercase tracking-[0.16em] text-[var(--role-text)]">M88 MANILA</span>
+                  <span className="text-[13px] font-semibold uppercase tracking-[0.16em] text-[var(--role-text)]">M88 MANILA GENERAL BUDGET</span>
                 </div>
                 <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--role-text)]/40 font-semibold">MASTER COST CENTER</span>
               </div>
-              <div className="flex gap-6">
-                <div className="flex-1">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Total</p>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Total Budget</p>
                   <p className="text-[20px] font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</p>
                 </div>
-                <div className="flex-1">
+                <div>
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Used</p>
-                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')}</p>
+                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')} <span className="text-xs text-[var(--role-text)]/50">(released)</span></p>
                 </div>
-                <div className="flex-1">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Remaining</p>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Pending</p>
+                  <p className="text-[20px] font-semibold text-amber-600">{formatMoney(toNumber(m88ManilaCostCenter.pending_amount || 0), 'PHP')} <span className="text-xs text-amber-600/70">(amber)</span></p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Available</p>
                   <p className="text-[20px] font-semibold" style={{
                     color: (() => {
-                      const remaining = toNumber(m88ManilaCostCenter.remaining_amount);
+                      const available = toNumber(m88ManilaCostCenter.available_amount || 0);
                       const total = toNumber(m88ManilaCostCenter.total_budget);
-                      const pct = total > 0 ? (remaining / total) * 100 : 0;
+                      const pct = total > 0 ? (available / total) * 100 : 0;
                       if (pct >= 50) return '#16a34a';
                       if (pct >= 20) return '#f59e0b';
                       return '#ef4444';
                     })()
-                  }}>
-                    {formatMoney(toNumber(m88ManilaCostCenter.remaining_amount), 'PHP')}
-                  </p>
+                  }}>{formatMoney(toNumber(m88ManilaCostCenter.available_amount || 0), 'PHP')} <span className="text-xs opacity-70">(color-coded)</span></p>
+                </div>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2 mb-4 flex overflow-hidden">
+                <div className="h-2 bg-emerald-500 rounded-l-full" style={{ width: `${Math.min((toNumber(m88ManilaCostCenter.used_amount) / toNumber(m88ManilaCostCenter.total_budget)) * 100, 100)}%` }} />
+                <div className="h-2 bg-amber-500" style={{ width: `${Math.min((toNumber(m88ManilaCostCenter.pending_amount || 0) / toNumber(m88ManilaCostCenter.total_budget)) * 100, 100)}%` }} />
+                <div className="h-2 bg-gray-300 rounded-r-full" style={{ width: `${Math.max(0, 100 - ((toNumber(m88ManilaCostCenter.used_amount) + toNumber(m88ManilaCostCenter.pending_amount || 0)) / toNumber(m88ManilaCostCenter.total_budget)) * 100)}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-[var(--role-text)]/50 mb-4">
+                <span className="text-emerald-600 font-medium">Used</span>
+                <span className="text-amber-600 font-medium">Pending</span>
+                <span className="text-gray-600 font-medium">Available</span>
+              </div>
+              <div className="flex gap-6 text-xs text-[var(--role-text)]/70">
+                <div>
+                  <span className="font-semibold text-[var(--role-text)]">Active Requests:</span> {toNumber(m88ManilaCostCenter.pending_count || 0)} pending approval
+                </div>
+                <div>
+                  <span className="font-semibold text-[var(--role-text)]">Departments using:</span> {toNumber(m88ManilaCostCenter.departments_count || 0)}
                 </div>
               </div>
             </div>
           )}
-
-          {/* Compact summary bar */}
-          <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-[var(--role-accent)]/50 px-5 py-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Annual Budget</span>
-              <span className="font-semibold text-[13px] text-[var(--role-text)]">{displayMoney(overview.totalBudget)}</span>
-            </div>
-            <div className="h-4 w-px bg-[var(--role-border)]" />
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilized</span>
-              <span className="font-semibold text-[13px] text-[var(--role-text)]">{displayMoney(overview.usedBudget)}</span>
-            </div>
-            <div className="h-4 w-px bg-[var(--role-border)]" />
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Available</span>
-              <span className="font-semibold text-[13px] text-emerald-600">{displayMoney(Math.max(overview.totalBudget - overview.usedBudget, 0))}</span>
-            </div>
-            <div className="h-4 w-px bg-[var(--role-border)]" />
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--role-text)]/50">Utilization</span>
-              <span className="font-semibold text-[13px]" style={getUtilizationStyle(overview.utilization)}>{formatPercent(overview.utilization)}</span>
-              <div className="h-2 w-20 overflow-hidden rounded-full bg-[var(--role-border)]">
-                <div className="h-full rounded-full" style={{ width: `${Math.min(100, overview.utilization)}%`, ...getUtilizationBarStyle(overview.utilization) }} />
-              </div>
-            </div>
-            {/* FX info */}
-            <div className="h-4 w-px bg-[var(--role-border)]" />
-            <div className="flex items-center gap-2 text-xs text-[var(--role-text)]/50">
-              <span className={`inline-flex h-2 w-2 rounded-full ${fxStatus === 'live' ? 'animate-pulse bg-emerald-500' : 'bg-[var(--role-text)]/30'}`} />
-              <span>1 USD = {fxRatePhp.toFixed(2)} PHP</span>
-              {fxRateUpdatedAt && <span>· Synced {formatDateTime(fxRateUpdatedAt)}</span>}
-            </div>
-            {/* Refresh on right */}
-            <div className="ml-auto flex items-center gap-2">
-              <span className="text-xs text-[var(--role-text)]/40">Synced: {formatDateTime(selectedBreakdown?.generated_at)}</span>
-              <button
-                className="btn-secondary !rounded-full !px-3 !py-1.5 text-xs"
-                onClick={() => { fetchExchangeRate(true); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}
-              >↻ Refresh</button>
-            </div>
+          {/* Refresh on right */}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-[var(--role-text)]/40">Synced: {formatDateTime(selectedBreakdown?.generated_at)}</span>
+            <button
+              className="btn-secondary !rounded-full !px-3 !py-1.5 text-xs"
+              onClick={() => { fetchExchangeRate(true); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}
+            >↻ Refresh</button>
           </div>
         </div>
       </div>
@@ -1647,9 +1634,9 @@ const BudgetManagement = () => {
                       )}
                     </div>
 
-                    {/* Budget / Allocated / Available summary */}
+                    {/* Budget / Pending / Available summary */}
                     <div className="mb-4 flex gap-2 text-xs">
-                      {[{ label: 'Budget', val: editableBudgetValue, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' }, { label: 'Allocated', val: categoryAllocatedTotal, cls: 'bg-amber-50 border-amber-100 text-amber-700' }, { label: 'Available', val: categoryAllocationRemaining, cls: 'bg-blue-50 border-blue-100 text-blue-700' }].map(s => (
+                      {[{ label: 'Budget', val: editableBudgetValue, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' }, { label: 'Pending', val: selectedBreakdown?.department?.pending_budget || 0, cls: 'bg-amber-50 border-amber-100 text-amber-700' }, { label: 'Available', val: selectedBreakdown?.department?.available_budget || 0, cls: 'bg-blue-50 border-blue-100 text-blue-700' }].map(s => (
                         <div key={s.label} className={`flex-1 p-2 rounded-lg border text-center ${s.cls}`}>
                           <span className="block text-[10px] uppercase font-semibold">{s.label}</span>
                           <span className="font-bold">{displayMoney(s.val)}</span>
@@ -1877,12 +1864,13 @@ const BudgetManagement = () => {
                                             under {cat.parent_category_name}
                                           </span>
                                         )}
-                                        <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1.5 mb-1">
-                                          <div className="h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%`, ...getUtilizationBarStyle(pct) }} />
+                                        <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1.5 mb-1 flex overflow-hidden">
+                                          <div className="h-1.5 bg-emerald-500 rounded-l-full" style={{ width: `${Math.min((used / budget) * 100, 100)}%` }} />
+                                          <div className="h-1.5 bg-amber-500" style={{ width: `${Math.min((committed / budget) * 100, 100)}%` }} />
+                                          <div className="h-1.5 bg-gray-300 rounded-r-full" style={{ width: `${Math.max(0, 100 - ((used + committed) / budget) * 100)}%` }} />
                                         </div>
                                         <div className="flex justify-between text-[10px] text-[var(--role-text)]/50">
-                                          <span>Used: <span className={`font-medium ${utilizationWarning ? 'text-amber-700' : 'text-amber-600'}`}>{displayMoney(used)}</span> + Committed: {displayMoney(committed)} ({pct.toFixed(1)}%)</span>
-                                          <span>Approved: {displayMoney(budget)} · Rem: <span className="text-emerald-600 font-medium">{displayMoney(rem)}</span></span>
+                                          <span>Used: <span className="font-medium text-emerald-600">{displayMoney(used)}</span> | Pending: <span className="font-medium text-amber-600">{displayMoney(committed)}</span> | Available: <span className="font-medium text-gray-600">{displayMoney(rem)}</span></span>
                                         </div>
                                       </div>
 

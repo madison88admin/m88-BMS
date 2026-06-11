@@ -272,13 +272,24 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
 
   const breakdownTotal = totals.released_requests_total + totals.direct_expenses_total;
   const remainingBudget = totals.annual_budget - totals.used_budget;
-  const committedBudget = totals.used_budget + totals.pending_supervisor_total + totals.pending_accounting_total;
+  const pendingTotal = totals.pending_supervisor_total + totals.pending_accounting_total;
+  const committedBudget = totals.used_budget + pendingTotal;
+  const availableBudget = totals.annual_budget - totals.used_budget - pendingTotal;
+  const pendingCount = requestsWithDepartmentShare.filter(request => 
+    request.status === 'pending_supervisor' || 
+    request.status === 'pending_accounting' ||
+    request.status === 'pending_vp' ||
+    request.status === 'pending_president'
+  ).length;
 
   res.json({
     department: {
       ...department,
       annual_budget: totals.annual_budget,
       used_budget: totals.used_budget,
+      pending_budget: pendingTotal,
+      pending_count: pendingCount,
+      available_budget: availableBudget,
       petty_cash_balance: totals.petty_cash_balance,
       remaining_budget: remainingBudget,
       utilization_percentage: totals.annual_budget > 0 ? (totals.used_budget / totals.annual_budget) * 100 : 0,
@@ -293,6 +304,9 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
       released_requests: requestsWithDepartmentShare.filter(request => isActualExpenseCommittedStatus(request)).length,
       pending_supervisor: requestsWithDepartmentShare.filter(request => request.status === 'pending_supervisor').length,
       pending_accounting: requestsWithDepartmentShare.filter(request => request.status === 'pending_accounting').length,
+      pending_vp: requestsWithDepartmentShare.filter(request => request.status === 'pending_vp').length,
+      pending_president: requestsWithDepartmentShare.filter(request => request.status === 'pending_president').length,
+      pending_total: pendingCount,
       rejected_requests: requestsWithDepartmentShare.filter(request => request.status === 'rejected').length,
       direct_expenses: directExpenses.length,
       petty_cash_transactions: pettyCashTransactions.length
