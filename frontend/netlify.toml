@@ -8,10 +8,8 @@
 # Production API routing — choose ONE:
 #
 # Option A (Railway backend — current production default):
-[[redirects]]
-  from = "/api/*"
-  to = "https://m88-bms-production.up.railway.app/api/:splat"
-  status = 200
+# Frontend makes direct API calls to Railway backend
+# No redirect needed
 
 # Option B (Netlify Functions — sequential approval parity):
 # Remove Option A and use the redirects in the repo root netlify.toml instead.
