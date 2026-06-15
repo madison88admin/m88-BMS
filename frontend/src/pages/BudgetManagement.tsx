@@ -965,23 +965,23 @@ const BudgetManagement = () => {
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
 
-      // Chart 5: Top 5 by utilization % (use visibleEnrichedCategories)
-      let filteredCategories = visibleEnrichedCategories;
+      // Chart 5: Top 5 by utilization % (use selected department's categories)
+      let filteredCategories = selectedBreakdown?.categories || [];
       if (filterBudgetCategory !== 'all') {
         const filterVal = filterBudgetCategory.toLowerCase();
-        filteredCategories = visibleEnrichedCategories.filter(cat => {
+        filteredCategories = filteredCategories.filter((cat: any) => {
           const catName = cat.category_name?.toLowerCase() || '';
           const parentName = cat.parent_category_name?.toLowerCase() || '';
           return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
         });
       }
       const top5ByUtil = filteredCategories
-        .filter(cat => toNumber(cat.budget_amount) > 0)
-        .map(cat => ({
+        .filter((cat: any) => toNumber(cat.budget_amount) > 0)
+        .map((cat: any) => ({
           name: cat.category_name,
           pct: (toNumber(cat.used_amount) / toNumber(cat.budget_amount)) * 100
         }))
-        .sort((a, b) => b.pct - a.pct)
+        .sort((a: any, b: any) => b.pct - a.pct)
         .slice(0, 5);
 
       // Apply currency conversion to all analytics data based on displayCurrency
