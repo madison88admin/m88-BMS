@@ -7,8 +7,8 @@
 
 # Production API routing — choose ONE:
 #
-# Option A (Railway backend — current production default):
-# Frontend makes direct API calls to Railway backend
+# Option A (Render backend — current production default):
+# Frontend makes direct API calls to Render backend
 # No redirect needed
 
 # Option B (Netlify Functions — sequential approval parity):
