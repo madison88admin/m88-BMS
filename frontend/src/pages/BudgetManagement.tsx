@@ -1079,7 +1079,7 @@ const BudgetManagement = () => {
       </div>
 
       {/* Analytics Section */}
-      <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5">
+      <div className="rounded-[28px] border border-[var(--role-border)] bg-[var(--role-accent)] p-5 mb-8">
         <div className="flex items-center justify-between mb-4 pb-4 border-b border-[var(--role-border)]">
           <div className="flex items-center gap-3">
             <svg className="h-5 w-5 text-[var(--role-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
