@@ -892,6 +892,11 @@ const BudgetManagement = () => {
       // Process data for charts
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+      // Get department budget for the selected fiscal year
+      const selectedDept = analyticsDeptId ? departments.find(d => d.id === analyticsDeptId) : null;
+      const deptAnnualBudget = selectedDept && Number(selectedDept.fiscal_year) === analyticsFiscalYear ? toNumber(selectedDept.annual_budget) : 0;
+      const monthlyBudget = deptAnnualBudget / 12;
+
       // Chart 1: Budget vs Expense by month (current FY)
       const budgetVsExpense = months.map((month, idx) => {
         const monthRequests = filteredRequests.filter((r: any) => {
@@ -901,7 +906,7 @@ const BudgetManagement = () => {
         const expense = monthRequests
           .filter((r: any) => ['released', 'approved'].includes(r.status))
           .reduce((sum: number, r: any) => sum + toNumber(r.amount), 0);
-        return { month, budget: 0, expense }; // budget: requires dept budget data
+        return { month, budget: monthlyBudget, expense };
       });
 
       // Chart 2: Expense trend by fiscal year (use all requests for all FYs)
@@ -913,6 +918,21 @@ const BudgetManagement = () => {
           fyGroups[fy].expense += toNumber(r.amount);
         }
       });
+
+      // Populate budget for each fiscal year from departments data
+      departments.forEach((d: any) => {
+        const fy = Number(d.fiscal_year || 0);
+        if (fy > 0 && fyGroups[fy]) {
+          // If specific department is selected, use that department's budget
+          if (analyticsDeptId && d.id === analyticsDeptId) {
+            fyGroups[fy].budget = toNumber(d.annual_budget);
+          } else if (!analyticsDeptId) {
+            // If no specific department selected, sum all departments' budgets for that FY
+            fyGroups[fy].budget += toNumber(d.annual_budget);
+          }
+        }
+      });
+
       const expenseTrend = Object.entries(fyGroups)
         .sort(([a], [b]) => Number(a) - Number(b))
         .map(([fy, data]) => ({
@@ -964,7 +984,43 @@ const BudgetManagement = () => {
         .sort((a, b) => b.pct - a.pct)
         .slice(0, 5);
 
-      setAnalyticsData({ budgetVsExpense, expenseTrend, monthlyComparison, top5ByAmount, top5ByUtil });
+      // Apply currency conversion to all analytics data based on displayCurrency
+      const convertAmount = (amount: number) => {
+        if (displayCurrency === 'PHP') return amount;
+        if (displayCurrency === 'USD') return amount / fxRatePhp;
+        if (displayCurrency === 'IDR') return amount / fxRateIdr;
+        return amount;
+      };
+
+      const convertedBudgetVsExpense = budgetVsExpense.map(item => ({
+        ...item,
+        budget: convertAmount(item.budget),
+        expense: convertAmount(item.expense)
+      }));
+
+      const convertedExpenseTrend = expenseTrend.map(item => ({
+        ...item,
+        expense: convertAmount(item.expense)
+      }));
+
+      const convertedMonthlyComparison = monthlyComparison.map(item => ({
+        ...item,
+        '2025': convertAmount(item['2025']),
+        '2026': convertAmount(item['2026'])
+      }));
+
+      const convertedTop5ByAmount = top5ByAmount.map(item => ({
+        ...item,
+        amount: convertAmount(item.amount)
+      }));
+
+      setAnalyticsData({ 
+        budgetVsExpense: convertedBudgetVsExpense, 
+        expenseTrend: convertedExpenseTrend, 
+        monthlyComparison: convertedMonthlyComparison, 
+        top5ByAmount: convertedTop5ByAmount, 
+        top5ByUtil 
+      });
     } catch (err) {
       console.error('Failed to fetch analytics data:', err);
     } finally {
@@ -979,7 +1035,7 @@ const BudgetManagement = () => {
   useEffect(() => {
     if (!selectedDepartmentId && analyticsDeptId === '') return;
     fetchAnalyticsData();
-  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, filterExpenseType, filterBudgetCategory]);
+  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, filterExpenseType, filterBudgetCategory, displayCurrency]);
 
   if (loading) return <PageSkeleton />;
 
@@ -1183,7 +1239,9 @@ const BudgetManagement = () => {
                   <Bar yAxisId="left" dataKey="expense" fill={EXPENSE_COLOR} name="Expense" radius={[4, 4, 0, 0]}>
                     <LabelList dataKey="expense" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => formatCurrency(Number(v || 0))} />
                   </Bar>
-                  <Line yAxisId="right" dataKey="utilPct" stroke={BUDGET_COLOR} strokeWidth={2} name="% of Budget" dot={{ fill: BUDGET_COLOR, r: 4 }} />
+                  <Line yAxisId="right" dataKey="utilPct" stroke={BUDGET_COLOR} strokeWidth={3} name="% of Budget" dot={{ fill: BUDGET_COLOR, r: 5 }}>
+                    <LabelList dataKey="utilPct" position="top" fontSize={11} fill={BUDGET_COLOR} formatter={(v: any) => `${Number(v || 0).toFixed(1)}%`} />
+                  </Line>
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -1242,23 +1300,27 @@ const BudgetManagement = () => {
                 <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Top 5 by Budget Utilization %</h4>
                 <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Categories with highest budget consumption</p>
               </div>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={analyticsData.top5ByUtil}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
-                  <XAxis dataKey="name" stroke="var(--role-text)" fontSize={11} />
-                  <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
-                  <Tooltip
-                    contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
-                    formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
-                  />
-                  <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-                    {analyticsData.top5ByUtil.map((entry: any, index: number) => (
-                      <Cell key={`cell-${index}`} fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
-                    ))}
-                    <LabelList dataKey="pct" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => `${Number(v || 0).toFixed(1)}%`} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              {analyticsData.top5ByUtil && analyticsData.top5ByUtil.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={analyticsData.top5ByUtil}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--role-text)" fontSize={11} />
+                    <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `${v.toFixed(0)}%`} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
+                      formatter={(value: any) => `${Number(value || 0).toFixed(1)}%`}
+                    />
+                    <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                      {analyticsData.top5ByUtil.map((entry: any, index: number) => (
+                        <Cell key={`cell-${index}`} fill={entry.pct < 50 ? '#16a34a' : entry.pct < 80 ? '#f59e0b' : '#ef4444'} />
+                      ))}
+                      <LabelList dataKey="pct" position="top" fontSize={11} fill="var(--role-text)" formatter={(v: any) => `${Number(v || 0).toFixed(1)}%`} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="py-8 text-center text-[var(--role-text)]/60 text-sm">No budget utilization data available</div>
+              )}
             </div>
           </div>
         ) : (
