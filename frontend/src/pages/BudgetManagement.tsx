@@ -965,8 +965,23 @@ const BudgetManagement = () => {
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
 
-      // Chart 5: Top 5 by utilization % (use selected department's categories)
-      let filteredCategories = selectedBreakdown?.categories || [];
+      // Chart 5: Top 5 by utilization % (use categories based on analytics selection)
+      let filteredCategories: any[] = [];
+      if (analyticsDeptId) {
+        // If specific department selected for analytics, use that department's categories
+        const analyticsDept = departments.find(d => d.id === analyticsDeptId);
+        if (analyticsDept) {
+          // Fetch categories for this department
+          try {
+            const res = await api.get(`/api/budget/categories?department_id=${analyticsDeptId}&fiscal_year=${analyticsFiscalYear}`);
+            filteredCategories = Array.isArray(res.data) ? res.data : [];
+          } catch { filteredCategories = []; }
+        }
+      } else {
+        // If "All Departments" selected, use selected department's categories as fallback
+        filteredCategories = selectedBreakdown?.categories || [];
+      }
+
       if (filterBudgetCategory !== 'all') {
         const filterVal = filterBudgetCategory.toLowerCase();
         filteredCategories = filteredCategories.filter((cat: any) => {
@@ -975,6 +990,7 @@ const BudgetManagement = () => {
           return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
         });
       }
+
       const top5ByUtil = filteredCategories
         .filter((cat: any) => toNumber(cat.budget_amount) > 0)
         .map((cat: any) => ({
