@@ -1287,7 +1287,7 @@ const BudgetManagement = () => {
             <span className="text-xs text-[var(--role-text)]/40">Synced: {formatDateTime(selectedBreakdown?.generated_at)}</span>
             <button
               className="btn-secondary !rounded-full !px-3 !py-1.5 text-xs"
-              onClick={() => { fetchExchangeRate(true); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}
+              onClick={() => { fetchExchangeRate(true); fetchAnalyticsData(); if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, true, true); }}
             >↻ Refresh</button>
           </div>
         </div>
