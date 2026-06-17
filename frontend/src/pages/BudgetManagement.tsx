@@ -839,7 +839,7 @@ const BudgetManagement = () => {
 
       // Get department budget for the selected fiscal year
       const selectedDept = analyticsDeptId ? departments.find(d => d.id === analyticsDeptId) : null;
-      const deptAnnualBudget = selectedDept && Number(selectedDept.fiscal_year) === analyticsFiscalYear ? toNumber(selectedDept.annual_budget) : 0;
+      const deptAnnualBudget = selectedDept ? toNumber(selectedDept.annual_budget) : 0;
       const monthlyBudget = deptAnnualBudget / 12;
 
       // Chart 1: Budget vs Expense by month (current FY)
