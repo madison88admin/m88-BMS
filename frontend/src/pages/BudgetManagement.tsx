@@ -52,6 +52,27 @@ const OTHERS_CATEGORIES = new Set([
   '9900',  // Sundry & Misc
 ]);
 
+// Segment colors for iPhone storage-style chart
+const SEGMENT_COLORS: Record<string, string> = {
+  '6020.1': '#FF6B6B', // Automobile Fuel - red-orange
+  '6170': '#4ECDC4', // Computer and Internet - teal
+  '6430.1': '#45B7D1', // Birthday Celebrations - blue
+  '6490.1': '#96CEB4', // Office Stationery - green
+  '6501': '#FFEAA7', // Medical Expenses - yellow
+  '6650': '#DDA0DD', // Postage and Delivery - plum
+  '6670.01': '#98D8C8', // Professional Fees - mint
+  '6711': '#F7DC6F', // Office Rent - gold
+  '6720': '#BB8FCE', // Repairs and Maintenance - purple
+  '6840.1': '#85C1E9', // Local Travel - light blue
+  '6860.1': '#F0B27A', // Electricity - orange
+  '6870.1': '#82E0AA', // Globe - light green
+  '6900.1': '#F1948A', // Seminar - salmon
+  '6351': '#AED6F1', // Business Tax - sky blue
+  '6010.1': '#D7BDE2', // Zoom - lavender
+  'Others': '#BDC3C7', // Others - gray
+  'Available': '#ECF0F1', // Available - light gray
+};
+
 const enrichCategories = (categories: any[]) => {
   const nameById = new Map(categories.map((category) => [category.id, category.category_name]));
   return categories.map((category) => ({
@@ -1142,38 +1163,91 @@ const BudgetManagement = () => {
                 </div>
               </div>
 
-              {/* Spending by Category Chart */}
+              {/* Spending by Category Chart - iPhone Storage Style */}
               <div className="mt-6 pt-6 border-t border-[var(--role-border)]">
-                <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Spending by Category</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-[var(--role-text)]">Spending by Category</h3>
+                  {!spendingBreakdownLoading && spendingBreakdown.length > 0 && (() => {
+                    const totalUsed = spendingBreakdown.reduce((sum, item) => sum + (item.used || 0), 0);
+                    const totalBudget = spendingBreakdown.reduce((sum, item) => sum + (item.budget || 0), 0);
+                    const utilization = totalBudget > 0 ? (totalUsed / totalBudget) * 100 : 0;
+                    return (
+                      <span className="text-xs text-[var(--role-text)]/70">
+                        ₱{formatMoney(totalUsed)} of ₱{formatMoney(totalBudget)} used ({utilization.toFixed(1)}%)
+                      </span>
+                    );
+                  })()}
+                </div>
                 {spendingBreakdownLoading ? (
                   <div className="py-8 text-center text-[var(--role-text)]/60 text-xs">Loading spending breakdown…</div>
-                ) : spendingBreakdown.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={spendingBreakdown} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} />
-                      <XAxis type="number" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}k`} />
-                      <YAxis type="category" dataKey="name" stroke="var(--role-text)" fontSize={11} width={110} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
-                        formatter={(value: any) => `₱${formatMoney(value)}`}
-                        labelFormatter={(label: any, payload: any) => {
-                          const entry = payload?.[0]?.payload;
-                          if (!entry) return label;
-                          return `${label} (Budget: ₱${formatMoney(entry.budget)}, Utilization: ${entry.utilization.toFixed(1)}%)`;
-                        }}
-                      />
-                      <Bar dataKey="used" radius={[0, 4, 4, 0]}>
-                        {spendingBreakdown.map((entry: any) => {
-                          const pct = entry.utilization || 0;
-                          let color = '#16a34a'; // green
-                          if (pct >= 50) color = '#f59e0b'; // amber
-                          if (pct >= 80) color = '#ef4444'; // red
-                          return <Cell key={`cell-${entry.code}`} fill={color} />;
+                ) : spendingBreakdown.length > 0 ? (() => {
+                  const totalBudget = spendingBreakdown.reduce((sum, item) => sum + (item.budget || 0), 0);
+                  const totalUsed = spendingBreakdown.reduce((sum, item) => sum + (item.used || 0), 0);
+                  const available = totalBudget - totalUsed;
+
+                  return (
+                    <div>
+                      {/* Stacked Bar */}
+                      <div className="relative h-6 rounded-full overflow-hidden bg-gray-200 flex">
+                        {spendingBreakdown.map((item) => {
+                          const width = totalBudget > 0 ? (item.used / totalBudget) * 100 : 0;
+                          if (width < 0.5) return null; // Skip very small segments
+                          const color = SEGMENT_COLORS[item.code] || SEGMENT_COLORS['Others'];
+                          return (
+                            <div
+                              key={item.code}
+                              className="h-full transition-all hover:opacity-90"
+                              style={{
+                                width: `${width}%`,
+                                backgroundColor: color,
+                                position: 'relative'
+                              }}
+                              title={`${item.name}: ₱${formatMoney(item.used)} (${((item.used / totalBudget) * 100).toFixed(1)}% of total)`}
+                            />
+                          );
                         })}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
+                        {/* Available segment */}
+                        {available > 0 && (
+                          <div
+                            className="h-full"
+                            style={{
+                              width: `${(available / totalBudget) * 100}%`,
+                              backgroundColor: SEGMENT_COLORS['Available']
+                            }}
+                            title={`Available: ₱${formatMoney(available)}`}
+                          />
+                        )}
+                      </div>
+
+                      {/* Legend */}
+                      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                        {spendingBreakdown.filter(item => item.used > 0).map((item) => {
+                          const color = SEGMENT_COLORS[item.code] || SEGMENT_COLORS['Others'];
+                          return (
+                            <div key={item.code} className="flex items-center gap-2">
+                              <div
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: color }}
+                              />
+                              <span className="text-[var(--role-text)]/80">{item.name}</span>
+                              <span className="ml-auto font-medium text-[var(--role-text)]">₱{formatMoney(item.used)}</span>
+                            </div>
+                          );
+                        })}
+                        {available > 0 && (
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: SEGMENT_COLORS['Available'] }}
+                            />
+                            <span className="text-[var(--role-text)]/80">Available</span>
+                            <span className="ml-auto font-medium text-[var(--role-text)]">₱{formatMoney(available)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })() : (
                   <div className="py-8 text-center text-[var(--role-text)]/60 text-xs">No spending data available</div>
                 )}
               </div>
