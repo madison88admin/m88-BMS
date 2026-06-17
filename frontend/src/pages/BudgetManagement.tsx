@@ -1198,11 +1198,11 @@ const BudgetManagement = () => {
                   <h3 className="text-sm font-semibold text-[var(--role-text)]">Spending by Category</h3>
                   {!spendingBreakdownLoading && spendingBreakdown.length > 0 && (() => {
                     const totalUsed = spendingBreakdown.reduce((sum, item) => sum + (item.used || 0), 0);
-                    const totalBudget = spendingBreakdown.reduce((sum, item) => sum + (item.budget || 0), 0);
+                    const totalBudget = toNumber(m88ManilaCostCenter?.total_budget || 0);
                     const utilization = totalBudget > 0 ? (totalUsed / totalBudget) * 100 : 0;
                     return (
                       <span className="text-xs text-[var(--role-text)]/70">
-                        ₱{formatMoney(totalUsed)} of ₱{formatMoney(totalBudget)} used ({utilization.toFixed(1)}%)
+                        {formatMoney(totalUsed)} of {formatMoney(totalBudget)} used ({utilization.toFixed(1)}%)
                       </span>
                     );
                   })()}
@@ -1210,7 +1210,7 @@ const BudgetManagement = () => {
                 {spendingBreakdownLoading ? (
                   <div className="py-8 text-center text-[var(--role-text)]/60 text-xs">Loading spending breakdown…</div>
                 ) : spendingBreakdown.length > 0 ? (() => {
-                  const totalBudget = spendingBreakdown.reduce((sum, item) => sum + (item.budget || 0), 0);
+                  const totalBudget = toNumber(m88ManilaCostCenter?.total_budget || 0);
                   const totalUsed = spendingBreakdown.reduce((sum, item) => sum + (item.used || 0), 0);
                   const available = totalBudget - totalUsed;
 
@@ -1259,7 +1259,7 @@ const BudgetManagement = () => {
                                 style={{ backgroundColor: color }}
                               />
                               <span className="text-[var(--role-text)]/80">{item.name}</span>
-                              <span className="ml-auto font-medium text-[var(--role-text)]">₱{formatMoney(item.used)}</span>
+                              <span className="ml-auto font-medium text-[var(--role-text)]">{formatMoney(item.used)}</span>
                             </div>
                           );
                         })}
@@ -1270,7 +1270,7 @@ const BudgetManagement = () => {
                               style={{ backgroundColor: SEGMENT_COLORS['Available'] }}
                             />
                             <span className="text-[var(--role-text)]/80">Available</span>
-                            <span className="ml-auto font-medium text-[var(--role-text)]">₱{formatMoney(available)}</span>
+                            <span className="ml-auto font-medium text-[var(--role-text)]">{formatMoney(available)}</span>
                           </div>
                         )}
                       </div>
