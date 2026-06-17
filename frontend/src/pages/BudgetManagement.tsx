@@ -1004,12 +1004,17 @@ const BudgetManagement = () => {
 
       const categories = Array.isArray(res.data) ? res.data : [];
 
+      // Filter by selected category if not 'all'
+      const filteredCategories = costCenterFilterCategory !== 'all'
+        ? categories.filter((cat: any) => String(cat.category_code || '').trim() === costCenterFilterCategory)
+        : categories;
+
       // Group categories into display and others
       const displayItems: any[] = [];
       let othersTotal = 0;
       let othersBudget = 0;
 
-      categories.forEach((cat: any) => {
+      filteredCategories.forEach((cat: any) => {
         const code = String(cat.category_code || '').trim();
         const used = toNumber(cat.used_amount || 0);
         const budget = toNumber(cat.budget_amount || 0);
