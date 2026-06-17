@@ -1353,7 +1353,7 @@ const BudgetManagement = () => {
         ) : analyticsData ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Chart 1: Budget vs Expense by Month */}
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5" style={{ borderTop: '3px solid #2D6A4F' }}>
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5 md:col-span-2" style={{ borderTop: '3px solid #2D6A4F' }}>
               <div className="mb-4 pb-3 border-b border-[var(--role-border)]">
                 <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Budget vs Expense — FY{analyticsFiscalYear}</h4>
                 <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Monthly budget allocation vs actual spend</p>
@@ -1432,7 +1432,7 @@ const BudgetManagement = () => {
             </div>
 
             {/* Chart 4: Top 5 Expenses by Amount */}
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5" style={{ borderTop: '3px solid #E97316' }}>
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5 md:col-span-2" style={{ borderTop: '3px solid #E97316' }}>
               <div className="mb-4 pb-3 border-b border-[var(--role-border)]">
                 <h4 className="text-[14px] font-semibold text-[var(--role-text)]">Top 5 Expenses by Amount</h4>
                 <p className="text-[11px] text-[var(--role-text)]/50 mt-1">Highest spending categories this fiscal year</p>
