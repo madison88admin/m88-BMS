@@ -838,7 +838,7 @@ const BudgetManagement = () => {
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
       // Get department budget for the selected fiscal year
-      const selectedDept = analyticsDeptId ? departments.find(d => d.id === analyticsDeptId) : null;
+      const selectedDept = analyticsDeptId ? departments.find(d => d.id === analyticsDeptId) : (selectedDepartmentId ? departments.find(d => d.id === selectedDepartmentId) : null);
       const deptAnnualBudget = selectedDept ? toNumber(selectedDept.annual_budget) : 0;
       const monthlyBudget = deptAnnualBudget / 12;
 
@@ -922,9 +922,12 @@ const BudgetManagement = () => {
             filteredCategories = Array.isArray(res.data) ? res.data : [];
           } catch { filteredCategories = []; }
         }
-      } else {
-        // If "All Departments" selected, use selected department's categories as fallback
-        filteredCategories = selectedBreakdown?.categories || [];
+      } else if (selectedDepartmentId) {
+        // If "All Departments" selected but a department is selected in the main view, use that department's categories
+        try {
+          const res = await api.get(`/api/budget/categories?department_id=${selectedDepartmentId}&fiscal_year=${analyticsFiscalYear}`);
+          filteredCategories = Array.isArray(res.data) ? res.data : [];
+        } catch { filteredCategories = []; }
       }
 
       const top5ByUtil = filteredCategories
