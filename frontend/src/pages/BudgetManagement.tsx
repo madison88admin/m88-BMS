@@ -4,7 +4,6 @@ import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
 import { formatMoney, formatDateTime, formatPercent, toNumber , getErrorMessage } from '../utils/format';
 import { supabase } from '../lib/supabase';
-import { mapDepartmentNameToShort, getCachedExpenseCategories } from '../utils/budgetVisibility';
 import {
   BarChart,
   Bar,
@@ -255,6 +254,7 @@ const BudgetManagement = () => {
   const [openOverflowId, setOpenOverflowId] = useState<string | null>(null);
   const [costCenterFilterDept, setCostCenterFilterDept] = useState<string>('all');
   const [costCenterFilterCategory, setCostCenterFilterCategory] = useState<string>('all');
+  const [costCenterCategories, setCostCenterCategories] = useState<any[]>([]);
   const [spendingBreakdown, setSpendingBreakdown] = useState<any[]>([]);
   const [spendingBreakdownLoading, setSpendingBreakdownLoading] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
@@ -985,7 +985,6 @@ const BudgetManagement = () => {
   }, [selectedDepartmentId]);
 
   useEffect(() => {
-    if (!selectedDepartmentId && analyticsDeptId === '') return;
     fetchAnalyticsData();
   }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, displayCurrency]);
 
@@ -1055,6 +1054,30 @@ const BudgetManagement = () => {
   useEffect(() => {
     fetchSpendingBreakdown();
   }, [costCenterFilterDept, costCenterFilterCategory, selectedDepartmentId, selectedFiscalYear]);
+
+  // Fetch categories for selected department in cost center filter
+  useEffect(() => {
+    const fetchCostCenterCategories = async () => {
+      if (costCenterFilterDept === 'all') {
+        setCostCenterCategories([]);
+        return;
+      }
+
+      try {
+        const fiscalYear = selectedFiscalYear || new Date().getFullYear();
+        const res = await api.get('/api/budget/categories', {
+          params: { department_id: costCenterFilterDept, fiscal_year: fiscalYear }
+        });
+        const categories = Array.isArray(res.data) ? res.data : [];
+        setCostCenterCategories(categories);
+      } catch (err) {
+        console.error('Failed to fetch cost center categories:', err);
+        setCostCenterCategories([]);
+      }
+    };
+
+    fetchCostCenterCategories();
+  }, [costCenterFilterDept, selectedFiscalYear]);
 
   // Auto-refresh spending breakdown every 15 seconds
   useEffect(() => {
@@ -1526,20 +1549,9 @@ const BudgetManagement = () => {
               disabled={costCenterFilterDept === 'all'}
             >
               <option value="all">All Categories</option>
-              {costCenterFilterDept !== 'all' && (() => {
-                const selectedDept = departments.find(d => d.id === costCenterFilterDept);
-                if (!selectedDept) return null;
-                const deptShort = mapDepartmentNameToShort(selectedDept.name);
-                const expenseCats = getCachedExpenseCategories();
-                if (!expenseCats) return null;
-                const filteredCats = expenseCats.filter((ec: any) => {
-                  const dept = String(ec.department || '').trim();
-                  return dept === 'All' || (deptShort && dept === deptShort);
-                });
-                return filteredCats.map((ec: any) => (
-                  <option key={ec.category_code} value={ec.category_code}>{ec.category_name}</option>
-                ));
-              })()}
+              {costCenterCategories.map((cat: any) => (
+                <option key={cat.id} value={cat.category_code}>{cat.category_name}</option>
+              ))}
             </select>
             {(costCenterFilterDept !== 'all' || costCenterFilterCategory !== 'all') && (
               <button
