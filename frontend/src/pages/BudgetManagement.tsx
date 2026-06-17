@@ -24,6 +24,34 @@ const DEFAULT_FX_RATE_IDR = 15800.0;
 const FX_ENDPOINT = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=PHP,IDR';
 const RECENT_PAGE_SIZE = 4;
 
+// Spending breakdown category mapping
+const DISPLAY_CATEGORIES: Record<string, string> = {
+  '6010.1': 'Zoom',
+  '6020.1': 'Automobile Fuel',
+  '6170': 'Computer and Internet Expenses',
+  '6430.1': 'Birthday Celebrations',
+  '6490.1': 'Office Stationery & Supplies',
+  '6501': 'Medical Expenses',
+  '6650': 'Postage and Delivery',
+  '6670.01': 'Professional Fees - Accounting',
+  '6711': 'Office Rent Expense',
+  '6720': 'Repairs and Maintenance',
+  '6840.1': 'Local Travel - Airline Expenses',
+  '6860.1': 'Electricity',
+  '6870.1': 'Globe',
+  '6900.1': 'Seminar',
+  '6351': 'Business Tax/Licenses',
+};
+
+const OTHERS_CATEGORIES = new Set([
+  '6040',  // Bank Service Charges
+  '6041',  // Realized Forex Gain/Loss
+  '6240',  // Depreciation Expense
+  '6330',  // Insurance Expense
+  '6340',  // Interest Expense
+  '9900',  // Sundry & Misc
+]);
+
 const enrichCategories = (categories: any[]) => {
   const nameById = new Map(categories.map((category) => [category.id, category.category_name]));
   return categories.map((category) => ({
@@ -203,15 +231,15 @@ const BudgetManagement = () => {
   const [showInactive, setShowInactive] = useState(true);
   const [categoryPageSize, setCategoryPageSize] = useState(5);
   const [openOverflowId, setOpenOverflowId] = useState<string | null>(null);
-  const [filterExpenseType, setFilterExpenseType] = useState<string>('all');
-  const [filterBudgetCategory, setFilterBudgetCategory] = useState<string>('all');
+  const [costCenterFilterDept, setCostCenterFilterDept] = useState<string>('all');
+  const [costCenterFilterCategory, setCostCenterFilterCategory] = useState<string>('all');
+  const [spendingBreakdown, setSpendingBreakdown] = useState<any[]>([]);
+  const [spendingBreakdownLoading, setSpendingBreakdownLoading] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsFiscalYear, setAnalyticsFiscalYear] = useState<number>(new Date().getFullYear());
   const [analyticsDeptId, setAnalyticsDeptId] = useState<string>('');
   const [analyticsDept, setAnalyticsDept] = useState<string>('all');
-  const [deptCategoryMap, setDeptCategoryMap] = useState<Record<string, string[]>>({});
-  const [allCategoryNames, setAllCategoryNames] = useState<string[]>([]);
 
   // Accounting, admin, and supervisor may lock/unlock budget matrix
   const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
@@ -255,34 +283,15 @@ const BudgetManagement = () => {
       const matchName = !q || String(d.name || '').toLowerCase().includes(q);
       const matchHealth = budgetHealthFilter === 'all' || getBudgetHealth(d) === budgetHealthFilter;
 
-      // Filter by budget category using deptCategoryMap
-      let matchCategory = true;
-      if (filterBudgetCategory !== 'all') {
-        const deptId = String(d.id || d.department_id || '');
-        const deptCats = deptCategoryMap[deptId] || [];
-        const filterVal = filterBudgetCategory.toLowerCase();
-        const hasMatch = deptCats.some(name => name.includes(filterVal) || filterVal.includes(name));
-        matchCategory = hasMatch;
+      // Filter by cost center department selection
+      let matchCostCenterDept = true;
+      if (costCenterFilterDept !== 'all') {
+        matchCostCenterDept = d.id === costCenterFilterDept;
       }
 
-      // Filter by expense type
-      let matchExpenseType = true;
-      if (filterExpenseType !== 'all') {
-        const deptBreakdown = selectedBreakdown?.department_id === d.id ? selectedBreakdown : null;
-        if (deptBreakdown?.recent_requests) {
-          const hasMatchingExpenseType = deptBreakdown.recent_requests.some((req: any) =>
-            req.request_type === filterExpenseType
-          );
-          matchExpenseType = hasMatchingExpenseType;
-        } else {
-          // If no breakdown data for this department, show it (we can't determine if it has matching expense types)
-          matchExpenseType = true;
-        }
-      }
-
-      return matchYear && matchName && matchHealth && matchCategory && matchExpenseType;
+      return matchYear && matchName && matchHealth && matchCostCenterDept;
     });
-  }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter, filterBudgetCategory, filterExpenseType, selectedBreakdown, deptCategoryMap]);
+  }, [visibleDepartments, selectedFiscalYear, departmentSearch, budgetHealthFilter, costCenterFilterDept]);
 
   const activeFiscalYear = availableFiscalYears[0] || selectedFiscalYear || new Date().getFullYear();
 
@@ -323,23 +332,8 @@ const BudgetManagement = () => {
 
   // Filter Quick Totals by expense type
   const filteredBreakdownCounts = useMemo(() => {
-    if (filterExpenseType === 'all') return breakdownCounts;
-
-    const recentRequests = selectedBreakdown?.recent_requests || [];
-    const filteredRequests = recentRequests.filter((r: any) => r.request_type === filterExpenseType);
-
-    const totalRequests = filteredRequests.length;
-    const releasedRequests = filteredRequests.filter((r: any) => r.status === 'released').length;
-    const directExpenses = filteredRequests.filter((r: any) => r.request_type === 'direct_expense').length;
-    const pettyCashTransactions = filteredRequests.filter((r: any) => r.request_type === 'petty_cash').length;
-
-    return {
-      total_requests: totalRequests,
-      released_requests: releasedRequests,
-      direct_expenses: directExpenses,
-      petty_cash_transactions: pettyCashTransactions,
-    };
-  }, [breakdownCounts, filterExpenseType, selectedBreakdown?.recent_requests]);
+    return breakdownCounts;
+  }, [breakdownCounts]);
 
   const enrichedCategories = useMemo(
     () => enrichCategories(selectedBreakdown?.categories || []),
@@ -441,25 +435,8 @@ const BudgetManagement = () => {
       });
     }
 
-    // Apply parent category filter (now using name matching)
-    if (filterBudgetCategory !== 'all') {
-      const filterVal = filterBudgetCategory.toLowerCase();
-      result = result.filter(({ cat }) => {
-        const catName = cat.category_name?.toLowerCase() || '';
-        const parentName = cat.parent_category_name?.toLowerCase() || '';
-        return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
-      });
-    }
-
-    // Expense type filter — frontend-only approximation
-    // Note: Full implementation requires backend to return request_types per category
-    if (filterExpenseType !== 'all') {
-      // For now, show all categories when expense type filter is set
-      // (this is a placeholder — backend needs to return request type breakdown per category)
-    }
-
     return result;
-  }, [orderedCategories, showInactive, filterBudgetCategory, filterExpenseType]);
+  }, [orderedCategories, showInactive]);
 
   const paginatedCategories = useMemo(
     () => visibleOrderedCategories.slice((categoryPage - 1) * categoryPageSize, categoryPage * categoryPageSize),
@@ -496,42 +473,6 @@ const BudgetManagement = () => {
   useEffect(() => {
     setCategoryPage(1);
   }, [categorySearch, selectedDepartmentId]);
-
-  // Fetch categories for all departments to build department-to-category map
-  useEffect(() => {
-    if (!departments || departments.length === 0) return;
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    const fetchAllDeptCategories = async () => {
-      const map: Record<string, string[]> = {};
-      const allNames = new Set<string>();
-
-      await Promise.all(
-        departments.map(async (dept) => {
-          try {
-            const res = await api.get(`/api/budget/categories?department_id=${dept.id}&fiscal_year=${selectedFiscalYear}`);
-            const cats = Array.isArray(res.data) ? res.data : [];
-            map[String(dept.id)] = cats.flatMap((c: any) => [
-              c.category_name?.toLowerCase(),
-              c.parent_category_name?.toLowerCase()
-            ].filter(Boolean));
-
-            // Collect all unique category names for dropdown
-            cats.forEach((c: any) => {
-              if (c.parent_category_name) allNames.add(c.parent_category_name);
-              else if (c.category_name) allNames.add(c.category_name);
-            });
-          } catch { map[String(dept.id)] = []; }
-        })
-      );
-
-      setDeptCategoryMap(map);
-      setAllCategoryNames(Array.from(allNames).sort());
-    };
-
-    fetchAllDeptCategories();
-  }, [departments, selectedFiscalYear]);
 
   useEffect(() => {
     if (!selectedDepartmentId) return;
@@ -871,24 +812,6 @@ const BudgetManagement = () => {
       const allRequestsResponses = await Promise.all(allRequestsPromises);
       const allRequests = allRequestsResponses.flatMap(r => Array.isArray(r.data) ? r.data : []);
 
-      // Apply expense type filter
-      let filteredRequests = requests;
-      if (filterExpenseType !== 'all') {
-        filteredRequests = requests.filter((r: any) => r.request_type === filterExpenseType);
-      }
-
-      // Apply budget category filter
-      if (filterBudgetCategory !== 'all') {
-        const parentCategory = visibleEnrichedCategories.find(c => c.id === filterBudgetCategory);
-        if (parentCategory) {
-          filteredRequests = filteredRequests.filter((r: any) => {
-            const category = visibleEnrichedCategories.find(c => c.category_name === r.category || c.category_name === r.main_category);
-            if (!category) return false;
-            return category.parent_category_id === filterBudgetCategory || category.id === filterBudgetCategory;
-          });
-        }
-      }
-
       // Process data for charts
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -899,7 +822,7 @@ const BudgetManagement = () => {
 
       // Chart 1: Budget vs Expense by month (current FY)
       const budgetVsExpense = months.map((month, idx) => {
-        const monthRequests = filteredRequests.filter((r: any) => {
+        const monthRequests = requests.filter((r: any) => {
           const d = new Date(r.submitted_at || r.created_at);
           return d.getMonth() === idx && d.getFullYear() === analyticsFiscalYear;
         });
@@ -943,7 +866,7 @@ const BudgetManagement = () => {
 
       // Chart 3: Monthly comparison 2025 vs 2026
       const monthlyComparison = months.map((month, idx) => {
-        const get = (yr: number) => filteredRequests
+        const get = (yr: number) => requests
           .filter((r: any) => {
             const d = new Date(r.submitted_at || r.created_at);
             return d.getMonth() === idx && d.getFullYear() === yr && ['released', 'approved'].includes(r.status);
@@ -954,7 +877,7 @@ const BudgetManagement = () => {
 
       // Chart 4: Top 5 expenses by amount
       const categoryTotals: Record<string, { name: string; amount: number }> = {};
-      filteredRequests
+      requests
         .filter((r: any) => ['released', 'approved'].includes(r.status))
         .forEach((r: any) => {
           const cat = r.category || r.main_category || 'Uncategorized';
@@ -980,15 +903,6 @@ const BudgetManagement = () => {
       } else {
         // If "All Departments" selected, use selected department's categories as fallback
         filteredCategories = selectedBreakdown?.categories || [];
-      }
-
-      if (filterBudgetCategory !== 'all') {
-        const filterVal = filterBudgetCategory.toLowerCase();
-        filteredCategories = filteredCategories.filter((cat: any) => {
-          const catName = cat.category_name?.toLowerCase() || '';
-          const parentName = cat.parent_category_name?.toLowerCase() || '';
-          return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
-        });
       }
 
       const top5ByUtil = filteredCategories
@@ -1051,7 +965,97 @@ const BudgetManagement = () => {
   useEffect(() => {
     if (!selectedDepartmentId && analyticsDeptId === '') return;
     fetchAnalyticsData();
-  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, filterExpenseType, filterBudgetCategory, displayCurrency]);
+  }, [analyticsFiscalYear, analyticsDeptId, selectedDepartmentId, displayCurrency]);
+
+  const fetchSpendingBreakdown = async () => {
+    setSpendingBreakdownLoading(true);
+    try {
+      const deptId = costCenterFilterDept !== 'all' ? costCenterFilterDept : selectedDepartmentId;
+      if (!deptId) {
+        setSpendingBreakdown([]);
+        return;
+      }
+
+      const fiscalYear = selectedFiscalYear || new Date().getFullYear();
+      const res = await api.get('/api/budget/categories', {
+        params: { department_id: deptId, fiscal_year: fiscalYear }
+      });
+
+      const categories = Array.isArray(res.data) ? res.data : [];
+
+      // Group categories into display and others
+      const displayItems: any[] = [];
+      let othersTotal = 0;
+      let othersBudget = 0;
+
+      categories.forEach((cat: any) => {
+        const code = String(cat.category_code || '').trim();
+        const used = toNumber(cat.used_amount || 0);
+        const budget = toNumber(cat.budget_amount || 0);
+
+        if (DISPLAY_CATEGORIES[code]) {
+          displayItems.push({
+            name: DISPLAY_CATEGORIES[code],
+            code: code,
+            used: used,
+            budget: budget,
+            utilization: budget > 0 ? (used / budget) * 100 : 0
+          });
+        } else if (OTHERS_CATEGORIES.has(code) || !DISPLAY_CATEGORIES[code]) {
+          othersTotal += used;
+          othersBudget += budget;
+        }
+      });
+
+      // Add "Others" if there are any others
+      if (othersTotal > 0 || othersBudget > 0) {
+        displayItems.push({
+          name: 'Others',
+          code: 'Others',
+          used: othersTotal,
+          budget: othersBudget,
+          utilization: othersBudget > 0 ? (othersTotal / othersBudget) * 100 : 0
+        });
+      }
+
+      // Sort by used amount descending
+      displayItems.sort((a, b) => b.used - a.used);
+
+      setSpendingBreakdown(displayItems);
+    } catch (err) {
+      console.error('Failed to fetch spending breakdown:', err);
+      setSpendingBreakdown([]);
+    } finally {
+      setSpendingBreakdownLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSpendingBreakdown();
+  }, [costCenterFilterDept, costCenterFilterCategory, selectedDepartmentId, selectedFiscalYear]);
+
+  // Auto-refresh spending breakdown every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchSpendingBreakdown();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [costCenterFilterDept, costCenterFilterCategory, selectedDepartmentId, selectedFiscalYear]);
+
+  // Real-time subscription for budget categories changes
+  useEffect(() => {
+    if (!supabase) return;
+    const subscription = supabase
+      .channel('budget_categories_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_categories' }, () => {
+        fetchSpendingBreakdown();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [costCenterFilterDept, costCenterFilterCategory, selectedDepartmentId, selectedFiscalYear]);
 
   if (loading) return <PageSkeleton />;
 
@@ -1137,6 +1141,42 @@ const BudgetManagement = () => {
                   <span className="font-semibold text-[var(--role-text)]">Departments using:</span> {toNumber(m88ManilaCostCenter.departments_count || 0)}
                 </div>
               </div>
+
+              {/* Spending by Category Chart */}
+              <div className="mt-6 pt-6 border-t border-[var(--role-border)]">
+                <h3 className="text-sm font-semibold text-[var(--role-text)] mb-4">Spending by Category</h3>
+                {spendingBreakdownLoading ? (
+                  <div className="py-8 text-center text-[var(--role-text)]/60 text-xs">Loading spending breakdown…</div>
+                ) : spendingBreakdown.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={spendingBreakdown} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} />
+                      <XAxis type="number" stroke="var(--role-text)" fontSize={11} tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}k`} />
+                      <YAxis type="category" dataKey="name" stroke="var(--role-text)" fontSize={11} width={110} />
+                      <Tooltip
+                        contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
+                        formatter={(value: any) => `₱${formatMoney(value)}`}
+                        labelFormatter={(label: any, payload: any) => {
+                          const entry = payload?.[0]?.payload;
+                          if (!entry) return label;
+                          return `${label} (Budget: ₱${formatMoney(entry.budget)}, Utilization: ${entry.utilization.toFixed(1)}%)`;
+                        }}
+                      />
+                      <Bar dataKey="used" radius={[0, 4, 4, 0]}>
+                        {spendingBreakdown.map((entry: any) => {
+                          const pct = entry.utilization || 0;
+                          let color = '#16a34a'; // green
+                          if (pct >= 50) color = '#f59e0b'; // amber
+                          if (pct >= 80) color = '#ef4444'; // red
+                          return <Cell key={`cell-${entry.code}`} fill={color} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="py-8 text-center text-[var(--role-text)]/60 text-xs">No spending data available</div>
+                )}
+              </div>
             </div>
           )}
           {/* Refresh on right */}
@@ -1191,13 +1231,13 @@ const BudgetManagement = () => {
           </div>
         </div>
 
-        {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+        {(costCenterFilterDept !== 'all' || costCenterFilterCategory !== 'all') && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-[var(--role-surface)] px-3 py-2">
             <span className="text-xs text-[var(--role-text)]/60">
-              Showing: {filterExpenseType !== 'all' ? filterExpenseType.replace('_', ' ') : 'All Types'} · {filterBudgetCategory !== 'all' ? filterBudgetCategory : 'All Categories'}
+              Showing: {costCenterFilterDept !== 'all' ? departments.find(d => d.id === costCenterFilterDept)?.name : 'All Departments'} · {costCenterFilterCategory !== 'all' ? costCenterFilterCategory : 'All Categories'}
             </span>
             <button
-              onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
+              onClick={() => { setCostCenterFilterDept('all'); setCostCenterFilterCategory('all'); }}
               className="text-xs text-[var(--role-primary)] hover:text-[var(--role-secondary)]"
             >
               ×
@@ -1355,7 +1395,7 @@ const BudgetManagement = () => {
         <div className="panel xl:sticky xl:top-24 xl:self-start">
           <div className="flex items-center gap-2 mb-1">
             <h2 className="text-base font-bold text-[var(--role-text)]">Cost Centers</h2>
-            {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+            {(costCenterFilterDept !== 'all' || costCenterFilterCategory !== 'all') && (
               <span className="h-2 w-2 rounded-full bg-amber-500" title="Filters active — some departments or categories may be hidden" />
             )}
           </div>
@@ -1392,29 +1432,44 @@ const BudgetManagement = () => {
           {/* Filters */}
           <div className="mb-3 space-y-2">
             <select
-              value={filterExpenseType}
-              onChange={(e) => setFilterExpenseType(e.target.value)}
+              value={costCenterFilterDept}
+              onChange={(e) => {
+                setCostCenterFilterDept(e.target.value);
+                setCostCenterFilterCategory('all');
+              }}
               className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
             >
-              <option value="all">All Types</option>
-              <option value="reimbursement">Reimbursement</option>
-              <option value="cash_advance">Cash Advance</option>
-              <option value="direct_expense">Direct Expense</option>
-              <option value="petty_cash">Petty Cash</option>
-            </select>
-            <select
-              value={filterBudgetCategory}
-              onChange={(e) => setFilterBudgetCategory(e.target.value)}
-              className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
-            >
-              <option value="all">All Categories</option>
-              {allCategoryNames.map(name => (
-                <option key={name} value={name}>{name}</option>
+              <option value="all">All Departments</option>
+              {departments.map(dept => (
+                <option key={dept.id} value={dept.id}>{dept.name}</option>
               ))}
             </select>
-            {(filterExpenseType !== 'all' || filterBudgetCategory !== 'all') && (
+            <select
+              value={costCenterFilterCategory}
+              onChange={(e) => setCostCenterFilterCategory(e.target.value)}
+              className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
+              disabled={costCenterFilterDept === 'all'}
+            >
+              <option value="all">All Categories</option>
+              {costCenterFilterDept !== 'all' && (() => {
+                const selectedDept = departments.find(d => d.id === costCenterFilterDept);
+                if (!selectedDept) return null;
+                const { mapDepartmentNameToShort } = require('../utils/budgetVisibility');
+                const deptShort = mapDepartmentNameToShort(selectedDept.name);
+                const expenseCats = require('../utils/budgetVisibility').getCachedExpenseCategories();
+                if (!expenseCats) return null;
+                const filteredCats = expenseCats.filter((ec: any) => {
+                  const dept = String(ec.department || '').trim();
+                  return dept === 'All' || (deptShort && dept === deptShort);
+                });
+                return filteredCats.map((ec: any) => (
+                  <option key={ec.category_code} value={ec.category_code}>{ec.category_name}</option>
+                ));
+              })()}
+            </select>
+            {(costCenterFilterDept !== 'all' || costCenterFilterCategory !== 'all') && (
               <button
-                onClick={() => { setFilterExpenseType('all'); setFilterBudgetCategory('all'); }}
+                onClick={() => { setCostCenterFilterDept('all'); setCostCenterFilterCategory('all'); }}
                 className="w-full text-xs text-[var(--role-primary)] hover:text-[var(--role-secondary)] text-left"
               >
                 Clear filters
@@ -1484,12 +1539,9 @@ const BudgetManagement = () => {
                       {deptCategories
                         .filter(c => !c.parent_category_id)
                         .filter(c => {
-                          // Filter by budget category (now using name matching)
-                          if (filterBudgetCategory !== 'all') {
-                            const catName = c.category_name?.toLowerCase() || '';
-                            const parentName = c.parent_category_name?.toLowerCase() || '';
-                            const filterVal = filterBudgetCategory.toLowerCase();
-                            return catName.includes(filterVal) || parentName.includes(filterVal) || filterVal.includes(catName) || filterVal.includes(parentName);
+                          // Filter by cost center category selection
+                          if (costCenterFilterCategory !== 'all') {
+                            return c.category_code === costCenterFilterCategory;
                           }
                           return true;
                         })
@@ -1691,7 +1743,31 @@ const BudgetManagement = () => {
 
                     {/* Budget / Committed / Pending Approval / Available summary */}
                     <div className="mb-4 flex gap-1 text-xs">
-                      {[{ label: 'Budget', val: editableBudgetValue, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' }, { label: 'Committed', val: enrichedCategories.reduce((sum, cat) => sum + toNumber(cat.committed_amount || 0), 0), cls: 'bg-blue-50 border-blue-100 text-blue-700' }, { label: 'Pending', val: selectedBreakdown?.department?.pending_budget || 0, cls: 'bg-amber-50 border-amber-100 text-amber-700' }, { label: 'Available', val: selectedBreakdown?.department?.available_budget || 0, cls: 'bg-gray-50 border-gray-100 text-gray-700' }].map(s => (
+                      {(() => {
+                        // If category is selected in cost center filter, show category-specific budget info
+                        if (costCenterFilterCategory !== 'all' && costCenterFilterDept !== 'all') {
+                          const selectedCategory = enrichedCategories.find(c => c.category_code === costCenterFilterCategory);
+                          if (selectedCategory) {
+                            const budget = toNumber(selectedCategory.budget_amount);
+                            const used = toNumber(selectedCategory.used_amount);
+                            const pending = toNumber(selectedCategory.committed_amount || 0);
+                            const available = budget - used - pending;
+                            return [
+                              { label: 'Budget', val: budget, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
+                              { label: 'Used', val: used, cls: 'bg-blue-50 border-blue-100 text-blue-700' },
+                              { label: 'Pending', val: pending, cls: 'bg-amber-50 border-amber-100 text-amber-700' },
+                              { label: 'Available', val: available, cls: 'bg-gray-50 border-gray-100 text-gray-700' }
+                            ];
+                          }
+                        }
+                        // Default department-level summary
+                        return [
+                          { label: 'Budget', val: editableBudgetValue, cls: 'bg-emerald-50 border-emerald-100 text-emerald-700' },
+                          { label: 'Committed', val: enrichedCategories.reduce((sum, cat) => sum + toNumber(cat.committed_amount || 0), 0), cls: 'bg-blue-50 border-blue-100 text-blue-700' },
+                          { label: 'Pending', val: selectedBreakdown?.department?.pending_budget || 0, cls: 'bg-amber-50 border-amber-100 text-amber-700' },
+                          { label: 'Available', val: selectedBreakdown?.department?.available_budget || 0, cls: 'bg-gray-50 border-gray-100 text-gray-700' }
+                        ];
+                      })().map(s => (
                         <div key={s.label} className={`flex-1 p-2 rounded-lg border text-center ${s.cls}`}>
                           <span className="block text-[10px] uppercase font-semibold">{s.label}</span>
                           <span className="font-bold">{displayMoney(s.val)}</span>
