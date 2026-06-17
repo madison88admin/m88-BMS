@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
 import { formatMoney, formatDateTime, formatPercent, toNumber , getErrorMessage } from '../utils/format';
 import { supabase } from '../lib/supabase';
+import { mapDepartmentNameToShort, getCachedExpenseCategories } from '../utils/budgetVisibility';
 import {
   BarChart,
   Bar,
@@ -1528,9 +1529,8 @@ const BudgetManagement = () => {
               {costCenterFilterDept !== 'all' && (() => {
                 const selectedDept = departments.find(d => d.id === costCenterFilterDept);
                 if (!selectedDept) return null;
-                const { mapDepartmentNameToShort } = require('../utils/budgetVisibility');
                 const deptShort = mapDepartmentNameToShort(selectedDept.name);
-                const expenseCats = require('../utils/budgetVisibility').getCachedExpenseCategories();
+                const expenseCats = getCachedExpenseCategories();
                 if (!expenseCats) return null;
                 const filteredCats = expenseCats.filter((ec: any) => {
                   const dept = String(ec.department || '').trim();
