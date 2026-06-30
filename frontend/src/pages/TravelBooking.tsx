@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
-import { formatMoney, toNumber } from '../utils/format';
-import type { BookingType, FlightSegment, HotelStay, FlightBookingDetails, TravelBooking } from '../types/travelBooking';
+import type { BookingType, FlightSegment, HotelStay, TravelBooking } from '../types/travelBooking';
+import { jsPDF } from 'jspdf';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -12,7 +11,6 @@ const initialFlightSegment = (): FlightSegment => ({
   id: generateId(),
   originCity: '',
   destinationCity: '',
-  airline: '',
   departureDate: '',
   arrivalDate: '',
   terminalNotes: '',
@@ -20,7 +18,6 @@ const initialFlightSegment = (): FlightSegment => ({
 
 const initialHotelStay = (): HotelStay => ({
   id: generateId(),
-  hotelName: '',
   cityArea: '',
   checkInDate: '',
   checkOutDate: '',
@@ -34,33 +31,44 @@ const bookingTypeOptions: { value: BookingType; label: string; description: stri
 ];
 
 const TravelBooking = () => {
-  const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [departments, setDepartments] = useState<any[]>([]);
+  const [costCenters, setCostCenters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
 
   const [bookingType, setBookingType] = useState<BookingType>('flight');
   const [departmentId, setDepartmentId] = useState('');
+  const [costCenterId, setCostCenterId] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [passportExpiration, setPassportExpiration] = useState('');
   const [flightSegments, setFlightSegments] = useState<FlightSegment[]>([initialFlightSegment()]);
   const [hotelStays, setHotelStays] = useState<HotelStay[]>([initialHotelStay()]);
-  const [flightDetails, setFlightDetails] = useState<FlightBookingDetails>({});
   const [notes, setNotes] = useState('');
-  const [estimatedAmount, setEstimatedAmount] = useState('');
+  const [requesterName, setRequesterName] = useState('');
+  const [supervisorName, setSupervisorName] = useState('');
 
   useEffect(() => {
     const bootstrap = async () => {
       try {
         const meRes = await api.get('/api/auth/me');
         setUser(meRes.data);
+        setRequesterName(meRes.data?.name || '');
 
         const deptRes = await api.get('/api/departments');
         const depts = Array.isArray(deptRes.data) ? deptRes.data : [];
         setDepartments(depts);
-        if (depts.length > 0) setDepartmentId(depts[0].id);
+        if (depts.length > 0) {
+          setDepartmentId(depts[0].id);
+        }
+
+        const ccRes = await api.get('/api/budget/cost-centers');
+        const centers = Array.isArray(ccRes.data) ? ccRes.data : [];
+        setCostCenters(centers);
+        if (centers.length > 0) {
+          setCostCenterId(centers[0].id);
+        }
       } catch {
-        toast.error('Failed to load user data');
+        toast.error('Failed to load data');
       } finally {
         setLoading(false);
       }
@@ -70,7 +78,6 @@ const TravelBooking = () => {
 
   const showFlight = bookingType === 'flight' || bookingType === 'both';
   const showHotel = bookingType === 'hotel' || bookingType === 'both';
-  const showFlightDetails = bookingType === 'flight' || bookingType === 'both';
 
   const addFlightSegment = () => setFlightSegments([...flightSegments, initialFlightSegment()]);
   const removeFlightSegment = (id: string) => setFlightSegments(flightSegments.filter((s) => s.id !== id));
@@ -86,8 +93,10 @@ const TravelBooking = () => {
 
   const validate = () => {
     if (!departmentId) return 'Please select a department';
+    if (!costCenterId) return 'Please select a cost center';
     if (!purpose.trim()) return 'Purpose is required';
-    if (toNumber(estimatedAmount) <= 0) return 'Estimated amount must be greater than 0';
+    if (!requesterName.trim()) return 'Requester name is required';
+    if (!supervisorName.trim()) return 'Supervisor name is required';
     if (showFlight && flightSegments.some((s) => !s.originCity || !s.destinationCity || !s.departureDate || !s.arrivalDate)) {
       return 'Please complete all flight segment details';
     }
@@ -97,32 +106,117 @@ const TravelBooking = () => {
     return null;
   };
 
-  const handleSubmit = async () => {
+  const generatePDF = () => {
     const error = validate();
     if (error) { toast.error(error); return; }
 
-    setSubmitting(true);
-    try {
-      const payload: TravelBooking = {
-        user_id: user?.id,
-        department_id: departmentId,
-        booking_type: bookingType,
-        purpose,
-        total_estimated_amount: toNumber(estimatedAmount),
-        flight_segments: showFlight ? flightSegments : [],
-        hotel_stays: showHotel ? hotelStays : [],
-        flight_details: showFlightDetails ? flightDetails : undefined,
-        notes,
-      };
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 20;
 
-      await api.post('/api/travel-bookings', payload);
-      toast.success('Travel booking submitted for approval');
-      navigate('/tracker');
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to submit travel booking');
-    } finally {
-      setSubmitting(false);
+    const centerText = (text: string, yPos: number, size = 16, bold = true) => {
+      doc.setFontSize(size);
+      if (bold) doc.setFont('helvetica', 'bold');
+      else doc.setFont('helvetica', 'normal');
+      const textWidth = doc.getTextWidth(text);
+      doc.text(text, (pageWidth - textWidth) / 2, yPos);
+    };
+
+    const leftText = (label: string, value: string, yPos: number) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(`${label}:`, 20, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(value || '-', 20 + doc.getTextWidth(`${label}:`) + 4, yPos);
+    };
+
+    centerText('TRAVEL BOOKING CERTIFICATION', y);
+    y += 12;
+    centerText('Madison88', y, 12, false);
+    y += 20;
+
+    const dept = departments.find((d) => d.id === departmentId);
+    const cc = costCenters.find((c) => c.id === costCenterId);
+    const typeLabel = bookingTypeOptions.find((o) => o.value === bookingType)?.label || '';
+
+    leftText('Requester', requesterName, y); y += 10;
+    leftText('Department', dept?.name || '', y); y += 10;
+    leftText('Cost Center', cc?.name || '', y); y += 10;
+    leftText('Booking Type', typeLabel, y); y += 10;
+    leftText('Purpose', purpose, y); y += 10;
+    if (passportExpiration) { leftText('Passport Expiration', passportExpiration, y); y += 10; }
+
+    y += 10;
+
+    if (showFlight && flightSegments.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('Flight Details', 20, y);
+      y += 10;
+
+      flightSegments.forEach((segment, idx) => {
+        leftText(`Segment ${idx + 1}`, `${segment.originCity} → ${segment.destinationCity}`, y); y += 8;
+        leftText('  Departure', segment.departureDate, y); y += 8;
+        leftText('  Arrival', segment.arrivalDate, y); y += 8;
+        if (segment.terminalNotes) { leftText('  Notes', segment.terminalNotes, y); y += 8; }
+        y += 4;
+      });
     }
+
+    if (showHotel && hotelStays.length > 0) {
+      y += 6;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('Hotel Details', 20, y);
+      y += 10;
+
+      hotelStays.forEach((stay, idx) => {
+        leftText(`Stay ${idx + 1}`, stay.cityArea, y); y += 8;
+        leftText('  Check-in', stay.checkInDate, y); y += 8;
+        leftText('  Check-out', stay.checkOutDate, y); y += 8;
+        leftText('  Nights', String(stay.totalNights), y); y += 8;
+        y += 4;
+      });
+    }
+
+    if (notes) {
+      y += 6;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('Additional Notes', 20, y);
+      y += 10;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      const splitNotes = doc.splitTextToSize(notes, pageWidth - 40);
+      doc.text(splitNotes, 20, y);
+      y += splitNotes.length * 6 + 10;
+    }
+
+    y += 20;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('Certification', 20, y);
+    y += 10;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    const certText = `I hereby certify that the above travel booking request is true and correct to the best of my knowledge, and is approved for booking.`;
+    const splitCert = doc.splitTextToSize(certText, pageWidth - 40);
+    doc.text(splitCert, 20, y);
+    y += splitCert.length * 6 + 20;
+
+    // Signature lines
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.line(20, y, 80, y);
+    doc.text(requesterName, 20, y + 6);
+    doc.text('Requester Signature', 20, y + 12);
+
+    doc.line(pageWidth - 80, y, pageWidth - 20, y);
+    doc.text(supervisorName, pageWidth - 80, y + 6);
+    doc.text('Supervisor Signature', pageWidth - 80, y + 12);
+
+    doc.save(`travel-booking-${Date.now()}.pdf`);
+    toast.success('PDF certification generated');
   };
 
   if (loading) return <PageSkeleton />;
@@ -131,7 +225,7 @@ const TravelBooking = () => {
     <div className="text-[var(--role-text)] page-transition">
       <div className="page-header mb-8">
         <h1 className="page-title">Travel Booking</h1>
-        <p className="page-subtitle">Submit flight and hotel booking requests for supervisor approval.</p>
+        <p className="page-subtitle">Generate travel booking certification PDF with supervisor sign-off.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -176,13 +270,25 @@ const TravelBooking = () => {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Estimated Total Amount</label>
-                <input
-                  type="number"
+                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Cost Center</label>
+                <select
                   className="input-field w-full"
-                  value={estimatedAmount}
-                  onChange={(e) => setEstimatedAmount(e.target.value)}
-                  placeholder="0.00"
+                  value={costCenterId}
+                  onChange={(e) => setCostCenterId(e.target.value)}
+                >
+                  <option value="">Select cost center</option>
+                  {costCenters.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Passport Expiration</label>
+                <input
+                  type="date"
+                  className="input-field w-full"
+                  value={passportExpiration}
+                  onChange={(e) => setPassportExpiration(e.target.value)}
                 />
               </div>
             </div>
@@ -229,12 +335,6 @@ const TravelBooking = () => {
                         placeholder="Destination city"
                         value={segment.destinationCity}
                         onChange={(e) => updateFlightSegment(segment.id, 'destinationCity', e.target.value)}
-                      />
-                      <input
-                        className="input-field w-full"
-                        placeholder="Airline (optional)"
-                        value={segment.airline}
-                        onChange={(e) => updateFlightSegment(segment.id, 'airline', e.target.value)}
                       />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
@@ -292,18 +392,22 @@ const TravelBooking = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                       <input
                         className="input-field w-full"
-                        placeholder="Hotel name (optional)"
-                        value={stay.hotelName}
-                        onChange={(e) => updateHotelStay(stay.id, 'hotelName', e.target.value)}
-                      />
-                      <input
-                        className="input-field w-full"
                         placeholder="City / area"
                         value={stay.cityArea}
                         onChange={(e) => updateHotelStay(stay.id, 'cityArea', e.target.value)}
                       />
+                      <div>
+                        <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Nights</label>
+                        <input
+                          type="number"
+                          min={1}
+                          className="input-field w-full"
+                          value={stay.totalNights}
+                          onChange={(e) => updateHotelStay(stay.id, 'totalNights', parseInt(e.target.value || '1', 10))}
+                        />
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Check-in</label>
                         <input
@@ -322,52 +426,9 @@ const TravelBooking = () => {
                           onChange={(e) => updateHotelStay(stay.id, 'checkOutDate', e.target.value)}
                         />
                       </div>
-                      <div>
-                        <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Nights</label>
-                        <input
-                          type="number"
-                          min={1}
-                          className="input-field w-full"
-                          value={stay.totalNights}
-                          onChange={(e) => updateHotelStay(stay.id, 'totalNights', parseInt(e.target.value || '1', 10))}
-                        />
-                      </div>
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {/* Flight Booking Details (baggage/seat/meal) */}
-          {showFlightDetails && (
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
-              <h3 className="text-sm font-semibold mb-4">Flight Booking Details</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <input
-                  className="input-field w-full"
-                  placeholder="Baggage allowance"
-                  value={flightDetails.baggageAllowance || ''}
-                  onChange={(e) => setFlightDetails({ ...flightDetails, baggageAllowance: e.target.value })}
-                />
-                <input
-                  className="input-field w-full"
-                  placeholder="Seat preference"
-                  value={flightDetails.seatPreference || ''}
-                  onChange={(e) => setFlightDetails({ ...flightDetails, seatPreference: e.target.value })}
-                />
-                <input
-                  className="input-field w-full"
-                  placeholder="Meal preference"
-                  value={flightDetails.mealPreference || ''}
-                  onChange={(e) => setFlightDetails({ ...flightDetails, mealPreference: e.target.value })}
-                />
-                <input
-                  className="input-field w-full"
-                  placeholder="Special assistance"
-                  value={flightDetails.specialAssistance || ''}
-                  onChange={(e) => setFlightDetails({ ...flightDetails, specialAssistance: e.target.value })}
-                />
               </div>
             </div>
           )}
@@ -385,34 +446,49 @@ const TravelBooking = () => {
           </div>
         </div>
 
-        {/* Summary */}
+        {/* Certification Panel */}
         <div className="lg:col-span-1">
           <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5 sticky top-4">
-            <h3 className="text-sm font-semibold mb-4">Booking Summary</h3>
-            <div className="space-y-2 text-sm mb-4">
-              <div className="flex justify-between">
-                <span className="text-[var(--role-text)]/60">Type</span>
-                <span>{bookingTypeOptions.find((o) => o.value === bookingType)?.label}</span>
+            <h3 className="text-sm font-semibold mb-4">Certification</h3>
+            <div className="space-y-4 mb-4">
+              <div>
+                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Requester Name</label>
+                <input
+                  className="input-field w-full"
+                  value={requesterName}
+                  onChange={(e) => setRequesterName(e.target.value)}
+                  placeholder="Full name"
+                />
               </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--role-text)]/60">Flight segments</span>
-                <span>{showFlight ? flightSegments.length : 0}</span>
+              <div>
+                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Supervisor Name</label>
+                <input
+                  className="input-field w-full"
+                  value={supervisorName}
+                  onChange={(e) => setSupervisorName(e.target.value)}
+                  placeholder="Supervisor full name"
+                />
               </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--role-text)]/60">Hotel stays</span>
-                <span>{showHotel ? hotelStays.length : 0}</span>
-              </div>
-              <div className="flex justify-between border-t border-[var(--role-border)] pt-2 mt-2">
-                <span className="text-[var(--role-text)]/60">Estimated Total</span>
-                <span className="font-semibold">{formatMoney(toNumber(estimatedAmount), 'PHP')}</span>
+              <div className="pt-2 border-t border-[var(--role-border)]">
+                <div className="flex justify-between text-sm">
+                  <span className="text-[var(--role-text)]/60">Type</span>
+                  <span>{bookingTypeOptions.find((o) => o.value === bookingType)?.label}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-[var(--role-text)]/60">Flight segments</span>
+                  <span>{showFlight ? flightSegments.length : 0}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-[var(--role-text)]/60">Hotel stays</span>
+                  <span>{showHotel ? hotelStays.length : 0}</span>
+                </div>
               </div>
             </div>
             <button
-              onClick={handleSubmit}
-              disabled={submitting}
+              onClick={generatePDF}
               className="btn-primary w-full !rounded-xl !py-3"
             >
-              {submitting ? 'Submitting...' : 'Submit for Approval'}
+              Generate PDF Certification
             </button>
           </div>
         </div>
