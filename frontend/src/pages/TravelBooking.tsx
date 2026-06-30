@@ -85,8 +85,23 @@ const TravelBooking = () => {
 
   const addHotelStay = () => setHotelStays([...hotelStays, initialHotelStay()]);
   const removeHotelStay = (id: string) => setHotelStays(hotelStays.filter((s) => s.id !== id));
+  const computeNights = (checkIn: string, checkOut: string) => {
+    if (!checkIn || !checkOut) return 1;
+    const start = new Date(checkIn);
+    const end = new Date(checkOut);
+    const diff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    return diff > 0 ? diff : 1;
+  };
+
   const updateHotelStay = (id: string, field: keyof HotelStay, value: string | number) => {
-    setHotelStays(hotelStays.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
+    setHotelStays(hotelStays.map((s) => {
+      if (s.id !== id) return s;
+      const updated = { ...s, [field]: value };
+      if (field === 'checkInDate' || field === 'checkOutDate') {
+        updated.totalNights = computeNights(updated.checkInDate, updated.checkOutDate);
+      }
+      return updated;
+    }));
   };
 
   const validate = () => {
@@ -578,15 +593,9 @@ const TravelBooking = () => {
                         value={stay.cityArea}
                         onChange={(e) => updateHotelStay(stay.id, 'cityArea', e.target.value)}
                       />
-                      <div>
-                        <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Nights</label>
-                        <input
-                          type="number"
-                          min={1}
-                          className="input-field w-full"
-                          value={stay.totalNights}
-                          onChange={(e) => updateHotelStay(stay.id, 'totalNights', parseInt(e.target.value || '1', 10))}
-                        />
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--role-text)]/60">Nights:</span>
+                        <span className="text-sm font-semibold">{stay.totalNights}</span>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
