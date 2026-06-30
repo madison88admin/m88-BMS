@@ -23,6 +23,7 @@ const DEFAULT_FX_RATE_PHP = 56.0;
 const DEFAULT_FX_RATE_IDR = 15800.0;
 const FX_ENDPOINT = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=PHP,IDR';
 const RECENT_PAGE_SIZE = 4;
+const TRAVEL_BOOKING_URL = import.meta.env.VITE_TRAVEL_BOOKING_URL || 'https://m88-travel-booking.netlify.app';
 
 // Spending breakdown category mapping
 const DISPLAY_CATEGORIES: Record<string, string> = {
@@ -1135,6 +1136,18 @@ const BudgetManagement = () => {
             >
               {displayCurrency === 'PHP' ? 'Show in USD' : displayCurrency === 'USD' ? 'Show in IDR' : 'Show in PHP'}
             </button>
+            {/* Travel Booking button */}
+            <a
+              href={TRAVEL_BOOKING_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary !rounded-full !px-4 !py-2 !text-sm shrink-0 inline-flex items-center gap-2"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Travel Booking
+            </a>
           </div>
 
           {/* M88 Manila cost center row — only for accounting/admin/supervisor */}
@@ -1364,7 +1377,7 @@ const BudgetManagement = () => {
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={analyticsData.budgetVsExpense}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" strokeOpacity={0.5} vertical={false} />
-                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
+                  <XAxis dataKey="month" stroke="var(--role-text)" fontSize={11} />
                   <YAxis stroke="var(--role-text)" fontSize={11} tickFormatter={formatChartValue} />
                   <Tooltip
                     contentStyle={{ borderRadius: '8px', border: '0.5px solid #e5e7eb', fontSize: '12px' }}
