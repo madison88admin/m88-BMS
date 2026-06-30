@@ -82,6 +82,12 @@ export const CODE_CONFIGS = {
     codeColumn: 'request_code',
     typeFilter: 'cash_advance'
   },
+  TRAVEL_BOOKING: {
+    prefix: 'TRV',
+    tableName: 'expense_requests',
+    codeColumn: 'request_code',
+    typeFilter: 'travel_booking'
+  },
   LIQUIDATION: {
     prefix: 'LIQ',
     tableName: 'request_liquidations',
@@ -105,6 +111,8 @@ export async function generateRequestCode(
       return generateSequentialCode(supabase, CODE_CONFIGS.REIMBURSEMENT);
     case 'cash_advance':
       return generateSequentialCode(supabase, CODE_CONFIGS.CASH_ADVANCE);
+    case 'travel_booking':
+      return generateSequentialCode(supabase, CODE_CONFIGS.TRAVEL_BOOKING);
     default:
       // Fallback to REQ prefix for other types
       return generateSequentialCode(supabase, CODE_CONFIGS.REIMBURSEMENT);

@@ -267,6 +267,7 @@ const Layout = ({ children }: LayoutProps) => {
         <>
           <Link to="/employee" className={getNavClassName('/employee')}>Dashboard</Link>
           <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>Create Ticket</Link>
+          <Link to="/travel-booking" className={getNavClassName('/travel-booking')}>Travel Booking</Link>
           <Link to="/tracker" className={getNavClassName('/tracker')}>My Requests</Link>
         </>
       ) : (

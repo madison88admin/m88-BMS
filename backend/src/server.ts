@@ -16,6 +16,7 @@ import slaRoutes from './routes/sla';
 import budgetAlertRoutes from './routes/budgetAlerts';
 import notificationRoutes from './routes/notifications';
 import budgetRoutes from './routes/budget';
+import travelBookingRoutes from './routes/travelBookings';
 import cashAdvanceRoutes from './routes/cashAdvances';
 import uploadRoutes from './routes/upload';
 import configRoutes from './routes/config';
@@ -30,9 +31,28 @@ dotenv.config();
 const app = express();
 
 app.use(helmet());
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5000',
+  'http://127.0.0.1:5000',
+  ...(process.env.ADDITIONAL_CORS_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || [])
+];
+
 app.use(cors({
-  origin: '*',
-  credentials: true
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://127.0.0.1:') || origin.startsWith('http://localhost:')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-BMS-Token']
 }));
 app.use(express.json());
 
@@ -55,6 +75,7 @@ app.use('/api/sla', slaRoutes);
 app.use('/api/budget-alerts', budgetAlertRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/budget', budgetRoutes);
+app.use('/api/travel-bookings', travelBookingRoutes);
 app.use('/api/cash-advances', cashAdvanceRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/config', configRoutes);
