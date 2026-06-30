@@ -31,7 +31,6 @@ const bookingTypeOptions: { value: BookingType; label: string; description: stri
 ];
 
 const TravelBooking = () => {
-  const [user, setUser] = useState<any>(null);
   const [departments, setDepartments] = useState<any[]>([]);
   const [costCenters, setCostCenters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,7 +50,6 @@ const TravelBooking = () => {
     const bootstrap = async () => {
       try {
         const meRes = await api.get('/api/auth/me');
-        setUser(meRes.data);
         setRequesterName(meRes.data?.name || '');
 
         const deptRes = await api.get('/api/departments');
@@ -112,108 +110,292 @@ const TravelBooking = () => {
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
-    let y = 20;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const contentWidth = pageWidth - margin * 2;
+    let y = margin;
 
-    const centerText = (text: string, yPos: number, size = 16, bold = true) => {
+    // Colors
+    const primary = '#1E3A8A';
+    const accent = '#3B82F6';
+    const lightGray = '#F8FAFC';
+    const border = '#E5E7EB';
+    const text = '#111827';
+    const secondary = '#6B7280';
+
+    const hexToRgb = (hex: string) => {
+      const v = hex.replace('#', '');
+      return {
+        r: parseInt(v.substring(0, 2), 16),
+        g: parseInt(v.substring(2, 4), 16),
+        b: parseInt(v.substring(4, 6), 16),
+      };
+    };
+
+    const color = (hex: string) => {
+      const c = hexToRgb(hex);
+      doc.setTextColor(c.r, c.g, c.b);
+    };
+    const fill = (hex: string) => {
+      const c = hexToRgb(hex);
+      doc.setFillColor(c.r, c.g, c.b);
+    };
+    const draw = (hex: string) => {
+      const c = hexToRgb(hex);
+      doc.setDrawColor(c.r, c.g, c.b);
+    };
+    const centerText = (textStr: string, yPos: number, size: number, bold = false) => {
       doc.setFontSize(size);
-      if (bold) doc.setFont('helvetica', 'bold');
-      else doc.setFont('helvetica', 'normal');
-      const textWidth = doc.getTextWidth(text);
-      doc.text(text, (pageWidth - textWidth) / 2, yPos);
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      const textWidth = doc.getTextWidth(textStr);
+      doc.text(textStr, (pageWidth - textWidth) / 2, yPos);
     };
 
-    const leftText = (label: string, value: string, yPos: number) => {
-      doc.setFont('helvetica', 'bold');
+    const drawSectionHeader = (title: string, yPos: number) => {
+      const height = 10;
+      fill(lightGray);
+      draw(accent);
+      doc.setLineWidth(0.5);
+      // Background with left accent border
+      doc.rect(margin, yPos - height + 3, contentWidth, height, 'FD');
+      doc.setLineWidth(2);
+      doc.line(margin, yPos - height + 3, margin, yPos + 3);
+      color(text);
       doc.setFontSize(11);
-      doc.text(`${label}:`, 20, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.text(value || '-', 20 + doc.getTextWidth(`${label}:`) + 4, yPos);
+      doc.setFont('helvetica', 'bold');
+      doc.text(title.toUpperCase(), margin + 6, yPos);
+      return yPos + height + 4;
     };
 
-    centerText('TRAVEL BOOKING CERTIFICATION', y);
-    y += 12;
-    centerText('Madison88', y, 12, false);
-    y += 20;
+    const drawLabelValue = (label: string, value: string, x: number, yPos: number, colWidth: number) => {
+      color(secondary);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'semibold');
+      doc.text(label, x, yPos);
+      color(text);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      const val = value || '-';
+      const split = doc.splitTextToSize(val, colWidth - 4);
+      doc.text(split, x, yPos + 5);
+      return split.length * 5;
+    };
+
+    const checkNewPage = (neededHeight: number) => {
+      if (y + neededHeight > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    };
+
+    // Header
+    centerText('MADISON88', y, 10, true);
+    y += 8;
+    color(primary);
+    doc.setFontSize(24);
+    doc.setFont('helvetica', 'bold');
+    const title = 'Travel Booking Certification';
+    const titleWidth = doc.getTextWidth(title);
+    doc.text(title, (pageWidth - titleWidth) / 2, y);
+    y += 8;
+    color(secondary);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    const sub = 'Internal Travel Authorization & Certification';
+    const subWidth = doc.getTextWidth(sub);
+    doc.text(sub, (pageWidth - subWidth) / 2, y);
+    y += 8;
+    draw(border);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 14;
 
     const dept = departments.find((d) => d.id === departmentId);
     const cc = costCenters.find((c) => c.id === costCenterId);
     const typeLabel = bookingTypeOptions.find((o) => o.value === bookingType)?.label || '';
 
-    leftText('Requester', requesterName, y); y += 10;
-    leftText('Department', dept?.name || '', y); y += 10;
-    leftText('Cost Center', cc?.name || '', y); y += 10;
-    leftText('Booking Type', typeLabel, y); y += 10;
-    leftText('Purpose', purpose, y); y += 10;
-    if (passportExpiration) { leftText('Passport Expiration', passportExpiration, y); y += 10; }
+    // Request Information section
+    y = drawSectionHeader('Request Information', y);
+    const col1 = margin;
+    const col2 = margin + contentWidth / 2 + 4;
+    const colWidth = contentWidth / 2 - 4;
+    let rowHeight = 0;
+    let rowStart = y;
 
-    y += 10;
+    const addInfoRow = (label1: string, value1: string, label2: string, value2: string) => {
+      const h1 = drawLabelValue(label1, value1, col1, rowStart, colWidth);
+      const h2 = drawLabelValue(label2, value2, col2, rowStart, colWidth);
+      const maxH = Math.max(h1, h2) + 14;
+      rowStart += maxH;
+      rowHeight += maxH;
+    };
 
+    addInfoRow('Requester', requesterName, 'Department', dept?.name || '');
+    addInfoRow('Cost Center', cc?.name || '', 'Booking Type', typeLabel);
+    addInfoRow('Passport Expiration', passportExpiration || 'N/A', 'Date', new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+    y = rowStart + 4;
+
+    // Purpose
+    color(secondary);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'semibold');
+    doc.text('Purpose of Travel', margin, y);
+    y += 5;
+    color(text);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    const purposeLines = doc.splitTextToSize(purpose || '-', contentWidth);
+    doc.text(purposeLines, margin, y);
+    y += purposeLines.length * 5 + 12;
+
+    // Flight Details
     if (showFlight && flightSegments.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('Flight Details', 20, y);
-      y += 10;
+      checkNewPage(40);
+      y = drawSectionHeader('Flight Details', y);
 
       flightSegments.forEach((segment, idx) => {
-        leftText(`Segment ${idx + 1}`, `${segment.originCity} → ${segment.destinationCity}`, y); y += 8;
-        leftText('  Departure', segment.departureDate, y); y += 8;
-        leftText('  Arrival', segment.arrivalDate, y); y += 8;
-        if (segment.terminalNotes) { leftText('  Notes', segment.terminalNotes, y); y += 8; }
-        y += 4;
+        checkNewPage(55);
+        const cardTop = y - 4;
+        const cardHeight = 46;
+        fill('#FFFFFF');
+        draw(border);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(margin, cardTop, contentWidth, cardHeight, 3, 3, 'FD');
+
+        color(primary);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Segment ${idx + 1}`, margin + 6, cardTop + 9);
+
+        draw(border);
+        doc.setLineWidth(0.3);
+        doc.line(margin + 6, cardTop + 13, pageWidth - margin - 6, cardTop + 13);
+
+        const segCol1 = margin + 6;
+        const segCol2 = margin + contentWidth / 2 + 2;
+        const segColWidth = contentWidth / 2 - 8;
+        let segY = cardTop + 20;
+
+        drawLabelValue('Route', `${segment.originCity} → ${segment.destinationCity}`, segCol1, segY, segColWidth);
+        segY += 16;
+        drawLabelValue('Departure', segment.departureDate, segCol1, segY, segColWidth);
+        drawLabelValue('Arrival', segment.arrivalDate, segCol2, segY, segColWidth);
+        segY += 16;
+        if (segment.terminalNotes) {
+          drawLabelValue('Notes', segment.terminalNotes, segCol1, segY, contentWidth - 12);
+        }
+
+        y = cardTop + cardHeight + 8;
       });
     }
 
+    // Hotel Details
     if (showHotel && hotelStays.length > 0) {
-      y += 6;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('Hotel Details', 20, y);
-      y += 10;
+      checkNewPage(40);
+      y = drawSectionHeader('Hotel Details', y);
 
       hotelStays.forEach((stay, idx) => {
-        leftText(`Stay ${idx + 1}`, stay.cityArea, y); y += 8;
-        leftText('  Check-in', stay.checkInDate, y); y += 8;
-        leftText('  Check-out', stay.checkOutDate, y); y += 8;
-        leftText('  Nights', String(stay.totalNights), y); y += 8;
-        y += 4;
+        checkNewPage(50);
+        const cardTop = y - 4;
+        const cardHeight = 40;
+        fill('#FFFFFF');
+        draw(border);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(margin, cardTop, contentWidth, cardHeight, 3, 3, 'FD');
+
+        color(primary);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Stay ${idx + 1}`, margin + 6, cardTop + 9);
+
+        draw(border);
+        doc.setLineWidth(0.3);
+        doc.line(margin + 6, cardTop + 13, pageWidth - margin - 6, cardTop + 13);
+
+        const segCol1 = margin + 6;
+        const segCol2 = margin + contentWidth / 2 + 2;
+        const segColWidth = contentWidth / 2 - 8;
+        let segY = cardTop + 20;
+
+        drawLabelValue('City / Area', stay.cityArea, segCol1, segY, segColWidth);
+        drawLabelValue('Total Nights', String(stay.totalNights), segCol2, segY, segColWidth);
+        segY += 16;
+        drawLabelValue('Check-in', stay.checkInDate, segCol1, segY, segColWidth);
+        drawLabelValue('Check-out', stay.checkOutDate, segCol2, segY, segColWidth);
+
+        y = cardTop + cardHeight + 8;
       });
     }
 
+    // Additional Notes
     if (notes) {
-      y += 6;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('Additional Notes', 20, y);
-      y += 10;
+      checkNewPage(40);
+      y = drawSectionHeader('Additional Notes', y);
+
+      fill('#FFFFFF');
+      draw(border);
+      doc.setLineWidth(0.5);
+      const notesHeight = 22 + doc.splitTextToSize(notes, contentWidth - 12).length * 5;
+      doc.roundedRect(margin, y - 4, contentWidth, notesHeight, 3, 3, 'FD');
+
+      color(text);
+      doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
-      const splitNotes = doc.splitTextToSize(notes, pageWidth - 40);
-      doc.text(splitNotes, 20, y);
-      y += splitNotes.length * 6 + 10;
+      const splitNotes = doc.splitTextToSize(notes, contentWidth - 12);
+      doc.text(splitNotes, margin + 6, y + 5);
+      y += notesHeight + 12;
     }
 
-    y += 20;
+    // Certification
+    checkNewPage(60);
+    y = drawSectionHeader('Certification', y);
+
+    fill(lightGray);
+    draw(border);
+    doc.setLineWidth(0.5);
+    const certText = `I hereby certify that the information provided above is true and correct to the best of my knowledge, and that this travel booking has been reviewed and approved for processing.`;
+    const certLines = doc.splitTextToSize(certText, contentWidth - 16);
+    const certHeight = 14 + certLines.length * 5;
+    doc.roundedRect(margin, y - 4, contentWidth, certHeight, 3, 3, 'FD');
+
+    color(text);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(certLines, margin + 8, y + 5);
+    y += certHeight + 16;
+
+    // Signatures
+    checkNewPage(50);
+    y = drawSectionHeader('Signatures', y);
+
+    const sigWidth = 70;
+    const sigY = y + 10;
+    draw(secondary);
+    doc.setLineWidth(0.5);
+    doc.line(margin, sigY, margin + sigWidth, sigY);
+    doc.line(pageWidth - margin - sigWidth, sigY, pageWidth - margin, sigY);
+
+    color(text);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('Certification', 20, y);
-    y += 10;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    const certText = `I hereby certify that the above travel booking request is true and correct to the best of my knowledge, and is approved for booking.`;
-    const splitCert = doc.splitTextToSize(certText, pageWidth - 40);
-    doc.text(splitCert, 20, y);
-    y += splitCert.length * 6 + 20;
+    doc.text(requesterName, margin, sigY + 6);
+    doc.text(supervisorName, pageWidth - margin - sigWidth, sigY + 6);
 
-    // Signature lines
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    doc.line(20, y, 80, y);
-    doc.text(requesterName, 20, y + 6);
-    doc.text('Requester Signature', 20, y + 12);
+    color(secondary);
+    doc.text('Requester', margin, sigY + 12);
+    doc.text('Supervisor', pageWidth - margin - sigWidth, sigY + 12);
 
-    doc.line(pageWidth - 80, y, pageWidth - 20, y);
-    doc.text(supervisorName, pageWidth - 80, y + 6);
-    doc.text('Supervisor Signature', pageWidth - 80, y + 12);
+    doc.text('Date: ____________', margin, sigY + 20);
+    doc.text('Date: ____________', pageWidth - margin - sigWidth, sigY + 20);
+
+    // Footer
+    doc.setFontSize(8);
+    color(secondary);
+    const footer = `Generated by Madison88 BMS • ${new Date().toLocaleString('en-US')}`;
+    const footerWidth = doc.getTextWidth(footer);
+    doc.text(footer, (pageWidth - footerWidth) / 2, pageHeight - 10);
 
     doc.save(`travel-booking-${Date.now()}.pdf`);
     toast.success('PDF certification generated');
