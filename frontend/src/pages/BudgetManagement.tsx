@@ -53,36 +53,6 @@ const OTHERS_CATEGORIES = new Set([
   '9900',  // Sundry & Misc
 ]);
 
-// Predefined recurring/admin expense categories (monthly batch entry)
-const RECURRING_EXPENSE_PRESETS: { category_code: string; label: string; default_dept: string }[] = [
-  { category_code: '6020.1', label: 'Automobile Fuel', default_dept: 'All' },
-  { category_code: '6020.2', label: 'Parking Fee', default_dept: 'All' },
-  { category_code: '6020.3', label: 'Toll Expense', default_dept: 'All' },
-  { category_code: '6020.5', label: 'Car Insurance', default_dept: 'Admin' },
-  { category_code: '6020.6', label: 'Automobile Expenses - Registration', default_dept: 'Admin' },
-  { category_code: '6040', label: 'Bank Service Charges', default_dept: 'Accounting' },
-  { category_code: '6041', label: 'Realized Forex Gain/Loss', default_dept: 'Accounting' },
-  { category_code: '6240', label: 'Depreciation Expense', default_dept: 'Accounting' },
-  { category_code: '6330', label: 'Insurance Expense', default_dept: 'Admin' },
-  { category_code: '6340', label: 'Interest Expense', default_dept: 'Accounting' },
-  { category_code: '6670.01', label: 'Professional Fees - Accounting', default_dept: 'Accounting' },
-  { category_code: '6670.08', label: 'BIR Compliance Service', default_dept: 'Accounting' },
-  { category_code: '6670.1', label: 'DOLE Establishment Report & 13th', default_dept: 'Accounting' },
-  { category_code: '6670.12', label: 'Fire Safety Inspection Certificate', default_dept: 'Accounting' },
-  { category_code: '6670.18', label: 'Posted Transactions Adjustment', default_dept: 'Accounting' },
-  { category_code: '6670.24', label: 'Notarization Fee', default_dept: 'Accounting' },
-  { category_code: '6711', label: 'Office Rent Expense', default_dept: 'Admin' },
-  { category_code: '6860.1', label: 'Electricity', default_dept: 'Admin' },
-  { category_code: '6860.2', label: 'Water', default_dept: 'Admin' },
-  { category_code: '6860.3', label: 'Utilities Others (Aircon etc)', default_dept: 'Admin' },
-  { category_code: '6870.1', label: 'Globe', default_dept: 'All' },
-  { category_code: '6870.2', label: 'Smart Bills', default_dept: 'All' },
-  { category_code: '6870.3', label: 'PLDT Telephone', default_dept: 'Admin' },
-  { category_code: '6870.5', label: 'Internet Subscription', default_dept: 'Admin' },
-  { category_code: '6351', label: 'Business Tax/Licenses', default_dept: 'Accounting' },
-  { category_code: '6352', label: 'Income Tax', default_dept: 'Accounting' },
-];
-
 // Segment colors for iPhone storage-style chart
 const SEGMENT_COLORS: Record<string, string> = {
   '6020.1': '#FF6B6B', // Automobile Fuel - red-orange
@@ -277,18 +247,6 @@ const BudgetManagement = () => {
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
   const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
-  const [adjustmentCategoryId, setAdjustmentCategoryId] = useState<string>('');
-  const [adjustmentAmount, setAdjustmentAmount] = useState<string>('');
-  const [adjustmentDate, setAdjustmentDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [adjustmentDescription, setAdjustmentDescription] = useState<string>('');
-  const [adjustmentSubmitting, setAdjustmentSubmitting] = useState(false);
-  const [directExpenses, setDirectExpenses] = useState<any[]>([]);
-  const [batchMode, setBatchMode] = useState(false);
-  const [batchDrafts, setBatchDrafts] = useState<Record<string, { amount: string; description: string; date: string }>>({});
-  const [batchSubmitting, setBatchSubmitting] = useState(false);
-  const [savedTemplates, setSavedTemplates] = useState<Record<string, Record<string, { amount: string; description: string; date: string }>>>({});
-  const [templateName, setTemplateName] = useState<string>('');
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
   const [pettyCashOpen, setPettyCashOpen] = useState(false);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
@@ -536,8 +494,6 @@ const BudgetManagement = () => {
     fetchDepartments();
     fetchExchangeRate(false);
     fetchM88ManilaCostCenter();
-    fetchDirectExpenses();
-    loadSavedTemplates();
     const id = window.setInterval(() => fetchExchangeRate(false), 60000);
     const costCenterId = window.setInterval(() => fetchM88ManilaCostCenter(), 30000);
     let ch: any;
@@ -547,7 +503,7 @@ const BudgetManagement = () => {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'budget_categories' }, () => { if (selectedDepartmentId) fetchBreakdown(selectedDepartmentId, false, false); })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'cost_centers' }, () => { fetchM88ManilaCostCenter(); })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requests' }, () => { fetchM88ManilaCostCenter(); })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'direct_expenses' }, () => { fetchDirectExpenses(); fetchM88ManilaCostCenter(); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'direct_expenses' }, () => { fetchM88ManilaCostCenter(); })
         .subscribe();
     }
     return () => { window.clearInterval(id); window.clearInterval(costCenterId); if (ch && supabase) supabase.removeChannel(ch); };
@@ -873,116 +829,6 @@ const BudgetManagement = () => {
     } catch (err) {
       console.error('Failed to fetch M88 Manila cost center:', err);
       // Silent fail - cost center might not exist yet
-    }
-  };
-
-  const fetchDirectExpenses = async () => {
-    try {
-      const res = await api.get('/api/expenses');
-      setDirectExpenses(Array.isArray(res.data) ? res.data : []);
-    } catch {
-      // Silent fail
-    }
-  };
-
-  const submitBudgetExpenseAdjustment = async () => {
-    if (!adjustmentCategoryId || !adjustmentAmount || toNumber(adjustmentAmount) <= 0) {
-      toast.error('Please select a category and enter a valid amount');
-      return;
-    }
-    setAdjustmentSubmitting(true);
-    try {
-      const category = enrichedCategories.find((c: any) => c.id === adjustmentCategoryId);
-      await api.post('/api/expenses', {
-        item_name: category?.category_name || 'Budget Expense Adjustment',
-        category_id: adjustmentCategoryId,
-        amount: toNumber(adjustmentAmount),
-        description: adjustmentDescription,
-        expense_date: adjustmentDate,
-        department_id: selectedDepartmentId
-      });
-      toast.success('Budget Expense Adjustment applied');
-      setAdjustmentCategoryId('');
-      setAdjustmentAmount('');
-      setAdjustmentDescription('');
-      setAdjustmentDate(new Date().toISOString().split('T')[0]);
-      await fetchDirectExpenses();
-      await fetchBreakdown(selectedDepartmentId, false, false);
-      await fetchM88ManilaCostCenter();
-    } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to apply adjustment'));
-    } finally {
-      setAdjustmentSubmitting(false);
-    }
-  };
-
-  const loadSavedTemplates = () => {
-    try {
-      const raw = localStorage.getItem('bms_recurring_templates');
-      setSavedTemplates(raw ? JSON.parse(raw) : {});
-    } catch {
-      setSavedTemplates({});
-    }
-  };
-
-  const saveTemplate = () => {
-    if (!templateName.trim()) {
-      toast.error('Enter a template name');
-      return;
-    }
-    const entries = Object.entries(batchDrafts).filter(([, v]) => toNumber(v.amount) > 0);
-    if (entries.length === 0) {
-      toast.error('No amounts to save');
-      return;
-    }
-    const next = { ...savedTemplates, [templateName.trim()]: Object.fromEntries(entries) };
-    localStorage.setItem('bms_recurring_templates', JSON.stringify(next));
-    setSavedTemplates(next);
-    toast.success(`Template "${templateName.trim()}" saved`);
-  };
-
-  const loadTemplate = (name: string) => {
-    const template = savedTemplates[name];
-    if (!template) return;
-    setBatchDrafts(template);
-    setSelectedTemplate(name);
-    toast.success(`Template "${name}" loaded`);
-  };
-
-  const deleteTemplate = (name: string) => {
-    const next = { ...savedTemplates };
-    delete next[name];
-    localStorage.setItem('bms_recurring_templates', JSON.stringify(next));
-    setSavedTemplates(next);
-    if (selectedTemplate === name) setSelectedTemplate('');
-    toast.success(`Template "${name}" deleted`);
-  };
-
-  const submitBatchAdjustments = async () => {
-    const entries = Object.entries(batchDrafts).filter(([, v]) => toNumber(v.amount) > 0);
-    if (entries.length === 0) {
-      toast.error('Enter at least one amount');
-      return;
-    }
-    setBatchSubmitting(true);
-    try {
-      const expenses = entries.map(([categoryId, v]) => ({
-        category_id: categoryId,
-        amount: toNumber(v.amount),
-        description: v.description,
-        expense_date: v.date
-      }));
-      await api.post('/api/expenses/batch', { expenses, department_id: selectedDepartmentId });
-      toast.success(`${expenses.length} recurring adjustments applied`);
-      setBatchDrafts({});
-      setSelectedTemplate('');
-      await fetchDirectExpenses();
-      await fetchBreakdown(selectedDepartmentId, false, false);
-      await fetchM88ManilaCostCenter();
-    } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to apply batch adjustments'));
-    } finally {
-      setBatchSubmitting(false);
     }
   };
 
@@ -2103,167 +1949,6 @@ const BudgetManagement = () => {
                             </div>
                           ))}
                         </div>
-                      </div>
-                    )}
-
-                    {(user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'super_admin') && selectedDepartmentId && (
-                      <div className="mb-4 p-4 rounded-xl border border-purple-200 bg-purple-50/50 space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                          <div>
-                            <h4 className="text-sm font-semibold text-[var(--role-text)]">Budget Expense Adjustment</h4>
-                            <p className="text-xs text-[var(--role-text)]/60">Log recurring/admin expenses directly. Deducts from the selected category and M88 Manila.</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setBatchMode((v) => !v)}
-                              className={`text-xs px-3 py-1.5 rounded-lg border transition ${batchMode ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-200'}`}
-                            >
-                              {batchMode ? 'Single Entry' : 'Monthly Batch'}
-                            </button>
-                            {!batchMode && (
-                              <button type="button" onClick={() => void submitBudgetExpenseAdjustment()} disabled={adjustmentSubmitting} className="btn-primary !px-4 !py-2 !text-xs disabled:opacity-50">
-                                {adjustmentSubmitting ? 'Applying…' : 'Apply Adjustment'}
-                              </button>
-                            )}
-                            {batchMode && (
-                              <button type="button" onClick={() => void submitBatchAdjustments()} disabled={batchSubmitting} className="btn-primary !px-4 !py-2 !text-xs disabled:opacity-50">
-                                {batchSubmitting ? 'Applying…' : 'Apply Batch'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {!batchMode ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Category</label>
-                              <select
-                                value={adjustmentCategoryId}
-                                onChange={(e) => setAdjustmentCategoryId(e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                              >
-                                <option value="">Select category</option>
-                                {enrichedCategories.map((cat: any) => (
-                                  <option key={cat.id} value={cat.id}>{cat.category_code} · {cat.category_name}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Amount</label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                placeholder="0.00"
-                                value={adjustmentAmount}
-                                onChange={(e) => setAdjustmentAmount(e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Date</label>
-                              <input
-                                type="date"
-                                value={adjustmentDate}
-                                onChange={(e) => setAdjustmentDate(e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Description</label>
-                              <input
-                                type="text"
-                                placeholder="e.g., July 2026 rent"
-                                value={adjustmentDescription}
-                                onChange={(e) => setAdjustmentDescription(e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <select
-                                value={selectedTemplate}
-                                onChange={(e) => { if (e.target.value) loadTemplate(e.target.value); else setSelectedTemplate(''); }}
-                                className="px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                              >
-                                <option value="">Load saved template</option>
-                                {Object.keys(savedTemplates).map((name) => (
-                                  <option key={name} value={name}>{name}</option>
-                                ))}
-                              </select>
-                              {selectedTemplate && (
-                                <button type="button" onClick={() => deleteTemplate(selectedTemplate)} className="text-xs text-red-600 hover:underline">Delete</button>
-                              )}
-                              <div className="flex-1" />
-                              <input
-                                type="text"
-                                placeholder="Template name"
-                                value={templateName}
-                                onChange={(e) => setTemplateName(e.target.value)}
-                                className="px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)] w-32"
-                              />
-                              <button type="button" onClick={saveTemplate} className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-600 transition">Save</button>
-                            </div>
-                            <div className="max-h-72 overflow-y-auto space-y-1 border border-purple-100 rounded-lg bg-white/50 p-2">
-                              {RECURRING_EXPENSE_PRESETS.map((preset) => {
-                                const category = enrichedCategories.find((c: any) => String(c.category_code).trim() === preset.category_code);
-                                const draft = category ? batchDrafts[category.id] : undefined;
-                                return (
-                                  <div key={preset.category_code} className={`flex items-center gap-2 text-xs py-1.5 px-2 rounded ${category ? 'bg-white' : 'bg-gray-100 text-gray-400'}`}>
-                                    <span className="w-20 font-mono">{preset.category_code}</span>
-                                    <span className="flex-1 truncate">{preset.label}</span>
-                                    <span className="text-[10px] text-[var(--role-text)]/50">{category ? (category.parent_category_name || category.category_name) : 'not found'}</span>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      disabled={!category}
-                                      value={draft?.amount ?? ''}
-                                      onChange={(e) => {
-                                        if (!category) return;
-                                        setBatchDrafts((prev) => ({
-                                          ...prev,
-                                          [category.id]: {
-                                            amount: e.target.value,
-                                            description: draft?.description || `${preset.label} - monthly`,
-                                            date: draft?.date || new Date().toISOString().split('T')[0]
-                                          }
-                                        }));
-                                      }}
-                                      className="w-24 px-2 py-1 rounded border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
-                                    />
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <p className="text-[10px] text-[var(--role-text)]/50">
-                              Only categories with amounts will be applied. Categories not found in the selected department are disabled.
-                            </p>
-                          </div>
-                        )}
-
-                        {directExpenses.length > 0 && (
-                          <div className="mt-2">
-                            <h5 className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50 mb-1">Recent Adjustments</h5>
-                            <div className="max-h-32 overflow-y-auto space-y-1">
-                              {directExpenses
-                                .filter((de) => selectedDepartmentId ? de.department_id === selectedDepartmentId : true)
-                                .slice(-10)
-                                .reverse()
-                                .map((de) => (
-                                  <div key={de.id} className="flex items-center justify-between text-xs py-1 px-2 rounded bg-white/50 border border-[var(--role-border)]/50">
-                                    <span className="truncate flex-1">{de.category} · {de.description || de.item_name}</span>
-                                    <span className="font-mono font-semibold text-rose-600">{displayMoney(toNumber(de.amount))}</span>
-                                    <span className="text-[10px] text-[var(--role-text)]/50 ml-2">{formatDateTime(de.expense_date)}</span>
-                                  </div>
-                                ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
 

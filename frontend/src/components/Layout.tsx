@@ -310,7 +310,10 @@ const Layout = ({ children }: LayoutProps) => {
         <Link to="/accounting" className={getNavClassName('/accounting')}>Accounting</Link>
       )}
       {user.role === 'accounting' && (
-        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Management</Link>
+        <Link to="/budget-management" className={getNavClassName('/budget-management')}>Cost Center Dashboard</Link>
+      )}
+      {user.role === 'accounting' && (
+        <Link to="/budget-expense-upload" className={getNavClassName('/budget-expense-upload')}>Budget Expense Upload</Link>
       )}
       {user.role === 'accounting' && (
         <Link to="/ticket-audit-log" className={getNavClassName('/ticket-audit-log')}>Ticket Audit Log</Link>

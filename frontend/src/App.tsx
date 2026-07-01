@@ -22,6 +22,7 @@ import Delegations from './pages/Delegations';
 import DocumentUploads from './pages/DocumentUploads';
 import TicketAuditLog from './pages/TicketAuditLog';
 import TravelBooking from './pages/TravelBooking';
+import BudgetExpenseUpload from './pages/BudgetExpenseUpload';
 
 function App() {
   return (
@@ -54,6 +55,7 @@ function App() {
               <Route path="/audit-trail/:requestId?" element={<AuditTrail />} />
               <Route path="/ticket-audit-log" element={<TicketAuditLog />} />
               <Route path="/travel-booking" element={<TravelBooking />} />
+              <Route path="/budget-expense-upload" element={<BudgetExpenseUpload />} />
             </Routes>
           </Layout>
         } />
