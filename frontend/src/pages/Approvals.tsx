@@ -1471,13 +1471,13 @@ const Approvals = () => {
       <div className="page-header">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">{user?.role === 'supervisor' ? 'Team Approvals' : user?.role === 'vp' || user?.role === 'president' ? 'Approval Authority' : 'Finance Review'}</h1>
+            <h1 className="page-title">{user?.role === 'supervisor' ? 'Team Approvals' : user?.role === 'vp' || user?.role === 'president' ? 'Approval Authority' : 'Approval'}</h1>
             <p className="page-subtitle">
-              {user?.role === 'supervisor' 
-                ? 'Review and approve requests from your department.' 
+              {user?.role === 'supervisor'
+                ? 'Review and approve requests from your department.'
                 : user?.role === 'vp' || user?.role === 'president'
                 ? `Review and approve high-value requests (${currentCurrency} 500K+). VP: ≤500K, President: >500K`
-                : 'Finalize fund disbursements and verify liquidation documents.'}
+                : 'Review and approve requests, verify liquidation documents, and process releases.'}
             </p>
           </div>
           

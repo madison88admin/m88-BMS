@@ -416,17 +416,6 @@ const Dashboard = () => {
     const totalRemaining = convert(uniqueDepts.reduce((sum, d) => sum + toNumber(d.remaining_budget), 0));
     const totalPending = convert(uniqueDepts.reduce((sum, d) => sum + toNumber(d.pending_supervisor_total) + toNumber(d.pending_accounting_total), 0));
 
-    // Per-currency breakdown from requests
-    const currencyTotals: Record<string, { total: number; used: number; pending: number; count: number }> = {};
-    requests.forEach((r: any) => {
-      const cur: string = r.currency || 'PHP';
-      if (!currencyTotals[cur]) currencyTotals[cur] = { total: 0, used: 0, pending: 0, count: 0 };
-      currencyTotals[cur].total += toNumber(r.amount);
-      currencyTotals[cur].count += 1;
-      if (isActualExpenseCommitted(r)) currencyTotals[cur].used += toNumber(r.amount);
-      if (['pending_supervisor', 'pending_accounting'].includes(r.status)) currencyTotals[cur].pending += toNumber(r.amount);
-    });
-
     return (
       <div className="text-[var(--role-text)]">
         <div className="page-header flex items-start justify-between flex-wrap gap-4">
@@ -496,41 +485,6 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-
-        {/* Currency Breakdown */}
-        <div className="mb-8">
-            <h2 className="text-base font-bold mb-3 text-[var(--role-text)]/70 uppercase tracking-wider text-sm">Expense Requests by Currency</h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {(['PHP', 'USD', 'IDR'] as const).map(cur => {
-                const data = currencyTotals[cur] ?? { total: 0, used: 0, pending: 0, count: 0 };
-                const currencyLabel = cur === 'PHP' ? '🇵🇭 Philippine Peso (PHP)' : cur === 'USD' ? '🇺🇸 US Dollar (USD)' : '🇮🇩 Indonesian Rupiah (IDR)';
-                const colorClass = cur === 'PHP' ? 'border-blue-500/20 !bg-blue-500/5' : cur === 'USD' ? 'border-emerald-500/20 !bg-emerald-500/5' : 'border-red-500/20 !bg-red-500/5';
-                return (
-                  <div key={cur} className={`panel ${colorClass}`}>
-                    <p className="text-xs font-bold mb-3 text-[var(--role-text)]/60">{currencyLabel}</p>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-[var(--role-text)]/60">Total Requests</span>
-                        <span className="font-bold">{data.count}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[var(--role-text)]/60">Total Amount</span>
-                        <span className="font-bold font-mono">{formatMoney(data.total, cur)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[var(--role-text)]/60">Released/Approved</span>
-                        <span className="font-bold font-mono text-emerald-600">{formatMoney(data.used, cur)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[var(--role-text)]/60">Pending</span>
-                        <span className="font-bold font-mono text-amber-600">{formatMoney(data.pending, cur)}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
 
         {/* Department Budget Table */}
         <div className="panel">

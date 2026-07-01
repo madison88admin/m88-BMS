@@ -295,7 +295,7 @@ const Layout = ({ children }: LayoutProps) => {
       )}
       {(user.role === 'supervisor' || user.role === 'accounting' || user.role === 'admin' || user.role === 'vp' || user.role === 'president') && (
         <Link to="/approvals" className={`${getNavClassName('/approvals')} relative whitespace-nowrap`}>
-          {user.role === 'supervisor' ? 'Team Approvals' : user.role === 'vp' || user.role === 'president' ? 'Disbursement Hub' : 'Disbursement Hub'}
+          {user.role === 'supervisor' ? 'Team Approvals' : user.role === 'vp' || user.role === 'president' ? 'Approval Authority' : 'Approval'}
           {pendingApprovalsCount > 0 && (
             <span className="ml-1.5 inline-flex h-5 min-w-[18px] items-center justify-center rounded-full border border-[var(--role-primary)]/20 bg-[var(--role-primary)]/10 px-1 text-[10px] font-semibold text-[var(--role-primary)]">
               {pendingApprovalsCount}

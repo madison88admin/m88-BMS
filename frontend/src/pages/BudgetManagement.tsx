@@ -264,9 +264,9 @@ const BudgetManagement = () => {
   const [analyticsDeptId, setAnalyticsDeptId] = useState<string>('');
   const [analyticsDept, setAnalyticsDept] = useState<string>('all');
 
-  // Accounting, admin, and supervisor may lock/unlock budget matrix
-  const canEditMatrix = ['accounting', 'admin', 'supervisor'].includes(String(user?.role || '').toLowerCase());
-  const isViewOnlyMatrix = user?.role === 'supervisor' || user?.role === 'vp' || user?.role === 'president';
+  // Accounting, admin, supervisor, VP, and President may lock/unlock/override budget matrix
+  const canEditMatrix = ['accounting', 'admin', 'supervisor', 'vp', 'president'].includes(String(user?.role || '').toLowerCase());
+  const isViewOnlyMatrix = !canEditMatrix;
 
   const visibleDepartments = useMemo(() => {
     const map = new Map<string, any>();
@@ -1900,12 +1900,12 @@ const BudgetManagement = () => {
                           {parentCategoryOptions.filter((c) => c.is_locked).map((cat) => (
                             <div key={`rev-${cat.id}`} className="flex items-center gap-2 text-sm">
                               <span className="flex-1 truncate font-medium">{cat.category_name}</span>
-                              <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Approved: {displayMoney(toNumber(cat.budget_amount))}</span>
+                              <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Proposed: {displayMoney(toNumber(cat.budget_amount))}</span>
                               <input
                                 type="number"
                                 step="0.01"
                                 min={toNumber(cat.budget_amount) + 0.01}
-                                placeholder="New amount"
+                                placeholder="Revised"
                                 value={revisionDrafts[cat.id] ?? ''}
                                 onChange={(e) => setRevisionDrafts((prev) => ({ ...prev, [cat.id]: e.target.value }))}
                                 className="w-28 px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
@@ -1917,8 +1917,8 @@ const BudgetManagement = () => {
                       </div>
                     )}
 
-                    {/* Add form */}
-                    {user?.role === 'supervisor' && parentCategoryOptions.length > 0 && (
+                    {/* Add form — hidden for supervisor once a budget proposal is approved (categories locked) */}
+                    {user?.role === 'supervisor' && parentCategoryOptions.length > 0 && !parentCategoryOptions.some((c) => c.is_locked) && (
                       <div className="mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
