@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
+import { updateM88ManilaCostCenterBudget, findOrCreateM88ManilaCostCenter, isGeneralCategory } from '../utils/generalBudget';
 
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 
@@ -29,14 +30,20 @@ router.get('/', authenticate, async (req: any, res) => {
   res.json(data);
 });
 
-// POST /api/expenses - supervisor logs direct expense
-router.post('/', authenticate, authorize('supervisor'), async (req: any, res) => {
-  const { item_name, category_id, category, amount, description, expense_date } = req.body;
-  const { data: dept, error: deptError } = await supabase.from('departments').select('*').eq('id', req.user.department_id).single();
+// POST /api/expenses - log direct expense or Budget Expense Adjustment
+router.post('/', authenticate, authorize('supervisor', 'accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  const { item_name, category_id, category, amount, description, expense_date, department_id } = req.body;
+
+  // For accounting/admin, allow specifying the target department; otherwise use the user's department
+  const targetDepartmentId = (req.user.role === 'accounting' || req.user.role === 'admin' || req.user.role === 'super_admin') && department_id
+    ? department_id
+    : req.user.department_id;
+
+  const { data: dept, error: deptError } = await supabase.from('departments').select('*').eq('id', targetDepartmentId).single();
   if (deptError || !dept) return res.status(400).json({ error: deptError?.message || 'Department not found.' });
 
   const targetFiscalYear = Number(dept.fiscal_year) || new Date().getFullYear();
-  let categoryFilter = supabase.from('budget_categories').select('id, category_name, parent_category_id, remaining_amount, used_amount').eq('department_id', req.user.department_id).eq('fiscal_year', targetFiscalYear);
+  let categoryFilter = supabase.from('budget_categories').select('id, category_name, department_id, remaining_amount, used_amount').eq('fiscal_year', targetFiscalYear);
 
   if (category_id) {
     categoryFilter = categoryFilter.eq('id', category_id);
@@ -49,7 +56,7 @@ router.post('/', authenticate, authorize('supervisor'), async (req: any, res) =>
   const { data: categoryBudget, error: categoryError } = await categoryFilter.maybeSingle();
   if (categoryError) return res.status(400).json({ error: categoryError.message });
   if (!categoryBudget) {
-    return res.status(400).json({ error: `Category not found for department in fiscal year ${targetFiscalYear}.` });
+    return res.status(400).json({ error: `Category not found in fiscal year ${targetFiscalYear}.` });
   }
 
   // Allow logging expenses even if the remaining budget is insufficient.
@@ -58,7 +65,9 @@ router.post('/', authenticate, authorize('supervisor'), async (req: any, res) =>
   const { data, error } = await supabase
     .from('direct_expenses')
     .insert({
-      department_id: req.user.department_id,
+      department_id: targetDepartmentId,
+      category_id: categoryBudget.id,
+      fiscal_year: targetFiscalYear,
       logged_by: req.user.id,
       item_name,
       category: categoryBudget.category_name,
@@ -72,11 +81,27 @@ router.post('/', authenticate, authorize('supervisor'), async (req: any, res) =>
 
   await supabase
     .from('budget_categories')
-    .update({ 
+    .update({
       used_amount: toNumber(categoryBudget.used_amount) + toNumber(amount),
       remaining_amount: toNumber(categoryBudget.remaining_amount) - toNumber(amount)
     })
     .eq('id', categoryBudget.id);
+
+  // For General Category (department_id = 'All'), also deduct from M88 Manila cost center
+  const isGeneral = await isGeneralCategory(categoryBudget.id);
+  if (isGeneral) {
+    const costCenter = await findOrCreateM88ManilaCostCenter(targetFiscalYear);
+    await supabase
+      .from('cost_centers')
+      .update({
+        used_amount: toNumber(costCenter.used_amount) + toNumber(amount),
+        remaining_amount: Math.max(0, toNumber(costCenter.remaining_amount) - toNumber(amount))
+      })
+      .eq('id', costCenter.id);
+  }
+
+  // Recalculate M88 Manila cost center to keep dashboard in sync
+  await updateM88ManilaCostCenterBudget(targetFiscalYear);
 
   res.json(data);
 });
