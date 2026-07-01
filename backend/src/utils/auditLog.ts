@@ -48,19 +48,33 @@ const resolveActorProfile = async (user: AuditLogInput['user']) => {
     return { user_name: user?.name || 'System', user_role: user?.role || 'system', department_id: null, department_name: null };
   }
 
-  const { data } = await supabase
-    .from('users')
-    .select('id, name, role, department_id, departments(name)')
-    .eq('id', user.id)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, name, role, department_id, departments(name)')
+      .eq('id', user.id)
+      .maybeSingle();
 
-  const departmentName = (data as any)?.departments?.name || null;
-  return {
-    user_name: data?.name || user.name || 'Unknown',
-    user_role: data?.role || user.role || 'unknown',
-    department_id: data?.department_id || user.department_id || null,
-    department_name: departmentName,
-  };
+    if (error) {
+      console.error('[audit_logs] failed to resolve actor profile:', error.message);
+    }
+
+    const departmentName = (data as any)?.departments?.name || null;
+    return {
+      user_name: data?.name || user.name || 'Unknown',
+      user_role: data?.role || user.role || 'unknown',
+      department_id: data?.department_id || user.department_id || null,
+      department_name: departmentName,
+    };
+  } catch (err: any) {
+    console.error('[audit_logs] unexpected error resolving actor profile:', err?.message || err);
+    return {
+      user_name: user.name || 'Unknown',
+      user_role: user.role || 'unknown',
+      department_id: user.department_id || null,
+      department_name: null,
+    };
+  }
 };
 
 export const logAuditEvent = async (input: AuditLogInput) => {

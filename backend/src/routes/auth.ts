@@ -242,7 +242,7 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, role: user.role, department_id: user.department_id }, 
+      { id: user.id, name: user.name, role: user.role, department_id: user.department_id }, 
       process.env.JWT_SECRET!, 
       { expiresIn: '1h' }
     );
@@ -570,7 +570,7 @@ router.patch('/profile', authenticate, async (req: any, res) => {
   }
 
   const token = jwt.sign(
-    { id: updatedUser.id, role: updatedUser.role, department_id: updatedUser.department_id },
+    { id: updatedUser.id, name: updatedUser.name, role: updatedUser.role, department_id: updatedUser.department_id },
     process.env.JWT_SECRET!,
     { expiresIn: '1h' }
   );
@@ -640,7 +640,7 @@ router.post('/signup', async (req, res) => {
   if (insertError || !newUser) return res.status(400).json({ error: insertError || 'Failed to create account' });
 
   const token = jwt.sign(
-    { id: newUser.id, role: newUser.role, department_id: newUser.department_id },
+    { id: newUser.id, name: newUser.name, role: newUser.role, department_id: newUser.department_id },
     process.env.JWT_SECRET!,
     { expiresIn: '1h' }
   );
