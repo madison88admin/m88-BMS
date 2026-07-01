@@ -126,6 +126,7 @@ const Dashboard = () => {
   const [archiveView, setArchiveView] = useState<'active' | 'archived' | 'all'>('active');
   const [departmentBudget, setDepartmentBudget] = useState<any>(null);
   const [allDepartments, setAllDepartments] = useState<any[]>([]);
+  const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
   const [displayCurrency, setDisplayCurrency] = useState<'PHP' | 'USD' | 'IDR'>('PHP');
   const { rates: fxRates, loading: fxLoading, lastUpdated: fxLastUpdated } = useExchangeRates();
 
@@ -156,9 +157,23 @@ const Dashboard = () => {
     const fetchDepartmentsInternal = async () => {
       try {
         const res = await api.get('/api/departments');
-        setAllDepartments(res.data || []);
+        const data = res.data || [];
+        setAllDepartments(data);
+        return data;
       } catch {
         setAllDepartments([]);
+        return [];
+      }
+    };
+
+    const fetchM88ManilaCostCenter = async (fiscalYear?: number) => {
+      try {
+        const year = fiscalYear || new Date().getFullYear();
+        const res = await api.get('/api/budget/cost-centers', { params: { fiscal_year: year } });
+        const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
+        setM88ManilaCostCenter(m88 || null);
+      } catch {
+        setM88ManilaCostCenter(null);
       }
     };
 
@@ -196,7 +211,9 @@ const Dashboard = () => {
 
         // Fetch all departments for VP and President overview
         if (userResponse.data.role === 'vp' || userResponse.data.role === 'president') {
-          await fetchDepartmentsInternal();
+          const depts = await fetchDepartmentsInternal();
+          const latestFiscalYear = depts.reduce((max: number, d: any) => Math.max(max, toNumber(d.fiscal_year)), 0);
+          await fetchM88ManilaCostCenter(latestFiscalYear || new Date().getFullYear());
         }
         
         setRequests(requestsResponse.data);
@@ -249,6 +266,11 @@ const Dashboard = () => {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'budget_categories' },
           () => { void fetchDepartmentsInternal(); }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'cost_centers' },
+          () => { void fetchM88ManilaCostCenter(new Date().getFullYear()); }
         )
         .subscribe();
     }
@@ -445,6 +467,49 @@ const Dashboard = () => {
             </p>
           </div>
         </div>
+
+        {/* M88 Manila General Budget Card */}
+        {m88ManilaCostCenter && (
+          <div className="mb-6 panel !bg-[var(--role-primary)]/5 border-[var(--role-primary)]/20">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <svg className="h-5 w-5 text-[var(--role-primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <div>
+                  <p className="text-[13px] font-semibold uppercase tracking-[0.16em] text-[var(--role-text)]">M88 Manila General Budget</p>
+                  <p className="text-[10px] text-[var(--role-text)]/50">Master Cost Center · FY{latestFiscalYear || '—'}</p>
+                </div>
+              </div>
+              <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--role-text)]/40 font-semibold">{toNumber(m88ManilaCostCenter.pending_count || 0)} pending</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div>
+                <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Total Budget</p>
+                <p className="text-lg font-black text-[var(--role-text)]">{formatMoney(convert(toNumber(m88ManilaCostCenter.total_budget)), displayCurrency)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Used</p>
+                <p className="text-lg font-black text-rose-600">{formatMoney(convert(toNumber(m88ManilaCostCenter.used_amount)), displayCurrency)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Pending</p>
+                <p className="text-lg font-black text-amber-600">{formatMoney(convert(toNumber(m88ManilaCostCenter.pending_amount || 0)), displayCurrency)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Available</p>
+                <p className="text-lg font-black" style={{ color: (() => {
+                  const available = toNumber(m88ManilaCostCenter.available_amount || 0);
+                  const total = toNumber(m88ManilaCostCenter.total_budget);
+                  const pct = total > 0 ? (available / total) * 100 : 0;
+                  if (pct >= 50) return '#16a34a';
+                  if (pct >= 20) return '#f59e0b';
+                  return '#ef4444';
+                })() }}>{formatMoney(convert(toNumber(m88ManilaCostCenter.available_amount || 0)), displayCurrency)}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Summary Cards */}
         <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
