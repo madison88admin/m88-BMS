@@ -16,7 +16,7 @@ if (process.env.NODE_ENV === 'production' && /localhost|127\.0\.0\.1/i.test(supa
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   db: {
-    schema: process.env.SUPABASE_SCHEMA || 'AP_Invoice'
+    schema: 'public'
   },
   global: {
     headers: {
