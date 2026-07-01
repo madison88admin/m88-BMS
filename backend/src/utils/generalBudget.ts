@@ -67,7 +67,22 @@ export const updateM88ManilaCostCenterBudget = async (
   ).filter((summary: any) => toNumber(summary.fiscal_year) === fiscalYear);
 
   const departmentsTotalBudget = fiscalYearSummaries.reduce((sum, summary) => sum + toNumber(summary.annual_budget), 0);
-  const totalUsedAmount = fiscalYearSummaries.reduce((sum, summary) => sum + toNumber(summary.used_budget), 0);
+  const departmentsUsedAmount = fiscalYearSummaries.reduce((sum, summary) => sum + toNumber(summary.used_budget), 0);
+
+  // Add General Category direct expenses (recurring/admin adjustments) to M88 Manila used amount
+  const { data: generalDirectExpenses, error: generalDirectError } = await supabase
+    .from('direct_expenses')
+    .select('amount, category_id, budget_categories!inner(department_id)')
+    .eq('fiscal_year', fiscalYear)
+    .eq('budget_categories.department_id', 'All');
+
+  if (generalDirectError) {
+    console.error('[updateM88ManilaCostCenterBudget] Failed to load general direct expenses', generalDirectError);
+  }
+
+  const generalDirectTotal = (generalDirectExpenses || []).reduce((sum, de: any) => sum + toNumber(de.amount), 0);
+  const totalUsedAmount = departmentsUsedAmount + generalDirectTotal;
+
   const totalPendingAmount = fiscalYearSummaries.reduce(
     (sum, summary) =>
       sum +
@@ -89,6 +104,8 @@ export const updateM88ManilaCostCenterBudget = async (
 
   console.log(`[updateM88ManilaCostCenterBudget] FY${fiscalYear}`, {
     totalBudget: departmentsTotalBudget,
+    departmentsUsedAmount,
+    generalDirectTotal,
     totalUsedAmount,
     totalPendingAmount,
     totalPendingCount,

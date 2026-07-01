@@ -1,7 +1,7 @@
 import express from 'express';
 import { authenticate, authorize } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
-import { updateM88ManilaCostCenterBudget, findOrCreateM88ManilaCostCenter, isGeneralCategory } from '../utils/generalBudget';
+import { updateM88ManilaCostCenterBudget } from '../utils/generalBudget';
 
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 
@@ -87,20 +87,8 @@ router.post('/', authenticate, authorize('supervisor', 'accounting', 'admin', 's
     })
     .eq('id', categoryBudget.id);
 
-  // For General Category (department_id = 'All'), also deduct from M88 Manila cost center
-  const isGeneral = await isGeneralCategory(categoryBudget.id);
-  if (isGeneral) {
-    const costCenter = await findOrCreateM88ManilaCostCenter(targetFiscalYear);
-    await supabase
-      .from('cost_centers')
-      .update({
-        used_amount: toNumber(costCenter.used_amount) + toNumber(amount),
-        remaining_amount: Math.max(0, toNumber(costCenter.remaining_amount) - toNumber(amount))
-      })
-      .eq('id', costCenter.id);
-  }
-
-  // Recalculate M88 Manila cost center to keep dashboard in sync
+  // Recalculate M88 Manila cost center to keep dashboard in sync.
+  // This now includes General Category direct expenses in its used amount.
   await updateM88ManilaCostCenterBudget(targetFiscalYear);
 
   res.json(data);
