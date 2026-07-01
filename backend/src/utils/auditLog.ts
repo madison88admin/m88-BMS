@@ -28,6 +28,8 @@ export const AUDIT_ACTIONS = {
   COST_ALLOCATION_TAGGED: 'cost_allocation_tagged',
   COST_ALLOCATION_CONFIRMED: 'cost_allocation_confirmed',
   GENERAL_BUDGET_STORED_TO_COST_CENTER: 'general_budget_stored_to_cost_center',
+  DIRECT_EXPENSE_UPLOADED: 'direct_expense_uploaded',
+  DIRECT_EXPENSE_BATCH_UPLOADED: 'direct_expense_batch_uploaded',
 } as const;
 
 export type AuditActionType = typeof AUDIT_ACTIONS[keyof typeof AUDIT_ACTIONS];

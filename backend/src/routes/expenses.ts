@@ -2,8 +2,10 @@ import express from 'express';
 import { authenticate, authorize } from '../middleware/auth';
 import { supabase } from '../utils/supabase';
 import { updateM88ManilaCostCenterBudget } from '../utils/generalBudget';
+import { logAuditEvent, AUDIT_ACTIONS } from '../utils/auditLog';
 
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
+const formatMoney = (value: number) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value);
 
 const router = express.Router();
 
@@ -91,6 +93,23 @@ router.post('/', authenticate, authorize('supervisor', 'accounting', 'admin', 's
   // This now includes General Category direct expenses in its used amount.
   await updateM88ManilaCostCenterBudget(targetFiscalYear);
 
+  await logAuditEvent({
+    user: req.user,
+    actionType: AUDIT_ACTIONS.DIRECT_EXPENSE_UPLOADED,
+    recordType: 'direct_expense',
+    recordId: data.id,
+    recordLabel: data.item_name,
+    newValue: {
+      category_id: categoryBudget.id,
+      category_name: categoryBudget.category_name,
+      amount: toNumber(amount),
+      department_id: targetDepartmentId,
+      fiscal_year: targetFiscalYear,
+      expense_date: data.expense_date
+    },
+    remarks: `Direct expense uploaded: ${categoryBudget.category_name} - ${formatMoney(toNumber(amount))}`
+  });
+
   res.json(data);
 });
 
@@ -151,6 +170,25 @@ router.post('/batch', authenticate, authorize('accounting', 'admin', 'super_admi
   }
 
   await updateM88ManilaCostCenterBudget(targetFiscalYear);
+
+  const batchTotal = results.reduce((sum, r) => sum + toNumber(r.amount), 0);
+  if (results.length > 0) {
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.DIRECT_EXPENSE_BATCH_UPLOADED,
+      recordType: 'direct_expense',
+      recordId: null,
+      recordLabel: `Batch upload for ${dept.name}`,
+      newValue: {
+        count: results.length,
+        total: batchTotal,
+        department_id: targetDepartmentId,
+        fiscal_year: targetFiscalYear,
+        expenses: results.map((r) => ({ id: r.id, category: r.category, amount: toNumber(r.amount) }))
+      },
+      remarks: `Batch direct expenses uploaded: ${results.length} item(s), total ${formatMoney(batchTotal)} for ${dept.name}`
+    });
+  }
 
   res.json({ count: results.length, data: results });
 });
