@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
-import type { BookingType, FlightSegment, HotelStay, TravelBooking } from '../types/travelBooking';
+import type { BookingType, FlightSegment, HotelStay } from '../types/travelBooking';
 import { jsPDF } from 'jspdf';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
