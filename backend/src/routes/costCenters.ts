@@ -7,7 +7,7 @@ import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
 const router = express.Router();
 
 // GET /api/cost-centers - List active cost centers
-router.get('/', authenticate, authorize('accounting', 'admin', 'super_admin', 'manager', 'employee'), async (req: any, res) => {
+router.get('/', authenticate, authorize('accounting', 'admin', 'super_admin', 'manager', 'employee', 'supervisor'), async (req: any, res) => {
   try {
     const fiscalYear = req.query.fiscal_year ? parseInt(req.query.fiscal_year as string) : new Date().getFullYear();
     

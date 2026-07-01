@@ -288,6 +288,9 @@ const Layout = ({ children }: LayoutProps) => {
           {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'accounting') && (
             <Link to="/tracker" className={getNavClassName('/tracker')}>My Requests</Link>
           )}
+          {(user.role === 'supervisor' || user.role === 'accounting') && (
+            <Link to="/travel-booking" className={getNavClassName('/travel-booking')}>Travel Booking</Link>
+          )}
         </>
       )}
       {(user.role === 'supervisor' || user.role === 'accounting' || user.role === 'admin' || user.role === 'vp' || user.role === 'president') && (
