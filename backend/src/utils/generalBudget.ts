@@ -3,6 +3,18 @@ import { AUDIT_ACTIONS, logAuditEvent } from './auditLog';
 
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 
+// Exchange rates relative to PHP (base = PHP). Matches /api/config/auth-thresholds.
+const EXCHANGE_RATES: Record<string, number> = {
+  PHP: 1,
+  USD: 0.018, // 1 PHP = 0.018 USD
+  IDR: 291    // 1 PHP = 291 IDR
+};
+
+export const convertToPhp = (amount: number, currency: string) => {
+  const rate = EXCHANGE_RATES[currency?.toUpperCase()] ?? EXCHANGE_RATES.PHP;
+  return amount / rate;
+};
+
 /**
  * Find or create M88 Manila cost center for a given fiscal year
  */
@@ -58,17 +70,19 @@ export const updateM88ManilaCostCenterBudget = async (
   // Calculate total released amount from General Category requests
   const { data: requests, error: reqError } = await supabase
     .from('expense_requests')
-    .select('amount, category_id')
+    .select('amount, category_id, metadata')
     .eq('fiscal_year', fiscalYear)
     .eq('status', 'released');
 
   if (reqError) throw reqError;
 
-  // Filter for General Category requests
+  // Filter for General Category requests and convert to PHP base
   const generalCategoryRequests = await Promise.all(
     requests.map(async (req) => {
       const isGeneral = await isGeneralCategory(req.category_id);
-      return isGeneral ? toNumber(req.amount) : 0;
+      if (!isGeneral) return 0;
+      const currency = (req.metadata as any)?.currency || 'PHP';
+      return convertToPhp(toNumber(req.amount), currency);
     })
   );
 

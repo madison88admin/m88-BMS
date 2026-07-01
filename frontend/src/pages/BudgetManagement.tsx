@@ -326,20 +326,35 @@ const BudgetManagement = () => {
   };
   const displayMoney = (v: number) => formatMoney(displayAmount(v), displayCurrency);
 
+  // Convert a request amount from its source currency to the selected display currency.
+  // Backend stores PHP base via fxRatePhp=USD→PHP and fxRateIdr=USD→IDR.
+  const convertRequestAmount = (amount: number, sourceCurrency?: string) => {
+    const n = toNumber(amount);
+    const sc = (sourceCurrency || 'PHP').toUpperCase();
+    if (displayCurrency === sc) return n;
+    // First bring the amount to PHP base
+    let phpAmount = n;
+    if (sc === 'USD') phpAmount = n * fxRatePhp;
+    else if (sc === 'IDR') phpAmount = n * (fxRatePhp / fxRateIdr);
+    // Then convert PHP base to display currency
+    if (displayCurrency === 'PHP') return phpAmount;
+    if (displayCurrency === 'USD') return phpAmount / fxRatePhp;
+    if (displayCurrency === 'IDR') return phpAmount / fxRatePhp * fxRateIdr;
+    return phpAmount;
+  };
+
   // Analytics chart number formatter
   const formatChartValue = (value: number): string => {
     const v = toNumber(value);
-    if (v >= 1000000) return `₱${(v / 1000000).toFixed(1)}M`;
-    if (v >= 1000) return `₱${(v / 1000).toFixed(1)}K`;
-    return `₱${v.toFixed(0)}`;
+    const symbol = displayCurrency === 'USD' ? '$' : displayCurrency === 'IDR' ? 'Rp' : '₱';
+    if (v >= 1000000) return `${symbol}${(v / 1000000).toFixed(1)}M`;
+    if (v >= 1000) return `${symbol}${(v / 1000).toFixed(1)}K`;
+    return `${symbol}${v.toFixed(0)}`;
   };
 
   // Format currency for tooltips
   const formatCurrency = (val: number): string => {
-    const v = toNumber(val);
-    if (v >= 1_000_000) return `₱${(v / 1_000_000).toFixed(1)}M`;
-    if (v >= 1_000) return `₱${(v / 1_000).toFixed(1)}K`;
-    return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+    return formatMoney(toNumber(val), displayCurrency);
   };
 
   // Analytics chart color scheme
@@ -851,7 +866,7 @@ const BudgetManagement = () => {
         });
         const expense = monthRequests
           .filter((r: any) => ['released', 'approved'].includes(r.status))
-          .reduce((sum: number, r: any) => sum + toNumber(r.amount), 0);
+          .reduce((sum: number, r: any) => sum + convertRequestAmount(r.amount, r.metadata?.currency), 0);
         return { month, budget: monthlyBudget, expense };
       });
 
@@ -861,7 +876,7 @@ const BudgetManagement = () => {
         const fy = Number(r.fiscal_year || new Date(r.created_at).getFullYear());
         if (!fyGroups[fy]) fyGroups[fy] = { expense: 0, budget: 0 };
         if (['released', 'approved'].includes(r.status)) {
-          fyGroups[fy].expense += toNumber(r.amount);
+          fyGroups[fy].expense += convertRequestAmount(r.amount, r.metadata?.currency);
         }
       });
 
@@ -894,7 +909,7 @@ const BudgetManagement = () => {
             const d = new Date(r.submitted_at || r.created_at);
             return d.getMonth() === idx && d.getFullYear() === yr && ['released', 'approved'].includes(r.status);
           })
-          .reduce((sum: number, r: any) => sum + toNumber(r.amount), 0);
+          .reduce((sum: number, r: any) => sum + convertRequestAmount(r.amount, r.metadata?.currency), 0);
         return { month, '2025': get(2025), '2026': get(2026) };
       });
 
@@ -905,7 +920,7 @@ const BudgetManagement = () => {
         .forEach((r: any) => {
           const cat = r.category || r.main_category || 'Uncategorized';
           if (!categoryTotals[cat]) categoryTotals[cat] = { name: cat, amount: 0 };
-          categoryTotals[cat].amount += toNumber(r.amount);
+          categoryTotals[cat].amount += convertRequestAmount(r.amount, r.metadata?.currency);
         });
       const top5ByAmount = Object.values(categoryTotals)
         .sort((a, b) => b.amount - a.amount)
@@ -940,35 +955,16 @@ const BudgetManagement = () => {
         .sort((a: any, b: any) => b.pct - a.pct)
         .slice(0, 5);
 
-      // Apply currency conversion to all analytics data based on displayCurrency
-      const convertAmount = (amount: number) => {
-        if (displayCurrency === 'PHP') return amount;
-        if (displayCurrency === 'USD') return amount / fxRatePhp;
-        if (displayCurrency === 'IDR') return amount / fxRateIdr;
-        return amount;
-      };
-
+      // Apply currency conversion to budget-side analytics (department budgets are PHP base).
+      // Expenses were already converted to display currency using the request's actual currency.
       const convertedBudgetVsExpense = budgetVsExpense.map(item => ({
         ...item,
-        budget: convertAmount(item.budget),
-        expense: convertAmount(item.expense)
+        budget: displayAmount(item.budget)
       }));
 
-      const convertedExpenseTrend = expenseTrend.map(item => ({
-        ...item,
-        expense: convertAmount(item.expense)
-      }));
-
-      const convertedMonthlyComparison = monthlyComparison.map(item => ({
-        ...item,
-        '2025': convertAmount(item['2025']),
-        '2026': convertAmount(item['2026'])
-      }));
-
-      const convertedTop5ByAmount = top5ByAmount.map(item => ({
-        ...item,
-        amount: convertAmount(item.amount)
-      }));
+      const convertedExpenseTrend = expenseTrend;
+      const convertedMonthlyComparison = monthlyComparison;
+      const convertedTop5ByAmount = top5ByAmount;
 
       setAnalyticsData({ 
         budgetVsExpense: convertedBudgetVsExpense, 
@@ -1165,15 +1161,15 @@ const BudgetManagement = () => {
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Total Budget</p>
-                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.total_budget), 'PHP')}</p>
+                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{displayMoney(toNumber(m88ManilaCostCenter.total_budget))}</p>
                 </div>
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Used</p>
-                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{formatMoney(toNumber(m88ManilaCostCenter.used_amount), 'PHP')} <span className="text-xs text-[var(--role-text)]/50">(released)</span></p>
+                  <p className="text-[20px] font-semibold text-[var(--role-text)]">{displayMoney(toNumber(m88ManilaCostCenter.used_amount))} <span className="text-xs text-[var(--role-text)]/50">(released)</span></p>
                 </div>
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Pending</p>
-                  <p className="text-[20px] font-semibold text-amber-600">{formatMoney(toNumber(m88ManilaCostCenter.pending_amount || 0), 'PHP')} <span className="text-xs text-amber-600/70">(amber)</span></p>
+                  <p className="text-[20px] font-semibold text-amber-600">{displayMoney(toNumber(m88ManilaCostCenter.pending_amount || 0))} <span className="text-xs text-amber-600/70">(amber)</span></p>
                 </div>
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Available</p>
@@ -1186,7 +1182,7 @@ const BudgetManagement = () => {
                       if (pct >= 20) return '#f59e0b';
                       return '#ef4444';
                     })()
-                  }}>{formatMoney(toNumber(m88ManilaCostCenter.available_amount || 0), 'PHP')} <span className="text-xs opacity-70">(color-coded)</span></p>
+                  }}>{displayMoney(toNumber(m88ManilaCostCenter.available_amount || 0))} <span className="text-xs opacity-70">(color-coded)</span></p>
                 </div>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2 mb-4 flex overflow-hidden">

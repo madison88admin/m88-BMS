@@ -35,7 +35,7 @@ import {
 } from '../utils/workflowNotify';
 import { invalidateCache } from '../middleware/cache';
 import { generateRequestCode } from '../utils/sequentialCodeGenerator';
-import { findOrCreateM88ManilaCostCenter, isGeneralCategory } from '../utils/generalBudget';
+import { findOrCreateM88ManilaCostCenter, isGeneralCategory, convertToPhp } from '../utils/generalBudget';
 
 const router = express.Router();
 
@@ -893,7 +893,8 @@ const releaseRequest = async (
   if (isGeneralCategoryRequest) {
     try {
       const costCenter = await findOrCreateM88ManilaCostCenter(request.fiscal_year);
-      const amountToDeduct = toNumber(request.amount);
+      const requestCurrency = request.metadata?.currency || 'PHP';
+      const amountToDeduct = convertToPhp(toNumber(request.amount), requestCurrency);
 
       // Check if M88 Manila cost center has sufficient funds
       if (toNumber(costCenter.remaining_amount) < amountToDeduct) {
