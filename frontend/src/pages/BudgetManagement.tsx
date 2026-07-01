@@ -1175,14 +1175,14 @@ const BudgetManagement = () => {
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--role-text)]/50 mb-1">Available</p>
                   <p className="text-[20px] font-semibold" style={{
                     color: (() => {
-                      const available = toNumber(m88ManilaCostCenter.available_amount || 0);
+                      const available = toNumber(m88ManilaCostCenter.remaining_amount || 0);
                       const total = toNumber(m88ManilaCostCenter.total_budget);
                       const pct = total > 0 ? (available / total) * 100 : 0;
                       if (pct >= 50) return '#16a34a';
                       if (pct >= 20) return '#f59e0b';
                       return '#ef4444';
                     })()
-                  }}>{displayMoney(toNumber(m88ManilaCostCenter.available_amount || 0))} <span className="text-xs opacity-70">(color-coded)</span></p>
+                  }}>{displayMoney(toNumber(m88ManilaCostCenter.remaining_amount || 0))} <span className="text-xs opacity-70">(color-coded)</span></p>
                 </div>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2 mb-4 flex overflow-hidden">

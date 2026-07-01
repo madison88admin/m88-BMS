@@ -494,13 +494,13 @@ const Dashboard = () => {
               <div>
                 <p className="text-xs text-[var(--role-text)]/50 uppercase tracking-wider">Available</p>
                 <p className="text-lg font-black" style={{ color: (() => {
-                  const available = toNumber(m88ManilaCostCenter.available_amount || 0);
+                  const available = toNumber(m88ManilaCostCenter.remaining_amount || 0);
                   const total = toNumber(m88ManilaCostCenter.total_budget);
                   const pct = total > 0 ? (available / total) * 100 : 0;
                   if (pct >= 50) return '#16a34a';
                   if (pct >= 20) return '#f59e0b';
                   return '#ef4444';
-                })() }}>{formatMoney(convert(toNumber(m88ManilaCostCenter.available_amount || 0)), displayCurrency)}</p>
+                })() }}>{formatMoney(convert(toNumber(m88ManilaCostCenter.remaining_amount || 0)), displayCurrency)}</p>
               </div>
             </div>
           </div>
