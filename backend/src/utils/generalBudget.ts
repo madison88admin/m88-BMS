@@ -69,7 +69,7 @@ export const updateM88ManilaCostCenterBudget = async (
 
   const departmentsTotalBudget = departments.reduce((sum, dept) => sum + toNumber(dept.annual_budget), 0);
 
-  // Calculate total released amount from General Category requests
+  // Calculate total released amount from General Category expense requests
   const { data: releasedRequests, error: releasedError } = await supabase
     .from('expense_requests')
     .select('amount, category_id, metadata')
@@ -78,34 +78,29 @@ export const updateM88ManilaCostCenterBudget = async (
 
   if (releasedError) throw releasedError;
 
-  // Calculate total pending amount from General Category requests
-  const { data: pendingRequests, error: pendingError } = await supabase
+  // Calculate total pending budget proposals/revisions across all departments
+  const { data: pendingBudgetRequests, error: pendingBudgetError } = await supabase
     .from('expense_requests')
-    .select('amount, category_id, metadata')
+    .select('amount, metadata')
     .eq('fiscal_year', fiscalYear)
+    .in('request_type', ['budget_request', 'budget_revision'])
     .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']);
 
-  if (pendingError) throw pendingError;
+  if (pendingBudgetError) throw pendingBudgetError;
 
   // Filter for General Category requests and convert to PHP base
-  const filterGeneralAmount = async (reqs: any[]) => {
-    const results = await Promise.all(
-      reqs.map(async (req) => {
-        const isGeneral = await isGeneralCategory(req.category_id);
-        if (!isGeneral) return 0;
-        const currency = (req.metadata as any)?.currency || 'PHP';
-        return convertToPhp(toNumber(req.amount), currency);
-      })
-    );
-    return results;
-  };
+  const totalReleasedAmount = (await Promise.all(
+    (releasedRequests || []).map(async (req) => {
+      const isGeneral = await isGeneralCategory(req.category_id);
+      if (!isGeneral) return 0;
+      const currency = (req.metadata as any)?.currency || 'PHP';
+      return convertToPhp(toNumber(req.amount), currency);
+    })
+  )).reduce((sum, amount) => sum + amount, 0);
 
-  const releasedAmounts = await filterGeneralAmount(releasedRequests || []);
-  const totalReleasedAmount = releasedAmounts.reduce((sum, amount) => sum + amount, 0);
-
-  const pendingAmounts = await filterGeneralAmount(pendingRequests || []);
-  const totalPendingAmount = pendingAmounts.reduce((sum, amount) => sum + amount, 0);
-  const totalPendingCount = pendingAmounts.filter(amount => amount > 0).length;
+  // Pending budget proposals/revisions are always PHP base
+  const totalPendingAmount = (pendingBudgetRequests || []).reduce((sum, req) => sum + toNumber(req.amount), 0);
+  const totalPendingCount = (pendingBudgetRequests || []).length;
 
   const { data, error } = await supabase
     .from('cost_centers')
@@ -114,7 +109,7 @@ export const updateM88ManilaCostCenterBudget = async (
       used_amount: totalReleasedAmount,
       pending_amount: totalPendingAmount,
       pending_count: totalPendingCount,
-      remaining_amount: departmentsTotalBudget - totalReleasedAmount - totalPendingAmount
+      remaining_amount: departmentsTotalBudget - totalReleasedAmount
     })
     .eq('id', costCenter.id)
     .select()
