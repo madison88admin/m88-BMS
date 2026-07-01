@@ -78,11 +78,12 @@ export const updateM88ManilaCostCenterBudget = async (
 
   if (releasedError) throw releasedError;
 
-  // Calculate total pending amount from General Category requests
+  // Calculate total pending amount from ALL pending expense requests (excluding budget proposals)
   const { data: pendingRequests, error: pendingError } = await supabase
     .from('expense_requests')
-    .select('amount, category_id, metadata')
+    .select('id, request_code, amount, request_type, category_id, status, metadata')
     .eq('fiscal_year', fiscalYear)
+    .not('request_type', 'in', '(budget_request,budget_revision)')
     .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']);
 
   if (pendingError) throw pendingError;
@@ -101,9 +102,23 @@ export const updateM88ManilaCostCenterBudget = async (
   };
 
   const totalReleasedAmount = (await filterGeneralAmount(releasedRequests || [])).reduce((sum, amount) => sum + amount, 0);
-  const pendingAmounts = await filterGeneralAmount(pendingRequests || []);
-  const totalPendingAmount = pendingAmounts.reduce((sum, amount) => sum + amount, 0);
-  const totalPendingCount = pendingAmounts.filter(amount => amount > 0).length;
+
+  // Pending reflects all pending expense requests (any category), converted to PHP base
+  const totalPendingAmount = (pendingRequests || []).reduce((sum, req) => {
+    const currency = (req.metadata as any)?.currency || 'PHP';
+    return sum + convertToPhp(toNumber(req.amount), currency);
+  }, 0);
+  const totalPendingCount = (pendingRequests || []).length;
+
+  console.log(`[updateM88ManilaCostCenterBudget] FY${fiscalYear}`, {
+    totalBudget: departmentsTotalBudget,
+    releasedCount: releasedRequests?.length || 0,
+    totalReleasedAmount,
+    pendingCount: pendingRequests?.length || 0,
+    totalPendingAmount,
+    totalPendingCount,
+    pendingRequests: pendingRequests?.map((r: any) => ({ id: r.id, request_code: r.request_code, amount: r.amount, category_id: r.category_id, status: r.status, metadata: r.metadata }))
+  });
 
   const { data, error } = await supabase
     .from('cost_centers')
@@ -141,12 +156,16 @@ export const updateM88ManilaCostCenterBudget = async (
  * Check if a budget category is a General Category (department = 'All')
  */
 export const isGeneralCategory = async (categoryId: string) => {
+  if (!categoryId) return false;
   const { data, error } = await supabase
     .from('budget_categories')
     .select('department_id')
     .eq('id', categoryId)
-    .single();
+    .maybeSingle();
 
-  if (error) throw error;
+  if (error) {
+    console.error('[isGeneralCategory] Error checking category', categoryId, error);
+    return false;
+  }
   return data?.department_id === 'All';
 };
