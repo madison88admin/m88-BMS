@@ -4,6 +4,7 @@ import { supabase } from '../utils/supabase';
 import { resolveExpenseCategoryDepartmentName } from '../constants/departmentMapping';
 import { logAuditEvent } from '../utils/auditLog';
 import { notifyAccounting, notifyUser } from '../utils/workflowNotify';
+import { updateM88ManilaCostCenterBudget } from '../utils/generalBudget';
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
@@ -32,27 +33,6 @@ const syncDepartmentBudget = async (department_id: string, fiscal_year: number) 
       .eq('fiscal_year', fiscal_year);
   }
   return total;
-};
-
-const updateM88ManilaCostCenterBudget = async (fiscal_year: number) => {
-  const { data: departments } = await supabase
-    .from('departments')
-    .select('annual_budget, used_budget')
-    .eq('fiscal_year', fiscal_year);
-  const totalBudget = (departments || []).reduce((s: number, d: any) => s + toNumber(d.annual_budget), 0);
-  const totalUsed = (departments || []).reduce((s: number, d: any) => s + toNumber(d.used_budget), 0);
-  const remainingAmount = totalBudget - totalUsed;
-
-  await supabase
-    .from('cost_centers')
-    .update({ 
-      total_budget: totalBudget, 
-      used_amount: totalUsed,
-      remaining_amount: remainingAmount,
-      updated_at: new Date() 
-    })
-    .eq('name', 'M88 Manila')
-    .eq('fiscal_year', fiscal_year);
 };
 
 const adjustBudgetForDocumentUpload = async (upload: any, deduct: boolean) => {
@@ -574,4 +554,3 @@ router.patch('/:id/review', authenticate, authorize('accounting', 'admin', 'supe
 });
 
 export default router;
-export { updateM88ManilaCostCenterBudget };

@@ -17,7 +17,7 @@ import {
   normalizeAllocations
 } from '../utils/budget';
 import { validateExpense, OFFICIAL_EXPENSE_LIST, mergeBudgetCategoriesIntoOfficialList, ExpenseItem } from '../utils/expenseValidator';
-import { updateM88ManilaCostCenterBudget } from './documentUploads';
+import { updateM88ManilaCostCenterBudget } from '../utils/generalBudget';
 import {
   filterOfficialExpenseList,
   resolveOfficialExpenseList,
@@ -610,25 +610,8 @@ const applyApprovedBudgetProposal = async (request: any) => {
       .eq('id', request.department_id);
   }
 
-  // Update M88 Manila cost center budget (sum of all departments' annual budgets)
-  const { data: allDepartments } = await supabase
-    .from('departments')
-    .select('annual_budget, used_budget')
-    .eq('fiscal_year', request.fiscal_year);
-  const totalBudget = (allDepartments || []).reduce((s: number, d: any) => s + toNumber(d.annual_budget), 0);
-  const totalUsed = (allDepartments || []).reduce((s: number, d: any) => s + toNumber(d.used_budget), 0);
-  const remainingAmount = totalBudget - totalUsed;
-
-  await supabase
-    .from('cost_centers')
-    .update({ 
-      total_budget: totalBudget, 
-      used_amount: totalUsed,
-      remaining_amount: remainingAmount,
-      updated_at: new Date() 
-    })
-    .eq('name', 'M88 Manila')
-    .eq('fiscal_year', request.fiscal_year);
+  // Update M88 Manila cost center budget (sum of all departments' annual budgets + pending)
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
 
   const category = requestedCategory.parent_category_id ? requestedCategory : (await resolveMainCategory(request.category_id));
   await supabase.from('budget_revision_history').insert({
@@ -1674,6 +1657,9 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     await notifyAccounting(`New reimbursement ${request_code} submitted for review.`);
   }
 
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(activeDepartment.fiscal_year);
+
   res.json(responseRows[0]);
 });
 
@@ -2409,6 +2395,9 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
   // Invalidate department cache so projected_remaining reflects the status change
   invalidateCache('/api/departments');
 
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
   res.json(data);
 });
 
@@ -2473,6 +2462,9 @@ router.post('/:id/co-approve', authenticate, authorize('vp', 'president', 'admin
       note: `Co-approved by ${userRole.toUpperCase()} (${currency})`
     }
   ]);
+
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
   
   res.json(data);
 });
@@ -2592,6 +2584,9 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
   // Invalidate department cache so projected_remaining reflects the status change
   invalidateCache('/api/departments');
 
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
   res.json(data);
 });
 
@@ -2690,6 +2685,10 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
   } else {
     await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', notifyMessage);
   }
+
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
   res.json(data);
 });
 
@@ -2870,6 +2869,9 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
     }
     await notifyAccounting(`Request ${request.request_code} approved by President — ready for fund release.`);
   }
+
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
 
   res.json(data);
 });
@@ -3116,6 +3118,9 @@ router.patch('/:id/return', authenticate, authorize('supervisor', 'accounting', 
     }
   }
 
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
   res.json(data);
 });
 
@@ -3343,6 +3348,9 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
     }
   }
 
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
   res.json((await appendWorkflowDataToRequests([data]))[0]);
 });
 
@@ -3458,6 +3466,10 @@ router.patch('/:id/reject', authenticate, authorize('supervisor', 'accounting', 
       }
     }
   }
+
+  // Recalculate M88 Manila cost center pending/used amounts
+  await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
   res.json(data);
 });
 

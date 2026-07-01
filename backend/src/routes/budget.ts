@@ -603,6 +603,8 @@ router.post('/cost-centers', authenticate, authorize('accounting', 'admin', 'sup
       name: name.trim(),
       total_budget: parseFloat(total_budget),
       used_amount: 0,
+      pending_amount: 0,
+      pending_count: 0,
       remaining_amount: parseFloat(total_budget),
       fiscal_year: fiscal_year || new Date().getFullYear(),
       is_active: is_active !== undefined ? is_active : true

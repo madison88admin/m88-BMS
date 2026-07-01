@@ -36,6 +36,8 @@ export const findOrCreateM88ManilaCostCenter = async (fiscalYear: number) => {
       name: 'M88 Manila',
       total_budget: 0,
       used_amount: 0,
+      pending_amount: 0,
+      pending_count: 0,
       remaining_amount: 0,
       fiscal_year: fiscalYear,
       is_active: true
@@ -53,7 +55,7 @@ export const findOrCreateM88ManilaCostCenter = async (fiscalYear: number) => {
  */
 export const updateM88ManilaCostCenterBudget = async (
   fiscalYear: number,
-  user: any
+  user?: any
 ) => {
   const costCenter = await findOrCreateM88ManilaCostCenter(fiscalYear);
 
@@ -68,32 +70,51 @@ export const updateM88ManilaCostCenterBudget = async (
   const departmentsTotalBudget = departments.reduce((sum, dept) => sum + toNumber(dept.annual_budget), 0);
 
   // Calculate total released amount from General Category requests
-  const { data: requests, error: reqError } = await supabase
+  const { data: releasedRequests, error: releasedError } = await supabase
     .from('expense_requests')
     .select('amount, category_id, metadata')
     .eq('fiscal_year', fiscalYear)
     .eq('status', 'released');
 
-  if (reqError) throw reqError;
+  if (releasedError) throw releasedError;
+
+  // Calculate total pending amount from General Category requests
+  const { data: pendingRequests, error: pendingError } = await supabase
+    .from('expense_requests')
+    .select('amount, category_id, metadata')
+    .eq('fiscal_year', fiscalYear)
+    .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']);
+
+  if (pendingError) throw pendingError;
 
   // Filter for General Category requests and convert to PHP base
-  const generalCategoryRequests = await Promise.all(
-    requests.map(async (req) => {
-      const isGeneral = await isGeneralCategory(req.category_id);
-      if (!isGeneral) return 0;
-      const currency = (req.metadata as any)?.currency || 'PHP';
-      return convertToPhp(toNumber(req.amount), currency);
-    })
-  );
+  const filterGeneralAmount = async (reqs: any[]) => {
+    const results = await Promise.all(
+      reqs.map(async (req) => {
+        const isGeneral = await isGeneralCategory(req.category_id);
+        if (!isGeneral) return 0;
+        const currency = (req.metadata as any)?.currency || 'PHP';
+        return convertToPhp(toNumber(req.amount), currency);
+      })
+    );
+    return results;
+  };
 
-  const totalReleasedAmount = generalCategoryRequests.reduce((sum, amount) => sum + amount, 0);
+  const releasedAmounts = await filterGeneralAmount(releasedRequests || []);
+  const totalReleasedAmount = releasedAmounts.reduce((sum, amount) => sum + amount, 0);
+
+  const pendingAmounts = await filterGeneralAmount(pendingRequests || []);
+  const totalPendingAmount = pendingAmounts.reduce((sum, amount) => sum + amount, 0);
+  const totalPendingCount = pendingAmounts.filter(amount => amount > 0).length;
 
   const { data, error } = await supabase
     .from('cost_centers')
     .update({
       total_budget: departmentsTotalBudget,
       used_amount: totalReleasedAmount,
-      remaining_amount: departmentsTotalBudget - totalReleasedAmount
+      pending_amount: totalPendingAmount,
+      pending_count: totalPendingCount,
+      remaining_amount: departmentsTotalBudget - totalReleasedAmount - totalPendingAmount
     })
     .eq('id', costCenter.id)
     .select()
@@ -101,17 +122,19 @@ export const updateM88ManilaCostCenterBudget = async (
 
   if (error) throw error;
 
-  // Log audit event
-  await logAuditEvent({
-    user,
-    actionType: 'general_budget_stored_to_cost_center',
-    recordType: 'cost_center',
-    recordId: costCenter.id,
-    recordLabel: costCenter.name,
-    oldValue: { total_budget: costCenter.total_budget },
-    newValue: { total_budget: data.total_budget },
-    remarks: `M88 Manila cost center updated: Total = ${departmentsTotalBudget}, Used = ${totalReleasedAmount}, Remaining = ${departmentsTotalBudget - totalReleasedAmount}`
-  });
+  // Log audit event when user is provided
+  if (user) {
+    await logAuditEvent({
+      user,
+      actionType: 'general_budget_stored_to_cost_center',
+      recordType: 'cost_center',
+      recordId: costCenter.id,
+      recordLabel: costCenter.name,
+      oldValue: { total_budget: costCenter.total_budget },
+      newValue: { total_budget: data.total_budget },
+      remarks: `M88 Manila cost center updated: Total = ${departmentsTotalBudget}, Used = ${totalReleasedAmount}, Pending = ${totalPendingAmount} (${totalPendingCount}), Remaining = ${departmentsTotalBudget - totalReleasedAmount - totalPendingAmount}`
+    });
+  }
 
   return data;
 };
