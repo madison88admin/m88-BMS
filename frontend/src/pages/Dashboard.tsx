@@ -170,7 +170,7 @@ const Dashboard = () => {
       try {
         const year = fiscalYear || new Date().getFullYear();
         const res = await api.get('/api/budget/cost-centers', { params: { fiscal_year: year } });
-        const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
+        const m88 = res.data?.find((cc: any) => String(cc.name || '').trim().toLowerCase() === 'm88 manila');
         setM88ManilaCostCenter(m88 || null);
       } catch {
         setM88ManilaCostCenter(null);

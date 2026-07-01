@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { AUDIT_ACTIONS, logAuditEvent } from './auditLog';
+import { buildDepartmentBudgetSummaryMap } from './budget';
 
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
 
@@ -22,7 +23,7 @@ export const findOrCreateM88ManilaCostCenter = async (fiscalYear: number) => {
   const { data: existing, error } = await supabase
     .from('cost_centers')
     .select('*')
-    .eq('name', 'M88 Manila')
+    .ilike('name', 'M88 Manila')
     .eq('fiscal_year', fiscalYear)
     .maybeSingle();
 
@@ -59,75 +60,56 @@ export const updateM88ManilaCostCenterBudget = async (
 ) => {
   const costCenter = await findOrCreateM88ManilaCostCenter(fiscalYear);
 
-  // Calculate total annual budget from all departments for this fiscal year
-  const { data: departments, error: deptError } = await supabase
-    .from('departments')
-    .select('annual_budget')
-    .eq('fiscal_year', fiscalYear);
+  // Use the same source of truth as the Department Budget Breakdown table
+  const { summaryByDepartmentId } = await buildDepartmentBudgetSummaryMap();
+  const fiscalYearSummaries = Array.from(summaryByDepartmentId.values()).filter(
+    (summary: any) => summary.fiscal_year === fiscalYear
+  );
 
-  if (deptError) throw deptError;
-
-  const departmentsTotalBudget = departments.reduce((sum, dept) => sum + toNumber(dept.annual_budget), 0);
-
-  // Calculate total released amount from General Category expense requests
-  const { data: releasedRequests, error: releasedError } = await supabase
-    .from('expense_requests')
-    .select('amount, category_id, metadata')
-    .eq('fiscal_year', fiscalYear)
-    .eq('status', 'released');
-
-  if (releasedError) throw releasedError;
-
-  // Calculate total pending amount from ALL pending expense requests (excluding budget proposals)
-  const { data: pendingRequests, error: pendingError } = await supabase
-    .from('expense_requests')
-    .select('id, request_code, amount, request_type, category_id, status, metadata')
-    .eq('fiscal_year', fiscalYear)
-    .not('request_type', 'in', '(budget_request,budget_revision)')
-    .in('status', ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']);
-
-  if (pendingError) throw pendingError;
-
-  // Filter for General Category requests and convert to PHP base
-  const filterGeneralAmount = async (reqs: any[]) => {
-    const results = await Promise.all(
-      reqs.map(async (req) => {
-        const isGeneral = await isGeneralCategory(req.category_id);
-        if (!isGeneral) return 0;
-        const currency = (req.metadata as any)?.currency || 'PHP';
-        return convertToPhp(toNumber(req.amount), currency);
-      })
-    );
-    return results;
-  };
-
-  const totalReleasedAmount = (await filterGeneralAmount(releasedRequests || [])).reduce((sum, amount) => sum + amount, 0);
-
-  // Pending reflects all pending expense requests (any category), converted to PHP base
-  const totalPendingAmount = (pendingRequests || []).reduce((sum, req) => {
-    const currency = (req.metadata as any)?.currency || 'PHP';
-    return sum + convertToPhp(toNumber(req.amount), currency);
-  }, 0);
-  const totalPendingCount = (pendingRequests || []).length;
+  const departmentsTotalBudget = fiscalYearSummaries.reduce((sum, summary) => sum + toNumber(summary.annual_budget), 0);
+  const totalUsedAmount = fiscalYearSummaries.reduce((sum, summary) => sum + toNumber(summary.used_budget), 0);
+  const totalPendingAmount = fiscalYearSummaries.reduce(
+    (sum, summary) =>
+      sum +
+      toNumber(summary.pending_supervisor_total) +
+      toNumber(summary.pending_accounting_total) +
+      toNumber(summary.pending_vp_total) +
+      toNumber(summary.pending_president_total),
+    0
+  );
+  const totalPendingCount = fiscalYearSummaries.reduce(
+    (sum, summary) =>
+      sum +
+      (toNumber(summary.pending_supervisor_total) > 0 ? 1 : 0) +
+      (toNumber(summary.pending_accounting_total) > 0 ? 1 : 0) +
+      (toNumber(summary.pending_vp_total) > 0 ? 1 : 0) +
+      (toNumber(summary.pending_president_total) > 0 ? 1 : 0),
+    0
+  );
 
   console.log(`[updateM88ManilaCostCenterBudget] FY${fiscalYear}`, {
     totalBudget: departmentsTotalBudget,
-    releasedCount: releasedRequests?.length || 0,
-    totalReleasedAmount,
-    pendingCount: pendingRequests?.length || 0,
+    totalUsedAmount,
     totalPendingAmount,
     totalPendingCount,
-    pendingRequests: pendingRequests?.map((r: any) => ({ id: r.id, request_code: r.request_code, amount: r.amount, category_id: r.category_id, status: r.status, metadata: r.metadata }))
+    summaries: fiscalYearSummaries.map((s) => ({
+      department: s.department_name,
+      used: s.used_budget,
+      pending_supervisor: s.pending_supervisor_total,
+      pending_accounting: s.pending_accounting_total,
+      pending_vp: s.pending_vp_total,
+      pending_president: s.pending_president_total
+    }))
   });
 
   const { data, error } = await supabase
     .from('cost_centers')
     .update({
       total_budget: departmentsTotalBudget,
-      used_amount: totalReleasedAmount,
+      used_amount: totalUsedAmount,
       pending_amount: totalPendingAmount,
       pending_count: totalPendingCount,
-      remaining_amount: Math.max(0, departmentsTotalBudget - totalReleasedAmount - totalPendingAmount)
+      remaining_amount: Math.max(0, departmentsTotalBudget - totalUsedAmount - totalPendingAmount)
     })
     .eq('id', costCenter.id)
     .select()
@@ -145,7 +127,7 @@ export const updateM88ManilaCostCenterBudget = async (
       recordLabel: costCenter.name,
       oldValue: { total_budget: costCenter.total_budget },
       newValue: { total_budget: data.total_budget },
-      remarks: `M88 Manila cost center updated: Total = ${departmentsTotalBudget}, Used = ${totalReleasedAmount}, Pending = ${totalPendingAmount} (${totalPendingCount}), Available = ${Math.max(0, departmentsTotalBudget - totalReleasedAmount - totalPendingAmount)}`
+      remarks: `M88 Manila cost center updated: Total = ${departmentsTotalBudget}, Used = ${totalUsedAmount}, Pending = ${totalPendingAmount} (${totalPendingCount}), Available = ${Math.max(0, departmentsTotalBudget - totalUsedAmount - totalPendingAmount)}`
     });
   }
 

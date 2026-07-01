@@ -822,7 +822,7 @@ const BudgetManagement = () => {
       console.log('Fetching M88 Manila cost center for fiscal year:', selectedFiscalYear);
       const res = await api.get('/api/budget/cost-centers', { params: { fiscal_year: selectedFiscalYear } });
       console.log('Cost centers response:', res.data);
-      const m88 = res.data?.find((cc: any) => cc.name === 'M88 Manila');
+      const m88 = res.data?.find((cc: any) => String(cc.name || '').trim().toLowerCase() === 'm88 manila');
       console.log('M88 Manila cost center found:', m88);
       setM88ManilaCostCenter(m88 || null);
     } catch (err) {
