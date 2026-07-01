@@ -10,28 +10,23 @@ interface CodeConfig {
 /**
  * Generates a sequential auto-incrementing code with zero-padding
  * Format: PREFIX-00001, PREFIX-00002, etc.
- * Thread-safe implementation using database query
+ * Uses a retry loop to survive race-condition duplicates.
  */
 export async function generateSequentialCode(
   supabase: any,
   config: CodeConfig
 ): Promise<string> {
-  const { prefix, tableName, codeColumn, typeFilter } = config;
+  const { prefix, tableName, codeColumn } = config;
 
-  // Query the highest existing code for this prefix
-  let query = supabase
+  // Query the highest existing code for this prefix across ALL rows.
+  // The prefix itself encodes the type (REQ, CA, BUD, etc.), so we must not
+  // filter by request_type - legacy rows may have a different/null type.
+  const { data, error } = await supabase
     .from(tableName)
     .select(codeColumn)
     .like(codeColumn, `${prefix}-%`)
     .order(codeColumn, { ascending: false })
     .limit(1);
-
-  // Apply type filter if specified (for request_type column)
-  if (typeFilter) {
-    query = query.eq('request_type', typeFilter);
-  }
-
-  const { data, error } = await query;
 
   if (error) {
     console.error(`[sequentialCodeGenerator] Error querying ${tableName}:`, error);
@@ -42,16 +37,38 @@ export async function generateSequentialCode(
 
   if (data && data.length > 0) {
     const lastCode = data[0][codeColumn];
-    const lastNumber = parseInt(lastCode.split('-')[1], 10);
-    
+    const match = String(lastCode).match(/-(\d+)$/);
+    const lastNumber = match ? parseInt(match[1], 10) : NaN;
+
     if (!isNaN(lastNumber)) {
       nextNumber = lastNumber + 1;
     }
   }
 
-  // Zero-pad to 5 digits minimum
-  const paddedNumber = String(nextNumber).padStart(5, '0');
-  return `${prefix}-${paddedNumber}`;
+  // Retry loop in case another request grabbed the same number concurrently
+  const maxAttempts = 10;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const paddedNumber = String(nextNumber + attempt).padStart(5, '0');
+    const candidate = `${prefix}-${paddedNumber}`;
+
+    // Fast existence check before returning the candidate
+    const { data: existing, error: checkError } = await supabase
+      .from(tableName)
+      .select(codeColumn)
+      .eq(codeColumn, candidate)
+      .limit(1);
+
+    if (checkError) {
+      console.error(`[sequentialCodeGenerator] Error checking ${candidate}:`, checkError);
+      throw new Error(`Failed to generate sequential code: ${checkError.message}`);
+    }
+
+    if (!existing || existing.length === 0) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`Unable to generate unique sequential code for prefix ${prefix} after ${maxAttempts} attempts`);
 }
 
 /**
