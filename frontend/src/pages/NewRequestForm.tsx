@@ -208,6 +208,7 @@ const NewRequestForm = () => {
     business_purpose: '',
     main_category: '',
     item_name: '',
+    currency: 'PHP' as 'PHP' | 'USD' | 'IDR',
     items: [
       { item: '', amount: '' }
     ] as Array<{
@@ -224,6 +225,7 @@ const NewRequestForm = () => {
     main_category: '',
     item_name: '',
     amount: '',
+    currency: 'PHP' as 'PHP' | 'USD' | 'IDR',
     expected_use_date: '',
     expected_liquidation_date: '',
     purpose: '',
@@ -540,6 +542,7 @@ const NewRequestForm = () => {
           cost_center_id: reimbursementForm.cost_center_id || null,
           project: reimbursementForm.project || null,
           main_category: reimbursementForm.main_category || null,
+          currency: reimbursementForm.currency,
         },
         attachments: reimbursementAttachments
       });
@@ -597,6 +600,7 @@ const NewRequestForm = () => {
         metadata: {
           request_type: 'cash_advance',
           main_category: cashAdvanceForm.main_category || null,
+          currency: cashAdvanceForm.currency,
         },
         attachments: cashAdvanceAttachments
       });
@@ -924,7 +928,9 @@ const NewRequestForm = () => {
                     required
                   />
                   <div className="relative w-40">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60">₱</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60">
+                      {reimbursementForm.currency === 'USD' ? '$' : reimbursementForm.currency === 'IDR' ? 'Rp' : '₱'}
+                    </span>
                     <input
                       type="number"
                       min="0"
@@ -962,9 +968,20 @@ const NewRequestForm = () => {
             <div className="mt-4 pt-4 border-t border-[var(--role-border)]">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Total Amount:</span>
-                <span className="text-xl font-bold text-emerald-600">
-                  {formatMoney(reimbursementForm.items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0))}
-                </span>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={reimbursementForm.currency}
+                    onChange={(e) => setReimbursementForm(prev => ({ ...prev, currency: e.target.value as 'PHP' | 'USD' | 'IDR' }))}
+                    className="px-2 py-1 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+                  >
+                    <option value="PHP">PHP</option>
+                    <option value="USD">USD</option>
+                    <option value="IDR">IDR</option>
+                  </select>
+                  <span className="text-xl font-bold text-emerald-600">
+                    {formatMoney(reimbursementForm.items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0), reimbursementForm.currency)}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -1328,7 +1345,9 @@ const NewRequestForm = () => {
                     required
                   />
                   <div className="relative w-40">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60">₱</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--role-text)]/60">
+                      {cashAdvanceForm.currency === 'USD' ? '$' : cashAdvanceForm.currency === 'IDR' ? 'Rp' : '₱'}
+                    </span>
                     <input
                       type="number"
                       min="0"
@@ -1363,7 +1382,18 @@ const NewRequestForm = () => {
             </div>
             <div className="mt-3 pt-3 border-t border-[var(--role-border)] flex justify-between items-center">
               <span className="font-medium">Total Amount:</span>
-              <span className="text-xl font-bold text-emerald-600">{formatMoney(getTotalBreakdown())}</span>
+              <div className="flex items-center gap-3">
+                <select
+                  value={cashAdvanceForm.currency}
+                  onChange={(e) => setCashAdvanceForm(prev => ({ ...prev, currency: e.target.value as 'PHP' | 'USD' | 'IDR' }))}
+                  className="px-2 py-1 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+                >
+                  <option value="PHP">PHP</option>
+                  <option value="USD">USD</option>
+                  <option value="IDR">IDR</option>
+                </select>
+                <span className="text-xl font-bold text-emerald-600">{formatMoney(getTotalBreakdown(), cashAdvanceForm.currency)}</span>
+              </div>
             </div>
           </div>
 
