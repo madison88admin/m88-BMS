@@ -2380,6 +2380,21 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     }
   ]);
 
+  await logAuditEvent({
+    user: req.user,
+    actionType: request.request_type === 'cash_advance'
+      ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
+      : isBudgetFlow
+        ? AUDIT_ACTIONS.BUDGET_SUBMITTED
+        : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+    recordType: isBudgetFlow ? 'budget' : 'request',
+    recordId: id,
+    recordLabel: request.request_code,
+    oldValue: { status: request.status },
+    newValue: { status: nextStatus },
+    remarks: isBudgetFlow ? 'Supervisor approved budget proposal' : 'Supervisor approved request'
+  });
+
   if (!isBudgetFlow) {
     if (nextStatus === 'pending_president') {
       await notifyPresident(`Request ${request.request_code} approved by supervisor — requires President review.`);
@@ -2532,6 +2547,19 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
       oldValue: { status: request.status },
       newValue: { status: nextStatus },
       remarks: req.body.note || undefined,
+    });
+  } else {
+    await logAuditEvent({
+      user: req.user,
+      actionType: request.request_type === 'cash_advance'
+        ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
+        : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+      recordType: 'request',
+      recordId: id,
+      recordLabel: request.request_code,
+      oldValue: { status: request.status },
+      newValue: { status: nextStatus },
+      remarks: req.body.note || 'Accounting approved request'
     });
   }
 
@@ -2955,6 +2983,19 @@ router.patch('/:id/release', authenticate, authorize('accounting', 'accounting_l
     
     // Update M88 Manila cost center to sync used_amount
     await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
+    await logAuditEvent({
+      user: req.user,
+      actionType: request.request_type === 'cash_advance'
+        ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
+        : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+      recordType: 'request',
+      recordId: id,
+      recordLabel: request.request_code,
+      oldValue: { status: request.status },
+      newValue: { status: 'released' },
+      remarks: `Funds released via ${req.body?.release_method || 'bank_transfer'}`
+    });
     
     await notifyEmployee(request.employee_id, request.request_code, 'Request Released', `Your request ${request.request_code} has been released.`);
     res.json(released);
