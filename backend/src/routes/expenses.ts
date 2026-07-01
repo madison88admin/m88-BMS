@@ -94,4 +94,65 @@ router.post('/', authenticate, authorize('supervisor', 'accounting', 'admin', 's
   res.json(data);
 });
 
+// POST /api/expenses/batch - batch recurring expense adjustments
+router.post('/batch', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  const { expenses, department_id } = req.body;
+  if (!Array.isArray(expenses) || expenses.length === 0) {
+    return res.status(400).json({ error: 'expenses array is required' });
+  }
+
+  const targetDepartmentId = department_id || req.user.department_id;
+  const { data: dept, error: deptError } = await supabase.from('departments').select('*').eq('id', targetDepartmentId).single();
+  if (deptError || !dept) return res.status(400).json({ error: deptError?.message || 'Department not found.' });
+
+  const targetFiscalYear = Number(dept.fiscal_year) || new Date().getFullYear();
+  const results = [];
+
+  for (const item of expenses) {
+    const { category_id, amount, description, expense_date, item_name } = item;
+    if (!category_id || toNumber(amount) <= 0) continue;
+
+    const { data: categoryBudget, error: categoryError } = await supabase
+      .from('budget_categories')
+      .select('id, category_name, department_id, remaining_amount, used_amount')
+      .eq('id', category_id)
+      .eq('fiscal_year', targetFiscalYear)
+      .maybeSingle();
+
+    if (categoryError || !categoryBudget) continue;
+
+    const { data, error } = await supabase
+      .from('direct_expenses')
+      .insert({
+        department_id: targetDepartmentId,
+        category_id: categoryBudget.id,
+        fiscal_year: targetFiscalYear,
+        logged_by: req.user.id,
+        item_name: item_name || categoryBudget.category_name,
+        category: categoryBudget.category_name,
+        amount,
+        description,
+        expense_date: expense_date || new Date().toISOString().split('T')[0]
+      })
+      .select()
+      .single();
+
+    if (error) continue;
+
+    await supabase
+      .from('budget_categories')
+      .update({
+        used_amount: toNumber(categoryBudget.used_amount) + toNumber(amount),
+        remaining_amount: toNumber(categoryBudget.remaining_amount) - toNumber(amount)
+      })
+      .eq('id', categoryBudget.id);
+
+    results.push(data);
+  }
+
+  await updateM88ManilaCostCenterBudget(targetFiscalYear);
+
+  res.json({ count: results.length, data: results });
+});
+
 export default router;
