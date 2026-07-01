@@ -576,6 +576,15 @@ router.get('/cost-centers', authenticate, async (req: any, res) => {
       await ensureDepartmentCostCenterCode(supabase, String(department_id));
     }
 
+    // Recalculate M88 Manila budget so the dashboard always shows fresh data
+    if (fiscal_year) {
+      try {
+        await updateM88ManilaCostCenterBudget(parseInt(fiscal_year as string));
+      } catch (recalcError) {
+        console.error('[GET /cost-centers] Failed to recalculate M88 Manila budget:', recalcError);
+      }
+    }
+
     let query = supabase
       .from('cost_centers')
       .select('*')
