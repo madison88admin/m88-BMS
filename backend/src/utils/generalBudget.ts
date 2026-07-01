@@ -62,9 +62,9 @@ export const updateM88ManilaCostCenterBudget = async (
 
   // Use the same source of truth as the Department Budget Breakdown table
   const { summaryByDepartmentId } = await buildDepartmentBudgetSummaryMap();
-  const fiscalYearSummaries = Array.from(summaryByDepartmentId.values()).filter(
-    (summary: any) => summary.fiscal_year === fiscalYear
-  );
+  const fiscalYearSummaries = Array.from(
+    new Set(Array.from(summaryByDepartmentId.values()))
+  ).filter((summary: any) => toNumber(summary.fiscal_year) === fiscalYear);
 
   const departmentsTotalBudget = fiscalYearSummaries.reduce((sum, summary) => sum + toNumber(summary.annual_budget), 0);
   const totalUsedAmount = fiscalYearSummaries.reduce((sum, summary) => sum + toNumber(summary.used_budget), 0);
