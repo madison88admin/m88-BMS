@@ -236,15 +236,6 @@ const BudgetExpenseUpload = () => {
     return batchEntries.reduce((sum, [, v]) => sum + toNumber(v.amount), 0);
   }, [batchEntries]);
 
-  const overBudgetItems = useMemo(() => {
-    return matchedPresets.filter((p) => {
-      const draft = batchDrafts[p.category_code];
-      const amount = toNumber(draft?.amount);
-      const remaining = toNumber(p.category?.remaining_amount);
-      return amount > 0 && amount > remaining;
-    });
-  }, [matchedPresets, batchDrafts]);
-
   const submitBatch = async () => {
     if (batchEntries.length === 0) {
       toast.error('Enter at least one amount');
@@ -434,8 +425,6 @@ const BudgetExpenseUpload = () => {
                         const draft = batchDrafts[preset.category_code];
                         const remaining = toNumber(preset.category?.remaining_amount);
                         const amount = toNumber(draft?.amount);
-                        const projectedRemaining = remaining - amount;
-                        const overBudget = amount > 0 && projectedRemaining < 0;
                         const isFound = !!preset.category;
                         return (
                           <div key={preset.category_code} className={`flex flex-col sm:flex-row gap-2 sm:items-center px-3 py-2 text-xs ${isFound ? 'bg-white' : 'bg-gray-50 text-gray-400'}`}>
@@ -453,53 +442,28 @@ const BudgetExpenseUpload = () => {
                                 <div className="text-[10px] text-[var(--role-text)]/70">Upload: {formatMoney(amount)}</div>
                               )}
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-2 shrink-0">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                placeholder="0.00"
-                                value={draft?.amount ?? ''}
-                                onChange={(e) => {
-                                  setBatchDrafts((prev) => ({
-                                    ...prev,
-                                    [preset.category_code]: {
-                                      amount: e.target.value,
-                                      description: draft?.description || `${preset.category_name} - ${batchDate}`,
-                                      date: batchDate,
-                                      category_code: preset.category_code,
-                                      category_name: preset.category_name,
-                                      parent_code: preset.parent_code,
-                                      parent_name: preset.parent_name
-                                    }
-                                  }));
-                                }}
-                                className={`w-28 px-2 py-1.5 rounded border bg-[var(--role-surface)] ${overBudget ? 'border-red-400 focus:ring-red-200' : 'border-[var(--role-border)]'}`}
-                              />
-                              <input
-                                type="text"
-                                placeholder="Description"
-                                value={draft?.description || ''}
-                                onChange={(e) => {
-                                  setBatchDrafts((prev) => ({
-                                    ...prev,
-                                    [preset.category_code]: {
-                                      amount: draft?.amount || '',
-                                      description: e.target.value,
-                                      date: batchDate,
-                                      category_code: preset.category_code,
-                                      category_name: preset.category_name,
-                                      parent_code: preset.parent_code,
-                                      parent_name: preset.parent_name
-                                    }
-                                  }));
-                                }}
-                                className="w-40 px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                              />
-                            </div>
-                            {overBudget && (
-                              <span className="text-[10px] text-red-600 font-medium whitespace-nowrap">Over budget</span>
-                            )}
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              value={draft?.amount ?? ''}
+                              onChange={(e) => {
+                                setBatchDrafts((prev) => ({
+                                  ...prev,
+                                  [preset.category_code]: {
+                                    amount: e.target.value,
+                                    description: `${preset.category_name} - ${batchDate}`,
+                                    date: batchDate,
+                                    category_code: preset.category_code,
+                                    category_name: preset.category_name,
+                                    parent_code: preset.parent_code,
+                                    parent_name: preset.parent_name
+                                  }
+                                }));
+                              }}
+                              className="w-28 px-2 py-1.5 rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                            />
                           </div>
                         );
                       })}
@@ -517,11 +481,6 @@ const BudgetExpenseUpload = () => {
                 <div className="text-lg font-bold text-[var(--role-text)]">
                   Total: {formatMoney(batchTotal)}
                 </div>
-                {overBudgetItems.length > 0 && (
-                  <div className="text-xs text-red-600">
-                    {overBudgetItems.length} item{overBudgetItems.length !== 1 ? 's' : ''} over remaining budget
-                  </div>
-                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -657,11 +616,6 @@ const BudgetExpenseUpload = () => {
             <p className="text-sm text-gray-600 mb-4">
               You are about to apply {batchEntries.length} expense adjustment{batchEntries.length !== 1 ? 's' : ''} totaling {formatMoney(batchTotal)}.
             </p>
-            {overBudgetItems.length > 0 && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 text-xs text-red-700">
-                <strong>Warning:</strong> {overBudgetItems.length} item{overBudgetItems.length !== 1 ? 's' : ''} exceed remaining budget. Proceed anyway?
-              </div>
-            )}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowConfirm(false)} className="px-4 py-2 text-xs rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
               <button type="button" onClick={() => void submitBatch()} disabled={batchSubmitting} className="px-4 py-2 text-xs rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
