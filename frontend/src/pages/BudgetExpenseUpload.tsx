@@ -81,6 +81,7 @@ const BudgetExpenseUpload = () => {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportFiscalYear, setReportFiscalYear] = useState<number>(2026);
   const [reportMonths, setReportMonths] = useState<string>('Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec');
+  const [reportDepartmentId, setReportDepartmentId] = useState<string>('');
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ category_id: string; amount: string; description: string; expense_date: string }>({ category_id: '', amount: '', description: '', expense_date: today() });
@@ -329,7 +330,7 @@ const BudgetExpenseUpload = () => {
         fiscal_year: String(reportFiscalYear),
         months: reportMonths
       });
-      if (selectedDepartmentId) params.set('department_id', selectedDepartmentId);
+      if (reportDepartmentId) params.set('department_id', reportDepartmentId);
       const { data } = await api.get(`/api/reports/monthly-spend-by-category?${params.toString()}`);
       setReportData(data);
     } catch (err: any) {
@@ -346,7 +347,7 @@ const BudgetExpenseUpload = () => {
         months: reportMonths,
         format: 'excel'
       });
-      if (selectedDepartmentId) params.set('department_id', selectedDepartmentId);
+      if (reportDepartmentId) params.set('department_id', reportDepartmentId);
       const response = await api.get(`/api/reports/monthly-spend-by-category?${params.toString()}`, { responseType: 'blob' });
       const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob);
@@ -709,6 +710,19 @@ const BudgetExpenseUpload = () => {
                   onChange={(e) => setReportFiscalYear(Number(e.target.value))}
                   className="px-2 py-1.5 text-sm rounded border border-gray-300 w-32"
                 />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Department</label>
+                <select
+                  value={reportDepartmentId}
+                  onChange={(e) => setReportDepartmentId(e.target.value)}
+                  className="px-2 py-1.5 text-sm rounded border border-gray-300 w-48"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex-1">
                 <label className="text-xs text-gray-500 block mb-1">Months (comma-separated)</label>
