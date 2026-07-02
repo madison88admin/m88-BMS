@@ -56,7 +56,7 @@ const RECURRING_EXPENSE_PRESETS: Preset[] = [
 
 const TEMPLATE_STORAGE_KEY = 'bms_budget_expense_templates';
 
-type Draft = { amount: string; description: string; date: string };
+type Draft = { amount: string; description: string; date: string; category_code: string; category_name: string; parent_code?: string; parent_name?: string };
 
 const today = () => new Date().toISOString().split('T')[0];
 
@@ -238,8 +238,10 @@ const BudgetExpenseUpload = () => {
 
   const overBudgetItems = useMemo(() => {
     return matchedPresets.filter((p) => {
-      const amount = toNumber(p.category ? batchDrafts[p.category.id]?.amount : 0);
-      return amount > 0 && p.category && amount > toNumber(p.category.remaining_amount);
+      const draft = batchDrafts[p.category_code];
+      const amount = toNumber(draft?.amount);
+      const remaining = toNumber(p.category?.remaining_amount);
+      return amount > 0 && amount > remaining;
     });
   }, [matchedPresets, batchDrafts]);
 
@@ -250,11 +252,14 @@ const BudgetExpenseUpload = () => {
     }
     setBatchSubmitting(true);
     try {
-      const expenses = batchEntries.map(([categoryId, v]) => ({
-        category_id: categoryId,
+      const expenses = batchEntries.map(([, v]) => ({
+        category_code: v.category_code,
+        category_name: v.category_name,
+        parent_code: v.parent_code,
+        parent_name: v.parent_name,
         amount: toNumber(v.amount),
         description: v.description,
-        expense_date: v.date || batchDate
+        expense_date: batchDate
       }));
       await api.post('/api/expenses/batch', { expenses, department_id: selectedDepartmentId });
       toast.success(`${expenses.length} adjustments applied`);
@@ -426,80 +431,72 @@ const BudgetExpenseUpload = () => {
                     </div>
                     <div className="divide-y divide-purple-50">
                       {presets.map((preset) => {
-                        const draft = preset.category ? batchDrafts[preset.category.id] : undefined;
+                        const draft = batchDrafts[preset.category_code];
                         const remaining = toNumber(preset.category?.remaining_amount);
                         const amount = toNumber(draft?.amount);
-                        const overBudget = amount > 0 && amount > remaining;
+                        const projectedRemaining = remaining - amount;
+                        const overBudget = amount > 0 && projectedRemaining < 0;
+                        const isFound = !!preset.category;
                         return (
-                          <div key={preset.category_code} className={`flex flex-col sm:flex-row gap-2 sm:items-center px-3 py-2 text-xs ${preset.category ? 'bg-white' : 'bg-gray-50 text-gray-400'}`}>
+                          <div key={preset.category_code} className={`flex flex-col sm:flex-row gap-2 sm:items-center px-3 py-2 text-xs ${isFound ? 'bg-white' : 'bg-gray-50 text-gray-400'}`}>
                             <div className="w-20 font-mono text-[var(--role-text)]/70 shrink-0">{preset.category_code}</div>
                             <div className="flex-1 min-w-0">
                               <div className="truncate font-medium text-[var(--role-text)]">{preset.category_name}</div>
                               <div className="text-[10px] text-[var(--role-text)]/50 truncate">
-                                {preset.category ? (preset.category.parent_category_name || preset.category.category_name) : 'Category not found'}
+                                {isFound ? (preset.category.parent_category_name || preset.category.category_name) : 'Category not found - will be created'}
                               </div>
                             </div>
-                            {preset.category && (
-                              <div className="text-right w-28 shrink-0">
-                                <div className="text-[10px] text-[var(--role-text)]/50">Remaining</div>
-                                <div className={`font-mono ${remaining <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatMoney(remaining)}</div>
+                            <div className="text-right w-28 shrink-0">
+                              <div className="text-[10px] text-[var(--role-text)]/50">Budget After Change</div>
+                              <div className={`font-mono ${projectedRemaining < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                                {formatMoney(Math.max(0, projectedRemaining))}
                               </div>
-                            )}
+                              {projectedRemaining < 0 && (
+                                <div className="text-[10px] text-red-600">Over: {formatMoney(Math.abs(projectedRemaining))}</div>
+                              )}
+                            </div>
                             <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                               <input
                                 type="number"
                                 step="0.01"
                                 min="0"
                                 placeholder="0.00"
-                                disabled={!preset.category}
                                 value={draft?.amount ?? ''}
                                 onChange={(e) => {
-                                  if (!preset.category) return;
                                   setBatchDrafts((prev) => ({
                                     ...prev,
-                                    [preset.category.id]: {
+                                    [preset.category_code]: {
                                       amount: e.target.value,
                                       description: draft?.description || `${preset.category_name} - ${batchDate}`,
-                                      date: draft?.date || batchDate
+                                      date: batchDate,
+                                      category_code: preset.category_code,
+                                      category_name: preset.category_name,
+                                      parent_code: preset.parent_code,
+                                      parent_name: preset.parent_name
                                     }
                                   }));
                                 }}
-                                className={`w-28 px-2 py-1.5 rounded border bg-[var(--role-surface)] disabled:bg-gray-100 ${overBudget ? 'border-red-400 focus:ring-red-200' : 'border-[var(--role-border)]'}`}
+                                className={`w-28 px-2 py-1.5 rounded border bg-[var(--role-surface)] ${overBudget ? 'border-red-400 focus:ring-red-200' : 'border-[var(--role-border)]'}`}
                               />
                               <input
                                 type="text"
                                 placeholder="Description"
-                                disabled={!preset.category}
                                 value={draft?.description || ''}
                                 onChange={(e) => {
-                                  if (!preset.category) return;
                                   setBatchDrafts((prev) => ({
                                     ...prev,
-                                    [preset.category.id]: {
+                                    [preset.category_code]: {
                                       amount: draft?.amount || '',
                                       description: e.target.value,
-                                      date: draft?.date || batchDate
+                                      date: batchDate,
+                                      category_code: preset.category_code,
+                                      category_name: preset.category_name,
+                                      parent_code: preset.parent_code,
+                                      parent_name: preset.parent_name
                                     }
                                   }));
                                 }}
-                                className="w-40 px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
-                              />
-                              <input
-                                type="date"
-                                disabled={!preset.category}
-                                value={draft?.date || batchDate}
-                                onChange={(e) => {
-                                  if (!preset.category) return;
-                                  setBatchDrafts((prev) => ({
-                                    ...prev,
-                                    [preset.category.id]: {
-                                      amount: draft?.amount || '',
-                                      description: draft?.description || `${preset.category_name} - ${e.target.value}`,
-                                      date: e.target.value
-                                    }
-                                  }));
-                                }}
-                                className="w-32 px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
+                                className="w-40 px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
                               />
                             </div>
                             {overBudget && (

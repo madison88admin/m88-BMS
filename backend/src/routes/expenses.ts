@@ -117,6 +117,73 @@ router.post('/', authenticate, authorize('supervisor', 'accounting', 'admin', 's
   res.json(data);
 });
 
+const findOrCreateExpenseCategory = async (
+  departmentId: string,
+  fiscalYear: number,
+  categoryCode: string,
+  categoryName: string,
+  parentCode?: string,
+  parentName?: string
+) => {
+  const { data: existing } = await supabase
+    .from('budget_categories')
+    .select('*')
+    .eq('department_id', departmentId)
+    .eq('fiscal_year', fiscalYear)
+    .eq('category_code', categoryCode)
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  let parentCategoryId = null;
+  if (parentCode) {
+    const { data: parent } = await supabase
+      .from('budget_categories')
+      .select('id')
+      .eq('department_id', departmentId)
+      .eq('fiscal_year', fiscalYear)
+      .eq('category_code', parentCode)
+      .maybeSingle();
+
+    if (parent) {
+      parentCategoryId = parent.id;
+    } else {
+      const { data: newParent } = await supabase
+        .from('budget_categories')
+        .insert({
+          department_id: departmentId,
+          fiscal_year: fiscalYear,
+          category_code: parentCode,
+          category_name: parentName || parentCode,
+          budget_amount: 0,
+          remaining_amount: 0,
+          used_amount: 0
+        })
+        .select()
+        .single();
+      parentCategoryId = newParent?.id || null;
+    }
+  }
+
+  const { data: newCategory, error } = await supabase
+    .from('budget_categories')
+    .insert({
+      department_id: departmentId,
+      fiscal_year: fiscalYear,
+      category_code: categoryCode,
+      category_name: categoryName,
+      parent_category_id: parentCategoryId,
+      budget_amount: 0,
+      remaining_amount: 0,
+      used_amount: 0
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return newCategory;
+};
+
 // POST /api/expenses/batch - batch recurring expense adjustments
 router.post('/batch', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   const { expenses, department_id } = req.body;
@@ -132,17 +199,28 @@ router.post('/batch', authenticate, authorize('accounting', 'admin', 'super_admi
   const results = [];
 
   for (const item of expenses) {
-    const { category_id, amount, description, expense_date, item_name } = item;
-    if (!category_id || toNumber(amount) <= 0) continue;
+    const { category_id, category_code, category_name, parent_code, parent_name, amount, description, expense_date, item_name } = item;
+    if (toNumber(amount) <= 0) continue;
 
-    const { data: categoryBudget, error: categoryError } = await supabase
-      .from('budget_categories')
-      .select('id, category_name, department_id, remaining_amount, used_amount')
-      .eq('id', category_id)
-      .eq('fiscal_year', targetFiscalYear)
-      .maybeSingle();
+    let categoryBudget: any = null;
+    if (category_id) {
+      const { data, error } = await supabase
+        .from('budget_categories')
+        .select('id, category_name, department_id, remaining_amount, used_amount')
+        .eq('id', category_id)
+        .eq('fiscal_year', targetFiscalYear)
+        .maybeSingle();
+      if (error) continue;
+      categoryBudget = data;
+    }
 
-    if (categoryError || !categoryBudget) continue;
+    if (!categoryBudget && category_code && category_name) {
+      try {
+        categoryBudget = await findOrCreateExpenseCategory(targetDepartmentId, targetFiscalYear, category_code, category_name, parent_code, parent_name);
+      } catch { continue; }
+    }
+
+    if (!categoryBudget) continue;
 
     const { data, error } = await supabase
       .from('direct_expenses')
