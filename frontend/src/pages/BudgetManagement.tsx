@@ -851,6 +851,21 @@ const BudgetManagement = () => {
       const allRequestsResponses = await Promise.all(allRequestsPromises);
       const allRequests = allRequestsResponses.flatMap(r => Array.isArray(r.data) ? r.data : []);
 
+      // Fetch direct expenses (Budget Expense Upload) for the selected fiscal year and department
+      const directExpenseParams: any = { fiscal_year: analyticsFiscalYear };
+      if (analyticsDeptId) directExpenseParams.department_id = analyticsDeptId;
+      const directRes = await api.get('/api/expenses', { params: directExpenseParams });
+      const directExpenses = Array.isArray(directRes.data) ? directRes.data : [];
+
+      // Fetch direct expenses for all fiscal years for the trend chart
+      const allDirectExpensesPromises = allFiscalYears.map(fy => {
+        const fyParams: any = { fiscal_year: fy };
+        if (analyticsDeptId) fyParams.department_id = analyticsDeptId;
+        return api.get('/api/expenses', { params: fyParams });
+      });
+      const allDirectExpensesResponses = await Promise.all(allDirectExpensesPromises);
+      const allDirectExpenses = allDirectExpensesResponses.flatMap(r => Array.isArray(r.data) ? r.data : []);
+
       // Process data for charts
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -865,13 +880,19 @@ const BudgetManagement = () => {
           const d = new Date(r.submitted_at || r.created_at);
           return d.getMonth() === idx && d.getFullYear() === analyticsFiscalYear;
         });
-        const expense = monthRequests
+        const requestExpense = monthRequests
           .filter((r: any) => ['released', 'approved'].includes(r.status))
           .reduce((sum: number, r: any) => sum + convertRequestAmount(r.amount, r.metadata?.currency), 0);
-        return { month, budget: monthlyBudget, expense };
+        const directExpense = directExpenses
+          .filter((de: any) => {
+            const d = new Date(de.expense_date);
+            return d.getMonth() === idx && d.getFullYear() === analyticsFiscalYear;
+          })
+          .reduce((sum: number, de: any) => sum + convertRequestAmount(de.amount, 'PHP'), 0);
+        return { month, budget: monthlyBudget, expense: requestExpense + directExpense };
       });
 
-      // Chart 2: Expense trend by fiscal year (use all requests for all FYs)
+      // Chart 2: Expense trend by fiscal year (use all requests and direct expenses for all FYs)
       const fyGroups: Record<number, { expense: number; budget: number }> = {};
       allRequests.forEach((r: any) => {
         const fy = Number(r.fiscal_year || new Date(r.created_at).getFullYear());
@@ -879,6 +900,11 @@ const BudgetManagement = () => {
         if (['released', 'approved'].includes(r.status)) {
           fyGroups[fy].expense += convertRequestAmount(r.amount, r.metadata?.currency);
         }
+      });
+      allDirectExpenses.forEach((de: any) => {
+        const fy = Number(de.fiscal_year || new Date(de.expense_date).getFullYear());
+        if (!fyGroups[fy]) fyGroups[fy] = { expense: 0, budget: 0 };
+        fyGroups[fy].expense += convertRequestAmount(de.amount, 'PHP');
       });
 
       // Populate budget for each fiscal year from departments data
@@ -905,16 +931,25 @@ const BudgetManagement = () => {
 
       // Chart 3: Monthly comparison 2025 vs 2026
       const monthlyComparison = months.map((month, idx) => {
-        const get = (yr: number) => requests
-          .filter((r: any) => {
-            const d = new Date(r.submitted_at || r.created_at);
-            return d.getMonth() === idx && d.getFullYear() === yr && ['released', 'approved'].includes(r.status);
-          })
-          .reduce((sum: number, r: any) => sum + convertRequestAmount(r.amount, r.metadata?.currency), 0);
+        const get = (yr: number) => {
+          const requestTotal = requests
+            .filter((r: any) => {
+              const d = new Date(r.submitted_at || r.created_at);
+              return d.getMonth() === idx && d.getFullYear() === yr && ['released', 'approved'].includes(r.status);
+            })
+            .reduce((sum: number, r: any) => sum + convertRequestAmount(r.amount, r.metadata?.currency), 0);
+          const directTotal = allDirectExpenses
+            .filter((de: any) => {
+              const d = new Date(de.expense_date);
+              return d.getMonth() === idx && d.getFullYear() === yr;
+            })
+            .reduce((sum: number, de: any) => sum + convertRequestAmount(de.amount, 'PHP'), 0);
+          return requestTotal + directTotal;
+        };
         return { month, '2025': get(2025), '2026': get(2026) };
       });
 
-      // Chart 4: Top 5 expenses by amount
+      // Chart 4: Top 5 expenses by amount (requests + direct expenses)
       const categoryTotals: Record<string, { name: string; amount: number }> = {};
       requests
         .filter((r: any) => ['released', 'approved'].includes(r.status))
@@ -923,6 +958,11 @@ const BudgetManagement = () => {
           if (!categoryTotals[cat]) categoryTotals[cat] = { name: cat, amount: 0 };
           categoryTotals[cat].amount += convertRequestAmount(r.amount, r.metadata?.currency);
         });
+      directExpenses.forEach((de: any) => {
+        const cat = de.category || 'Uncategorized';
+        if (!categoryTotals[cat]) categoryTotals[cat] = { name: cat, amount: 0 };
+        categoryTotals[cat].amount += convertRequestAmount(de.amount, 'PHP');
+      });
       const top5ByAmount = Object.values(categoryTotals)
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);

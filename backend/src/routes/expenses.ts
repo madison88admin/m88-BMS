@@ -13,21 +13,25 @@ const router = express.Router();
 router.get('/', authenticate, async (req: any, res) => {
   let query = supabase.from('direct_expenses').select('*');
   
+  // Optional query filters
+  if (req.query.department_id) {
+    query = query.eq('department_id', String(req.query.department_id));
+  }
+  if (req.query.fiscal_year) {
+    query = query.eq('fiscal_year', Number(req.query.fiscal_year));
+  }
+
   // Filter expenses based on role
   if (req.user.role === 'supervisor') {
     query = query.eq('logged_by', req.user.id);
   } else if (req.user.role === 'employee') {
     // Employees can see expenses logged by their supervisor
     query = query.eq('department_id', req.user.department_id);
-  } else if (req.user.role === 'accounting' || req.user.role === 'admin' || req.user.role === 'super_admin') {
-    // Accounting and admins can see all expenses
-    query = query;
-  } else {
-    // Other roles (management, vp, president) can see all expenses
-    query = query;
   }
+  // Accounting, admin, super_admin, and other roles (management, vp, president) see all expenses
+  // (already scoped by optional department_id/fiscal_year filters above)
   
-  const { data, error } = await query;
+  const { data, error } = await query.order('expense_date', { ascending: false });
   if (error) return res.status(400).json({ error });
   res.json(data);
 });
