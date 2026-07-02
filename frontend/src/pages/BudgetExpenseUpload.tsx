@@ -757,7 +757,8 @@ const BudgetExpenseUpload = () => {
                         <th className="px-2 py-2 text-left font-semibold">Code</th>
                         <th className="px-2 py-2 text-left font-semibold">Group</th>
                         <th className="px-2 py-2 text-left font-semibold">Department</th>
-                        {reportData.categoryBreakdown?.[0]?.monthly?.map((m: any) => (
+                        <th className="px-2 py-2 text-left font-semibold">Scope</th>
+                        {reportData.sections?.[0]?.categories?.[0]?.monthly?.map((m: any) => (
                           <th key={m.month} className="px-2 py-2 text-right font-semibold">{m.month}</th>
                         ))}
                         <th className="px-2 py-2 text-right font-semibold">Total</th>
@@ -767,19 +768,29 @@ const BudgetExpenseUpload = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {reportData.categoryBreakdown?.map((row: any) => (
-                        <tr key={row.code} className="border-b border-gray-100">
-                          <td className="px-2 py-2 font-mono">{row.code}</td>
-                          <td className="px-2 py-2">{row.expenseGroup}</td>
-                          <td className="px-2 py-2 text-gray-500">{row.department}</td>
-                          {row.monthly.map((m: any) => (
-                            <td key={m.month} className="px-2 py-2 text-right font-mono">{formatMoney(m.amountSpent)}</td>
+                      {(reportData.sections || [{ department: 'All', categories: reportData.categoryBreakdown || [] }]).map((section: any) => (
+                        <>
+                          <tr key={section.department} className="bg-purple-50">
+                            <td colSpan={8 + (section.categories?.[0]?.monthly?.length || 12)} className="px-2 py-2 font-semibold text-purple-800">
+                              {section.department === 'All Department' ? 'All Department (Shared/Company-wide)' : `Department: ${section.department}`}
+                            </td>
+                          </tr>
+                          {section.categories?.map((row: any) => (
+                            <tr key={row.code} className="border-b border-gray-100">
+                              <td className="px-2 py-2 font-mono">{row.code}</td>
+                              <td className="px-2 py-2">{row.expenseGroup}</td>
+                              <td className="px-2 py-2 text-gray-500">{row.department}</td>
+                              <td className="px-2 py-2 text-gray-500">{row.scope}</td>
+                              {row.monthly.map((m: any) => (
+                                <td key={m.month} className="px-2 py-2 text-right font-mono">{formatMoney(m.amountSpent)}</td>
+                              ))}
+                              <td className="px-2 py-2 text-right font-mono font-semibold">{formatMoney(row.totalSpentToDate)}</td>
+                              <td className="px-2 py-2 text-right font-mono">{formatMoney(row.fy2026Budget)}</td>
+                              <td className="px-2 py-2 text-right font-mono">{typeof row.percentOfBudgetUsed === 'number' ? `${row.percentOfBudgetUsed}%` : row.percentOfBudgetUsed}</td>
+                              <td className="px-2 py-2">{row.paceStatus}</td>
+                            </tr>
                           ))}
-                          <td className="px-2 py-2 text-right font-mono font-semibold">{formatMoney(row.totalSpentToDate)}</td>
-                          <td className="px-2 py-2 text-right font-mono">{formatMoney(row.fy2026Budget)}</td>
-                          <td className="px-2 py-2 text-right font-mono">{typeof row.percentOfBudgetUsed === 'number' ? `${row.percentOfBudgetUsed}%` : row.percentOfBudgetUsed}</td>
-                          <td className="px-2 py-2">{row.paceStatus}</td>
-                        </tr>
+                        </>
                       ))}
                     </tbody>
                   </table>
