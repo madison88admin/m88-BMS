@@ -447,12 +447,10 @@ const BudgetExpenseUpload = () => {
                               </div>
                             </div>
                             <div className="text-right w-28 shrink-0">
-                              <div className="text-[10px] text-[var(--role-text)]/50">Budget After Change</div>
-                              <div className={`font-mono ${projectedRemaining < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                                {formatMoney(Math.max(0, projectedRemaining))}
-                              </div>
-                              {projectedRemaining < 0 && (
-                                <div className="text-[10px] text-red-600">Over: {formatMoney(Math.abs(projectedRemaining))}</div>
+                              <div className="text-[10px] text-[var(--role-text)]/50">Budget</div>
+                              <div className="font-mono text-[var(--role-text)]">{formatMoney(Math.max(0, remaining))}</div>
+                              {amount > 0 && (
+                                <div className="text-[10px] text-[var(--role-text)]/70">Upload: {formatMoney(amount)}</div>
                               )}
                             </div>
                             <div className="flex flex-col sm:flex-row gap-2 shrink-0">
