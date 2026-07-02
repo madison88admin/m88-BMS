@@ -76,6 +76,11 @@ const BudgetExpenseUpload = () => {
   const [batchDate, setBatchDate] = useState<string>(today());
   const [showConfirm, setShowConfirm] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [showReport, setShowReport] = useState(false);
+  const [reportData, setReportData] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportFiscalYear, setReportFiscalYear] = useState<number>(2026);
+  const [reportMonths, setReportMonths] = useState<string>('Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec');
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ category_id: string; amount: string; description: string; expense_date: string }>({ category_id: '', amount: '', description: '', expense_date: today() });
@@ -317,6 +322,44 @@ const BudgetExpenseUpload = () => {
     }
   };
 
+  const fetchMonthlySpendReport = async () => {
+    setReportLoading(true);
+    try {
+      const params = new URLSearchParams({
+        fiscal_year: String(reportFiscalYear),
+        months: reportMonths
+      });
+      if (selectedDepartmentId) params.set('department_id', selectedDepartmentId);
+      const { data } = await api.get(`/api/reports/monthly-spend-by-category?${params.toString()}`);
+      setReportData(data);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to load report'));
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const exportReportExcel = async () => {
+    try {
+      const params = new URLSearchParams({
+        fiscal_year: String(reportFiscalYear),
+        months: reportMonths,
+        format: 'excel'
+      });
+      if (selectedDepartmentId) params.set('department_id', selectedDepartmentId);
+      const response = await api.get(`/api/reports/monthly-spend-by-category?${params.toString()}`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `monthly_spend_by_category_FY${reportFiscalYear}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to export report'));
+    }
+  };
+
   if (user && user.role !== 'accounting' && user.role !== 'admin' && user.role !== 'super_admin') {
     return (
       <div className="p-6 text-center">
@@ -343,6 +386,13 @@ const BudgetExpenseUpload = () => {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowReport(true)}
+            className="px-3 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition"
+          >
+            Monthly Spend Report
+          </button>
           <label className="text-sm font-medium text-[var(--role-text)]">Department</label>
           <select
             value={selectedDepartmentId}
@@ -639,6 +689,99 @@ const BudgetExpenseUpload = () => {
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl p-5 max-w-6xl w-full shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Monthly Spend by Category</h3>
+              <button type="button" onClick={() => setShowReport(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 mb-4 items-start sm:items-end">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Fiscal Year</label>
+                <input
+                  type="number"
+                  value={reportFiscalYear}
+                  onChange={(e) => setReportFiscalYear(Number(e.target.value))}
+                  className="px-2 py-1.5 text-sm rounded border border-gray-300 w-32"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-gray-500 block mb-1">Months (comma-separated)</label>
+                <input
+                  type="text"
+                  value={reportMonths}
+                  onChange={(e) => setReportMonths(e.target.value)}
+                  className="px-2 py-1.5 text-sm rounded border border-gray-300 w-full"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => void fetchMonthlySpendReport()} disabled={reportLoading} className="px-4 py-2 text-xs rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
+                  {reportLoading ? 'Loading…' : 'Generate'}
+                </button>
+                <button type="button" onClick={() => void exportReportExcel()} className="px-4 py-2 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+                  Export Excel
+                </button>
+              </div>
+            </div>
+            {reportData && (
+              <div className="space-y-4">
+                <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">{reportData.summary}</div>
+                {reportData.dataGaps?.length > 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg">
+                    {reportData.dataGaps.map((gap: string, i: number) => <div key={i}>{gap}</div>)}
+                  </div>
+                )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-purple-100">
+                        <th className="px-2 py-2 text-left font-semibold">Code</th>
+                        <th className="px-2 py-2 text-left font-semibold">Group</th>
+                        <th className="px-2 py-2 text-left font-semibold">Department</th>
+                        {reportData.categoryBreakdown?.[0]?.monthly?.map((m: any) => (
+                          <th key={m.month} className="px-2 py-2 text-right font-semibold">{m.month}</th>
+                        ))}
+                        <th className="px-2 py-2 text-right font-semibold">Total</th>
+                        <th className="px-2 py-2 text-right font-semibold">Budget</th>
+                        <th className="px-2 py-2 text-right font-semibold">%</th>
+                        <th className="px-2 py-2 text-left font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reportData.categoryBreakdown?.map((row: any) => (
+                        <tr key={row.code} className="border-b border-gray-100">
+                          <td className="px-2 py-2 font-mono">{row.code}</td>
+                          <td className="px-2 py-2">{row.expenseGroup}</td>
+                          <td className="px-2 py-2 text-gray-500">{row.department}</td>
+                          {row.monthly.map((m: any) => (
+                            <td key={m.month} className="px-2 py-2 text-right font-mono">{formatMoney(m.amountSpent)}</td>
+                          ))}
+                          <td className="px-2 py-2 text-right font-mono font-semibold">{formatMoney(row.totalSpentToDate)}</td>
+                          <td className="px-2 py-2 text-right font-mono">{formatMoney(row.fy2026Budget)}</td>
+                          <td className="px-2 py-2 text-right font-mono">{row.percentOfBudgetUsed}%</td>
+                          <td className="px-2 py-2">{row.paceStatus}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Top Categories</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {reportData.topCategories?.map((cat: any, i: number) => (
+                      <span key={cat.code} className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-800">
+                        {i + 1}. {cat.expenseGroup} — {formatMoney(cat.totalSpent)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -269,4 +269,231 @@ router.get('/requests', authenticate, authorize('accounting', 'admin'), async (r
   }
 });
 
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
+
+const formatReportMoney = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 1000) {
+    return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(value);
+  }
+  return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+};
+
+const getMonthLabel = (dateStr: string) => {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return MONTH_LABELS[d.getMonth()];
+};
+
+const getAccessibleDepartmentIds = async (reqUser: any, fiscalYear: number) => {
+  if (reqUser.role === 'supervisor') {
+    const ids = await getAccessibleDepartmentIdsForUser(supabase, reqUser, fiscalYear);
+    return ids.length ? ids : [reqUser.department_id];
+  }
+  if (reqUser.role === 'employee' || reqUser.role === 'manager') {
+    return [reqUser.department_id];
+  }
+  return null;
+};
+
+// GET /api/reports/monthly-spend-by-category?fiscal_year=2026&department_id=&months=Jan,Feb&format=json|excel
+router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => {
+  try {
+    const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+    const fiscalYear = req.query.fiscal_year ? Number(req.query.fiscal_year) : activeFiscalYear;
+    const departmentId = req.query.department_id ? String(req.query.department_id) : undefined;
+    const requestedMonths = req.query.months
+      ? String(req.query.months).split(',').map((m) => m.trim()).filter(Boolean)
+      : MONTH_LABELS;
+    const months = requestedMonths.length ? requestedMonths : MONTH_LABELS;
+    const monthsElapsed = months.length;
+
+    const accessibleDepartmentIds = await getAccessibleDepartmentIds(req.user, fiscalYear);
+    const allowedDepartmentIds = accessibleDepartmentIds || undefined;
+
+    // Budget categories
+    let categoryQuery = supabase
+      .from('budget_categories')
+      .select('id, category_code, category_name, department_id, fiscal_year, budget_amount, departments(name)')
+      .eq('fiscal_year', fiscalYear);
+    if (departmentId) categoryQuery = categoryQuery.eq('department_id', departmentId);
+    const { data: categoryRows, error: categoryError } = await categoryQuery;
+    if (categoryError) throw categoryError;
+
+    const categories = (categoryRows || []).filter((cat: any) => {
+      if (!allowedDepartmentIds) return true;
+      return allowedDepartmentIds.includes(String(cat.department_id));
+    });
+    const categoryById = new Map(categories.map((cat: any) => [cat.id, cat]));
+
+    // Budget by category code (sum budget amounts across departments for same code)
+    const budgetByCode = new Map<string, { code: string; expenseGroup: string; fy2026Total: number; departments: Set<string> }>();
+    categories.forEach((cat: any) => {
+      const code = String(cat.category_code || '').trim();
+      if (!code) return;
+      const existing = budgetByCode.get(code);
+      if (existing) {
+        existing.fy2026Total += toNumber(cat.budget_amount);
+        existing.departments.add(String(cat.department_id));
+      } else {
+        budgetByCode.set(code, {
+          code,
+          expenseGroup: String(cat.category_name || '').trim(),
+          fy2026Total: toNumber(cat.budget_amount),
+          departments: new Set([String(cat.department_id)])
+        });
+      }
+    });
+
+    // Direct expenses
+    let directQuery = supabase
+      .from('direct_expenses')
+      .select('category_id, amount, expense_date, department_id, fiscal_year')
+      .eq('fiscal_year', fiscalYear);
+    if (departmentId) directQuery = directQuery.eq('department_id', departmentId);
+    const { data: directRows, error: directError } = await directQuery;
+    if (directError) throw directError;
+
+    // Released expense requests
+    let requestQuery = supabase
+      .from('expense_requests')
+      .select('category_id, amount, status, released_at, updated_at, department_id, fiscal_year')
+      .eq('fiscal_year', fiscalYear)
+      .eq('status', 'released')
+      .not('category_id', 'is', null);
+    if (departmentId) requestQuery = requestQuery.eq('department_id', departmentId);
+    const { data: requestRows, error: requestError } = await requestQuery;
+    if (requestError) throw requestError;
+
+    const actualsByCategoryMonth = new Map<string, Map<string, { amountSpent: number; transactionCount: number }>>();
+    const addActual = (categoryId: string, dateStr: string, amount: number) => {
+      const cat = categoryById.get(categoryId);
+      if (!cat) return;
+      const code = String(cat.category_code || '').trim();
+      if (!code) return;
+      const month = getMonthLabel(dateStr);
+      if (!month || !months.includes(month)) return;
+
+      const monthMap = actualsByCategoryMonth.get(code) || new Map<string, { amountSpent: number; transactionCount: number }>();
+      const current = monthMap.get(month) || { amountSpent: 0, transactionCount: 0 };
+      current.amountSpent += toNumber(amount);
+      current.transactionCount += 1;
+      monthMap.set(month, current);
+      actualsByCategoryMonth.set(code, monthMap);
+    };
+
+    (directRows || []).forEach((row: any) => {
+      if (allowedDepartmentIds && !allowedDepartmentIds.includes(String(row.department_id))) return;
+      addActual(row.category_id, row.expense_date, row.amount);
+    });
+
+    (requestRows || []).forEach((row: any) => {
+      if (allowedDepartmentIds && !allowedDepartmentIds.includes(String(row.department_id))) return;
+      const dateStr = row.released_at || row.updated_at;
+      if (!dateStr) return;
+      addActual(row.category_id, dateStr, row.amount);
+    });
+
+    const categoryBreakdown = Array.from(budgetByCode.values())
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .map((budget) => {
+        const monthMap = actualsByCategoryMonth.get(budget.code) || new Map<string, { amountSpent: number; transactionCount: number }>();
+        let runningTotal = 0;
+        const monthly = months.map((month) => {
+          const spent = monthMap.get(month)?.amountSpent || 0;
+          runningTotal += spent;
+          return { month, amountSpent: spent, runningTotal };
+        });
+        const totalSpentToDate = runningTotal;
+        const percentOfBudgetUsed = budget.fy2026Total > 0 ? (totalSpentToDate / budget.fy2026Total) * 100 : 0;
+        const monthlyPace = budget.fy2026Total > 0 ? (budget.fy2026Total / 12) * monthsElapsed : 0;
+        let paceStatus: 'On track' | 'Ahead of pace' | 'Over budget' | 'No spend' = 'No spend';
+        if (totalSpentToDate > 0) {
+          if (totalSpentToDate > budget.fy2026Total) {
+            paceStatus = 'Over budget';
+          } else if (totalSpentToDate > monthlyPace) {
+            paceStatus = 'Ahead of pace';
+          } else {
+            paceStatus = 'On track';
+          }
+        }
+        return {
+          code: budget.code,
+          expenseGroup: budget.expenseGroup,
+          department: Array.from(budget.departments).map((id) => categoryById.get(id)?.departments?.name || 'Unknown').join(', '),
+          monthly,
+          fy2026Budget: budget.fy2026Total,
+          totalSpentToDate,
+          percentOfBudgetUsed: Math.round(percentOfBudgetUsed * 10) / 10,
+          paceStatus
+        };
+      });
+
+    const topCategories = categoryBreakdown
+      .filter((c) => c.totalSpentToDate > 0)
+      .sort((a, b) => b.totalSpentToDate - a.totalSpentToDate)
+      .slice(0, 5)
+      .map((c) => ({ code: c.code, expenseGroup: c.expenseGroup, totalSpent: c.totalSpentToDate }));
+
+    const dataGaps: string[] = [];
+    if (categories.length === 0) dataGaps.push(`No budget categories found for fiscal year ${fiscalYear}.`);
+    if (actualsByCategoryMonth.size === 0) dataGaps.push(`No released expenses or direct expenses recorded for fiscal year ${fiscalYear}.`);
+    const codesWithoutBudget = Array.from(actualsByCategoryMonth.keys()).filter((code) => !budgetByCode.has(code));
+    if (codesWithoutBudget.length > 0) {
+      dataGaps.push(`Spending recorded for ${codesWithoutBudget.length} category code(s) without matching FY${fiscalYear} budget: ${codesWithoutBudget.slice(0, 10).join(', ')}${codesWithoutBudget.length > 10 ? '...' : ''}.`);
+    }
+
+    const aheadCategories = categoryBreakdown.filter((c) => c.paceStatus === 'Ahead of pace' || c.paceStatus === 'Over budget');
+    let summary = `As of ${months.join('/')}, total actual spend across ${categoryBreakdown.length} categories is ${formatReportMoney(categoryBreakdown.reduce((sum, c) => sum + c.totalSpentToDate, 0))}.`;
+    if (topCategories.length > 0) {
+      summary += ` Top spend category is ${topCategories[0].expenseGroup} at ${formatReportMoney(topCategories[0].totalSpent)}.`;
+    }
+    if (aheadCategories.length > 0) {
+      summary += ` ${aheadCategories.length} categor${aheadCategories.length === 1 ? 'y is' : 'ies are'} ahead of pace or over budget.`;
+    } else {
+      summary += ' All categories are on track or have no spend.';
+    }
+
+    const format = String(req.query.format || '').trim().toLowerCase();
+    if (format === 'excel') {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Monthly Spend by Category');
+      const headers = ['Code', 'Expense Group', 'Department', ...months, 'Total Spent', 'FY2026 Budget', '% Used', 'Pace Status'];
+      worksheet.columns = headers.map((h) => ({ header: h, key: h.replace(/\s+/g, ''), width: 16 }));
+      categoryBreakdown.forEach((c) => {
+        const row: any = {
+          Code: c.code,
+          ExpenseGroup: c.expenseGroup,
+          Department: c.department,
+          TotalSpent: c.totalSpentToDate,
+          FY2026Budget: c.fy2026Budget,
+          '%Used': c.percentOfBudgetUsed / 100,
+          PaceStatus: c.paceStatus
+        };
+        c.monthly.forEach((m) => {
+          row[m.month] = m.amountSpent;
+        });
+        worksheet.addRow(row);
+      });
+      worksheet.getRow(1).font = { bold: true };
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=monthly_spend_by_category_FY${fiscalYear}.xlsx`);
+      await workbook.xlsx.write(res);
+      return;
+    }
+
+    res.json({
+      reportPeriod: `FY${fiscalYear}`,
+      generatedAt: new Date().toISOString(),
+      summary,
+      categoryBreakdown,
+      topCategories,
+      dataGaps
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 export default router;
