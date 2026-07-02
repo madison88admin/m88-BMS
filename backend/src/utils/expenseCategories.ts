@@ -63,8 +63,17 @@ const applyFallbackSubmissionDefaults = (items: ExpenseItem[]): ExpenseItem[] =>
 
 export const resolveOfficialExpenseList = async (): Promise<ExpenseItem[]> => {
   const fromDb = await loadOfficialExpenseListFromDb();
-  if (fromDb?.length) return fromDb;
-  return applyFallbackSubmissionDefaults(OFFICIAL_EXPENSE_LIST);
+  const fallback = applyFallbackSubmissionDefaults(OFFICIAL_EXPENSE_LIST);
+  const dbItems = fromDb || [];
+
+  // Merge: DB items take precedence for overlapping codes, but fallback ensures
+  // Cost of Services / Payroll codes are always present even if the DB table
+  // only contains the Expenses section.
+  const mergedByCode = new Map<string, ExpenseItem>();
+  fallback.forEach((item) => mergedByCode.set(item.code, item));
+  dbItems.forEach((item) => mergedByCode.set(item.code, item));
+
+  return Array.from(mergedByCode.values()).sort((a, b) => a.code.localeCompare(b.code));
 };
 
 const isStaffRole = (role?: string) =>
