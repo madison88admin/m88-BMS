@@ -75,6 +75,7 @@ const BudgetExpenseUpload = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [batchDate, setBatchDate] = useState<string>(today());
   const [showConfirm, setShowConfirm] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ category_id: string; amount: string; description: string; expense_date: string }>({ category_id: '', amount: '', description: '', expense_date: today() });
@@ -216,7 +217,6 @@ const BudgetExpenseUpload = () => {
   };
 
   const clearAll = () => {
-    if (!window.confirm('Clear all entered amounts?')) return;
     setBatchDrafts({});
     setSelectedTemplate('');
   };
@@ -305,10 +305,10 @@ const BudgetExpenseUpload = () => {
   };
 
   const deleteExpense = async (id: string) => {
-    if (!window.confirm('Delete this direct expense? This will restore the budget back to the category.')) return;
     try {
       await api.delete(`/api/expenses/${id}`);
       toast.success('Expense deleted');
+      setDeleteConfirmId(null);
       await fetchDirectExpenses();
       await fetchCategories(selectedDepartmentId);
       await fetchAuditLogs();
@@ -567,7 +567,7 @@ const BudgetExpenseUpload = () => {
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-semibold text-rose-600">{formatMoney(toNumber(de.amount))}</span>
                           <button type="button" onClick={() => startEdit(de)} className="text-[10px] text-purple-600 hover:text-purple-800 underline">Edit</button>
-                          <button type="button" onClick={() => deleteExpense(de.id)} className="text-[10px] text-red-600 hover:text-red-800 underline">Delete</button>
+                          <button type="button" onClick={() => setDeleteConfirmId(de.id)} className="text-[10px] text-red-600 hover:text-red-800 underline">Delete</button>
                         </div>
                       </div>
                     )}
@@ -620,6 +620,23 @@ const BudgetExpenseUpload = () => {
               <button type="button" onClick={() => setShowConfirm(false)} className="px-4 py-2 text-xs rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
               <button type="button" onClick={() => void submitBatch()} disabled={batchSubmitting} className="px-4 py-2 text-xs rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
                 {batchSubmitting ? 'Applying…' : 'Confirm Apply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl p-5 max-w-md w-full shadow-xl">
+            <h3 className="text-lg font-semibold mb-2">Confirm Delete</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Delete this direct expense? The budget will be restored to the category.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 text-xs rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
+              <button type="button" onClick={() => void deleteExpense(deleteConfirmId)} className="px-4 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700">
+                Delete
               </button>
             </div>
           </div>
