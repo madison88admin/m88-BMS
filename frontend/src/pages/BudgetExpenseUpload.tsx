@@ -38,6 +38,20 @@ const RECURRING_EXPENSE_PRESETS: Preset[] = [
   { parent_code: '6870', parent_name: 'Communication', category_code: '6870.5', category_name: 'Internet Subscription', default_dept: 'Admin' },
   { parent_code: '6350', parent_name: 'Taxes & Licenses', category_code: '6351', category_name: 'Business tax/Licenses', default_dept: 'Accounting' },
   { parent_code: '6350', parent_name: 'Taxes & Licenses', category_code: '6352', category_name: 'Income Tax', default_dept: 'Accounting' },
+  // Payroll & Benefits
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66001', category_name: 'Payroll Expense Executive', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66002', category_name: 'Payroll Expense Accounting', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66003', category_name: 'Payroll Expense H.R.', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66004', category_name: 'Payroll Expense Logistics', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66005', category_name: 'Payroll Expense Planning', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66006', category_name: 'Payroll Expense Purchasing', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66007', category_name: 'Payroll Expense Costing', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66008', category_name: 'Payroll Expense I.T.', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66009', category_name: 'Payroll Expense OJT', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '660010', category_name: 'Payroll Expense Supply Chain', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66012', category_name: 'Phil. Health Insurance', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '66017', category_name: 'Home Development Company', default_dept: 'Accounting' },
+  { parent_code: '6600', parent_name: 'Payroll & Benefits', category_code: '6606', category_name: 'Social Security Company', default_dept: 'Accounting' },
 ];
 
 const TEMPLATE_STORAGE_KEY = 'bms_budget_expense_templates';
@@ -54,20 +68,16 @@ const BudgetExpenseUpload = () => {
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [directExpenses, setDirectExpenses] = useState<any[]>([]);
-  const [batchMode, setBatchMode] = useState(true);
   const [batchDrafts, setBatchDrafts] = useState<Record<string, Draft>>({});
   const [batchSubmitting, setBatchSubmitting] = useState(false);
-  const [singleCategoryId, setSingleCategoryId] = useState<string>('');
-  const [singleAmount, setSingleAmount] = useState<string>('');
-  const [singleDate, setSingleDate] = useState<string>(today());
-  const [singleDescription, setSingleDescription] = useState<string>('');
-  const [singleSubmitting, setSingleSubmitting] = useState(false);
   const [savedTemplates, setSavedTemplates] = useState<Record<string, Record<string, Draft>>>({});
   const [templateName, setTemplateName] = useState<string>('');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [batchDate, setBatchDate] = useState<string>(today());
   const [showConfirm, setShowConfirm] = useState(false);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ category_id: string; amount: string; description: string; expense_date: string }>({ category_id: '', amount: '', description: '', expense_date: today() });
 
   useEffect(() => {
     const cachedUser = localStorage.getItem('user');
@@ -129,9 +139,13 @@ const BudgetExpenseUpload = () => {
     }
   };
 
-  const fetchDirectExpenses = async () => {
+  const fetchDirectExpenses = async (departmentId?: string) => {
     try {
-      const res = await api.get('/api/expenses');
+      const targetId = departmentId || selectedDepartmentId;
+      const dept = departments.find((d) => d.id === targetId);
+      const params: any = { fiscal_year: dept?.fiscal_year || new Date().getFullYear() };
+      if (targetId) params.department_id = targetId;
+      const res = await api.get('/api/expenses', { params });
       setDirectExpenses(Array.isArray(res.data) ? res.data : []);
     } catch { /* silent */ }
   };
@@ -148,7 +162,9 @@ const BudgetExpenseUpload = () => {
       setAuditLogs(
         logs.filter((log: any) =>
           log.action_type === 'direct_expense_uploaded' ||
-          log.action_type === 'direct_expense_batch_uploaded'
+          log.action_type === 'direct_expense_batch_uploaded' ||
+          log.action_type === 'direct_expense_updated' ||
+          log.action_type === 'direct_expense_deleted'
         )
       );
     } catch { /* silent */ }
@@ -227,37 +243,6 @@ const BudgetExpenseUpload = () => {
     });
   }, [matchedPresets, batchDrafts]);
 
-  const submitSingle = async () => {
-    if (!singleCategoryId || !singleAmount || toNumber(singleAmount) <= 0) {
-      toast.error('Please select a category and enter a valid amount');
-      return;
-    }
-    setSingleSubmitting(true);
-    try {
-      const category = categories.find((c: any) => c.id === singleCategoryId);
-      await api.post('/api/expenses', {
-        item_name: category?.category_name || 'Budget Expense Adjustment',
-        category_id: singleCategoryId,
-        amount: toNumber(singleAmount),
-        description: singleDescription,
-        expense_date: singleDate,
-        department_id: selectedDepartmentId
-      });
-      toast.success('Adjustment applied');
-      setSingleCategoryId('');
-      setSingleAmount('');
-      setSingleDescription('');
-      setSingleDate(today());
-      await fetchDirectExpenses();
-      await fetchCategories(selectedDepartmentId);
-      await fetchAuditLogs();
-    } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to apply adjustment'));
-    } finally {
-      setSingleSubmitting(false);
-    }
-  };
-
   const submitBatch = async () => {
     if (batchEntries.length === 0) {
       toast.error('Enter at least one amount');
@@ -283,6 +268,56 @@ const BudgetExpenseUpload = () => {
     } finally {
       setBatchSubmitting(false);
       setShowConfirm(false);
+    }
+  };
+
+  const startEdit = (de: any) => {
+    setEditingId(de.id);
+    setEditForm({
+      category_id: de.category_id || '',
+      amount: String(de.amount || ''),
+      description: de.description || '',
+      expense_date: de.expense_date || today()
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({ category_id: '', amount: '', description: '', expense_date: today() });
+  };
+
+  const saveEdit = async (id: string) => {
+    if (!editForm.amount || toNumber(editForm.amount) <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+    try {
+      await api.put(`/api/expenses/${id}`, {
+        category_id: editForm.category_id,
+        amount: toNumber(editForm.amount),
+        description: editForm.description,
+        expense_date: editForm.expense_date
+      });
+      toast.success('Expense updated');
+      setEditingId(null);
+      await fetchDirectExpenses();
+      await fetchCategories(selectedDepartmentId);
+      await fetchAuditLogs();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to update expense'));
+    }
+  };
+
+  const deleteExpense = async (id: string) => {
+    if (!window.confirm('Delete this direct expense? This will restore the budget back to the category.')) return;
+    try {
+      await api.delete(`/api/expenses/${id}`);
+      toast.success('Expense deleted');
+      await fetchDirectExpenses();
+      await fetchCategories(selectedDepartmentId);
+      await fetchAuditLogs();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Failed to delete expense'));
     }
   };
 
@@ -328,74 +363,13 @@ const BudgetExpenseUpload = () => {
       <div className="mb-6 p-4 rounded-xl border border-purple-200 bg-purple-50/50">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setBatchMode((v) => !v)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition ${batchMode ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-200'}`}
-            >
-              {batchMode ? 'Switch to Single Entry' : 'Switch to Monthly Batch'}
-            </button>
             {selectedTemplate && (
               <span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-700">Template: {selectedTemplate}</span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {!batchMode && (
-              <button type="button" onClick={() => void submitSingle()} disabled={singleSubmitting} className="btn-primary !px-4 !py-2 !text-xs disabled:opacity-50">
-                {singleSubmitting ? 'Applying…' : 'Apply Adjustment'}
-              </button>
-            )}
-          </div>
         </div>
 
-        {!batchMode ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Category</label>
-              <select
-                value={singleCategoryId}
-                onChange={(e) => setSingleCategoryId(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                <option value="">Select category</option>
-                {matchedPresets.filter((p) => p.category).map((p) => (
-                  <option key={p.category.id} value={p.category.id}>{p.category_code} · {p.category_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="0.00"
-                value={singleAmount}
-                onChange={(e) => setSingleAmount(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Date</label>
-              <input
-                type="date"
-                value={singleDate}
-                onChange={(e) => setSingleDate(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wide text-[var(--role-text)]/50">Description</label>
-              <input
-                type="text"
-                placeholder="e.g., July 2026 rent"
-                value={singleDescription}
-                onChange={(e) => setSingleDescription(e.target.value)}
-                className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-              />
-            </div>
-          </div>
-        ) : (
+        <div>
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between bg-white rounded-lg p-2 border border-purple-100">
               <div className="flex items-center gap-2 flex-wrap">
@@ -457,8 +431,8 @@ const BudgetExpenseUpload = () => {
                         const amount = toNumber(draft?.amount);
                         const overBudget = amount > 0 && amount > remaining;
                         return (
-                          <div key={preset.category_code} className={`flex items-center gap-3 px-3 py-2 text-xs ${preset.category ? 'bg-white' : 'bg-gray-50 text-gray-400'}`}>
-                            <div className="w-20 font-mono text-[var(--role-text)]/70">{preset.category_code}</div>
+                          <div key={preset.category_code} className={`flex flex-col sm:flex-row gap-2 sm:items-center px-3 py-2 text-xs ${preset.category ? 'bg-white' : 'bg-gray-50 text-gray-400'}`}>
+                            <div className="w-20 font-mono text-[var(--role-text)]/70 shrink-0">{preset.category_code}</div>
                             <div className="flex-1 min-w-0">
                               <div className="truncate font-medium text-[var(--role-text)]">{preset.category_name}</div>
                               <div className="text-[10px] text-[var(--role-text)]/50 truncate">
@@ -471,26 +445,63 @@ const BudgetExpenseUpload = () => {
                                 <div className={`font-mono ${remaining <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatMoney(remaining)}</div>
                               </div>
                             )}
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              disabled={!preset.category}
-                              value={draft?.amount ?? ''}
-                              onChange={(e) => {
-                                if (!preset.category) return;
-                                setBatchDrafts((prev) => ({
-                                  ...prev,
-                                  [preset.category.id]: {
-                                    amount: e.target.value,
-                                    description: draft?.description || `${preset.category_name} - ${batchDate}`,
-                                    date: batchDate
-                                  }
-                                }));
-                              }}
-                              className={`w-28 px-2 py-1.5 rounded border bg-[var(--role-surface)] disabled:bg-gray-100 ${overBudget ? 'border-red-400 focus:ring-red-200' : 'border-[var(--role-border)]'}`}
-                            />
+                            <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                disabled={!preset.category}
+                                value={draft?.amount ?? ''}
+                                onChange={(e) => {
+                                  if (!preset.category) return;
+                                  setBatchDrafts((prev) => ({
+                                    ...prev,
+                                    [preset.category.id]: {
+                                      amount: e.target.value,
+                                      description: draft?.description || `${preset.category_name} - ${batchDate}`,
+                                      date: draft?.date || batchDate
+                                    }
+                                  }));
+                                }}
+                                className={`w-28 px-2 py-1.5 rounded border bg-[var(--role-surface)] disabled:bg-gray-100 ${overBudget ? 'border-red-400 focus:ring-red-200' : 'border-[var(--role-border)]'}`}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Description"
+                                disabled={!preset.category}
+                                value={draft?.description || ''}
+                                onChange={(e) => {
+                                  if (!preset.category) return;
+                                  setBatchDrafts((prev) => ({
+                                    ...prev,
+                                    [preset.category.id]: {
+                                      amount: draft?.amount || '',
+                                      description: e.target.value,
+                                      date: draft?.date || batchDate
+                                    }
+                                  }));
+                                }}
+                                className="w-40 px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
+                              />
+                              <input
+                                type="date"
+                                disabled={!preset.category}
+                                value={draft?.date || batchDate}
+                                onChange={(e) => {
+                                  if (!preset.category) return;
+                                  setBatchDrafts((prev) => ({
+                                    ...prev,
+                                    [preset.category.id]: {
+                                      amount: draft?.amount || '',
+                                      description: draft?.description || `${preset.category_name} - ${e.target.value}`,
+                                      date: e.target.value
+                                    }
+                                  }));
+                                }}
+                                className="w-32 px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
+                              />
+                            </div>
                             {overBudget && (
                               <span className="text-[10px] text-red-600 font-medium whitespace-nowrap">Over budget</span>
                             )}
@@ -529,24 +540,86 @@ const BudgetExpenseUpload = () => {
               </div>
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       {directExpenses.length > 0 && (
         <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4 mb-4">
           <h3 className="text-sm font-semibold mb-2">Recent Adjustments</h3>
-          <div className="max-h-64 overflow-y-auto space-y-1">
+          <div className="max-h-96 overflow-y-auto space-y-1">
             {directExpenses
               .filter((de) => (selectedDepartmentId ? de.department_id === selectedDepartmentId : true))
-              .slice(-20)
+              .slice(-40)
               .reverse()
-              .map((de) => (
-                <div key={de.id} className="flex items-center justify-between text-xs py-1 px-2 rounded border border-[var(--role-border)]/50">
-                  <span className="truncate flex-1">{de.category} · {de.description || de.item_name}</span>
-                  <span className="font-mono font-semibold text-rose-600 ml-2">{formatMoney(toNumber(de.amount))}</span>
-                  <span className="text-[10px] text-[var(--role-text)]/50 ml-2">{de.expense_date}</span>
-                </div>
-              ))}
+              .map((de) => {
+                const isEditing = editingId === de.id;
+                return (
+                  <div key={de.id} className="flex flex-col gap-1 text-xs py-2 px-2 rounded border border-[var(--role-border)]/50">
+                    {isEditing ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-[var(--role-text)]/50">Category</label>
+                          <select
+                            value={editForm.category_id}
+                            onChange={(e) => setEditForm((f) => ({ ...f, category_id: e.target.value }))}
+                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                          >
+                            <option value="">Select category</option>
+                            {matchedPresets.filter((p) => p.category).map((p) => (
+                              <option key={p.category.id} value={p.category.id}>{p.category_code} · {p.category_name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[var(--role-text)]/50">Amount</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={editForm.amount}
+                            onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
+                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[var(--role-text)]/50">Date</label>
+                          <input
+                            type="date"
+                            value={editForm.expense_date}
+                            onChange={(e) => setEditForm((f) => ({ ...f, expense_date: e.target.value }))}
+                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-[var(--role-text)]/50">Description</label>
+                          <input
+                            type="text"
+                            value={editForm.description}
+                            onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
+                          />
+                        </div>
+                        <div className="sm:col-span-2 flex justify-end gap-2">
+                          <button type="button" onClick={cancelEdit} className="px-3 py-1.5 text-[10px] rounded border border-gray-300 hover:bg-gray-50">Cancel</button>
+                          <button type="button" onClick={() => void saveEdit(de.id)} className="px-3 py-1.5 text-[10px] rounded bg-purple-600 text-white hover:bg-purple-700">Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate font-medium text-[var(--role-text)]">{de.category} · {de.description || de.item_name}</div>
+                          <div className="text-[10px] text-[var(--role-text)]/50">{de.expense_date}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-semibold text-rose-600">{formatMoney(toNumber(de.amount))}</span>
+                          <button type="button" onClick={() => startEdit(de)} className="text-[10px] text-purple-600 hover:text-purple-800 underline">Edit</button>
+                          <button type="button" onClick={() => deleteExpense(de.id)} className="text-[10px] text-red-600 hover:text-red-800 underline">Delete</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}

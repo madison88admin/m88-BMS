@@ -197,4 +197,152 @@ router.post('/batch', authenticate, authorize('accounting', 'admin', 'super_admi
   res.json({ count: results.length, data: results });
 });
 
+// PUT /api/expenses/:id - update a direct expense
+router.put('/:id', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  const { id } = req.params;
+  const { item_name, category_id, amount, description, expense_date } = req.body;
+
+  const { data: existing, error: fetchError } = await supabase
+    .from('direct_expenses')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !existing) return res.status(404).json({ error: fetchError?.message || 'Direct expense not found.' });
+
+  const newAmount = toNumber(amount);
+  if (newAmount < 0) return res.status(400).json({ error: 'Amount must be non-negative.' });
+
+  const oldAmount = toNumber(existing.amount);
+  let targetCategoryId = existing.category_id;
+  let targetCategoryName = existing.category;
+  let fiscalYear = existing.fiscal_year;
+
+  // Resolve new category if provided
+  if (category_id && category_id !== existing.category_id) {
+    const { data: newCategory, error: categoryError } = await supabase
+      .from('budget_categories')
+      .select('id, category_name, department_id, fiscal_year, remaining_amount, used_amount')
+      .eq('id', category_id)
+      .eq('fiscal_year', existing.fiscal_year)
+      .maybeSingle();
+    if (categoryError || !newCategory) return res.status(400).json({ error: categoryError?.message || 'New category not found.' });
+    targetCategoryId = newCategory.id;
+    targetCategoryName = newCategory.category_name;
+  }
+
+  // Revert old category's budget
+  const { data: oldCategory } = await supabase
+    .from('budget_categories')
+    .select('remaining_amount, used_amount')
+    .eq('id', existing.category_id)
+    .single();
+  if (oldCategory) {
+    await supabase
+      .from('budget_categories')
+      .update({
+        used_amount: toNumber(oldCategory.used_amount) - oldAmount,
+        remaining_amount: toNumber(oldCategory.remaining_amount) + oldAmount
+      })
+      .eq('id', existing.category_id);
+  }
+
+  // Apply to target category (same or new)
+  const { data: targetCategory } = await supabase
+    .from('budget_categories')
+    .select('remaining_amount, used_amount')
+    .eq('id', targetCategoryId)
+    .single();
+  if (targetCategory) {
+    await supabase
+      .from('budget_categories')
+      .update({
+        used_amount: toNumber(targetCategory.used_amount) + newAmount,
+        remaining_amount: toNumber(targetCategory.remaining_amount) - newAmount
+      })
+      .eq('id', targetCategoryId);
+  }
+
+  // Update the direct expense record
+  const { data: updated, error: updateError } = await supabase
+    .from('direct_expenses')
+    .update({
+      item_name: item_name || existing.item_name,
+      category_id: targetCategoryId,
+      category: targetCategoryName,
+      amount: newAmount,
+      description: description !== undefined ? description : existing.description,
+      expense_date: expense_date || existing.expense_date
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (updateError) return res.status(400).json({ error: updateError.message });
+
+  await updateM88ManilaCostCenterBudget(fiscalYear);
+
+  await logAuditEvent({
+    user: req.user,
+    actionType: AUDIT_ACTIONS.DIRECT_EXPENSE_UPDATED,
+    recordType: 'direct_expense',
+    recordId: id,
+    recordLabel: updated.item_name,
+    oldValue: { amount: oldAmount, category_id: existing.category_id, category_name: existing.category, expense_date: existing.expense_date },
+    newValue: { amount: newAmount, category_id: targetCategoryId, category_name: targetCategoryName, expense_date: updated.expense_date },
+    remarks: `Direct expense updated: ${targetCategoryName} - ${formatMoney(oldAmount)} → ${formatMoney(newAmount)}`
+  });
+
+  res.json(updated);
+});
+
+// DELETE /api/expenses/:id - delete a direct expense
+router.delete('/:id', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
+  const { id } = req.params;
+
+  const { data: existing, error: fetchError } = await supabase
+    .from('direct_expenses')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !existing) return res.status(404).json({ error: fetchError?.message || 'Direct expense not found.' });
+
+  const oldAmount = toNumber(existing.amount);
+
+  // Revert category budget
+  const { data: category } = await supabase
+    .from('budget_categories')
+    .select('remaining_amount, used_amount')
+    .eq('id', existing.category_id)
+    .single();
+  if (category) {
+    await supabase
+      .from('budget_categories')
+      .update({
+        used_amount: toNumber(category.used_amount) - oldAmount,
+        remaining_amount: toNumber(category.remaining_amount) + oldAmount
+      })
+      .eq('id', existing.category_id);
+  }
+
+  const { error: deleteError } = await supabase.from('direct_expenses').delete().eq('id', id);
+  if (deleteError) return res.status(400).json({ error: deleteError.message });
+
+  await updateM88ManilaCostCenterBudget(existing.fiscal_year);
+
+  await logAuditEvent({
+    user: req.user,
+    actionType: AUDIT_ACTIONS.DIRECT_EXPENSE_DELETED,
+    recordType: 'direct_expense',
+    recordId: id,
+    recordLabel: existing.item_name,
+    oldValue: { amount: oldAmount, category_id: existing.category_id, category_name: existing.category, expense_date: existing.expense_date },
+    newValue: null,
+    remarks: `Direct expense deleted: ${existing.category} - ${formatMoney(oldAmount)}`
+  });
+
+  res.json({ success: true, id });
+});
+
 export default router;

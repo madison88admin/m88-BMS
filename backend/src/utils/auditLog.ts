@@ -30,6 +30,8 @@ export const AUDIT_ACTIONS = {
   GENERAL_BUDGET_STORED_TO_COST_CENTER: 'general_budget_stored_to_cost_center',
   DIRECT_EXPENSE_UPLOADED: 'direct_expense_uploaded',
   DIRECT_EXPENSE_BATCH_UPLOADED: 'direct_expense_batch_uploaded',
+  DIRECT_EXPENSE_UPDATED: 'direct_expense_updated',
+  DIRECT_EXPENSE_DELETED: 'direct_expense_deleted',
 } as const;
 
 export type AuditActionType = typeof AUDIT_ACTIONS[keyof typeof AUDIT_ACTIONS];
