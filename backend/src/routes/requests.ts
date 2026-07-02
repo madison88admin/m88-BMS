@@ -1324,17 +1324,38 @@ router.get('/', authenticate, async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   // accounting/admin/super_admin see all years by default; others scoped to active FY unless ?all_years=true
   const allYears = req.query.all_years === 'true' || ['accounting', 'admin', 'super_admin'].includes(req.user.role);
+  const requestedFiscalYear = req.query.fiscal_year ? Number(req.query.fiscal_year) : null;
+  const requestedDepartmentId = req.query.department_id ? String(req.query.department_id) : null;
   let query = supabase.from('expense_requests').select('*');
-  if (!allYears) {
+
+  // Apply fiscal year filter. If not an all-years viewer, default to the active fiscal year.
+  if (requestedFiscalYear) {
+    query = query.eq('fiscal_year', requestedFiscalYear);
+  } else if (!allYears) {
     query = query.eq('fiscal_year', activeFiscalYear);
   }
+
   if (req.user.role === 'employee' || req.user.role === 'manager') {
     query = query.eq('employee_id', req.user.id);
   } else if (req.user.role === 'supervisor') {
     const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
-    query = accessibleDepartmentIds.length
-      ? query.in('department_id', accessibleDepartmentIds)
-      : query.eq('department_id', req.user.department_id);
+    if (requestedDepartmentId) {
+      // Only allow viewing the requested department if the supervisor has access to it.
+      if (accessibleDepartmentIds.includes(requestedDepartmentId)) {
+        query = query.eq('department_id', requestedDepartmentId);
+      } else if (accessibleDepartmentIds.length) {
+        query = query.in('department_id', accessibleDepartmentIds);
+      } else {
+        query = query.eq('department_id', req.user.department_id);
+      }
+    } else {
+      query = accessibleDepartmentIds.length
+        ? query.in('department_id', accessibleDepartmentIds)
+        : query.eq('department_id', req.user.department_id);
+    }
+  } else if (requestedDepartmentId && ['accounting', 'admin', 'super_admin'].includes(req.user.role)) {
+    // Admin/accounting can filter by a specific department.
+    query = query.eq('department_id', requestedDepartmentId);
   }
 
   const { data, error } = await query.order('request_code', { ascending: true });
