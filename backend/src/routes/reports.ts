@@ -4,6 +4,7 @@ import { supabase } from '../utils/supabase';
 import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
 import { getAccessibleDepartmentIdsForUser, getLatestConfiguredFiscalYear } from '../utils/fiscal';
+import { resolveOfficialExpenseList } from '../utils/expenseCategories';
 
 const router = express.Router();
 const normalizeDepartmentName = (value: string) => String(value || '').trim();
@@ -312,10 +313,26 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     const accessibleDepartmentIds = await getAccessibleDepartmentIds(req.user, fiscalYear);
     const allowedDepartmentIds = accessibleDepartmentIds || undefined;
 
-    // Budget categories
+    // Load all departments for name resolution
+    const { data: allDepartments, error: departmentsError } = await supabase
+      .from('departments')
+      .select('id, name, fiscal_year');
+    if (departmentsError) throw departmentsError;
+    const departmentNameById = new Map((allDepartments || []).map((d: any) => [String(d.id), String(d.name || '').trim()]));
+
+    // Master category list from the official expense list (budget expense master)
+    const officialItems = await resolveOfficialExpenseList();
+    const masterCategories = officialItems.map((item) => ({
+      code: String(item.code || '').trim(),
+      expenseGroup: String(item.category || '').trim(),
+      itemName: String(item.itemName || '').trim(),
+      department: Array.isArray(item.dept) ? item.dept : [item.dept]
+    })).filter((item) => item.code);
+
+    // Budget categories for the fiscal year
     let categoryQuery = supabase
       .from('budget_categories')
-      .select('id, category_code, category_name, department_id, fiscal_year, budget_amount, departments(name)')
+      .select('id, category_code, category_name, department_id, fiscal_year, budget_amount, departments!department_id(name)')
       .eq('fiscal_year', fiscalYear);
     if (departmentId) categoryQuery = categoryQuery.eq('department_id', departmentId);
     const { data: categoryRows, error: categoryError } = await categoryQuery;
@@ -327,23 +344,34 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     });
     const categoryById = new Map(categories.map((cat: any) => [cat.id, cat]));
 
-    // Budget by category code (sum budget amounts across departments for same code)
-    const budgetByCode = new Map<string, { code: string; expenseGroup: string; fy2026Total: number; departments: Set<string> }>();
+    // Map budget categories by exact code
+    const budgetByCode = new Map<string, { budgetAmount: number; departmentIds: Set<string>; names: Set<string> }>();
     categories.forEach((cat: any) => {
-      const code = String(cat.category_code || '').trim();
+      const code = String(cat.category_code || '').trim().toUpperCase();
       if (!code) return;
       const existing = budgetByCode.get(code);
       if (existing) {
-        existing.fy2026Total += toNumber(cat.budget_amount);
-        existing.departments.add(String(cat.department_id));
+        existing.budgetAmount += toNumber(cat.budget_amount);
+        existing.departmentIds.add(String(cat.department_id));
+        existing.names.add(String(cat.category_name || '').trim());
       } else {
         budgetByCode.set(code, {
-          code,
-          expenseGroup: String(cat.category_name || '').trim(),
-          fy2026Total: toNumber(cat.budget_amount),
-          departments: new Set([String(cat.department_id)])
+          budgetAmount: toNumber(cat.budget_amount),
+          departmentIds: new Set([String(cat.department_id)]),
+          names: new Set([String(cat.category_name || '').trim()])
         });
       }
+    });
+
+    // Build code to department name mapping from budget categories
+    const categoryCodeToDepartmentNames = new Map<string, Set<string>>();
+    categories.forEach((cat: any) => {
+      const code = String(cat.category_code || '').trim().toUpperCase();
+      if (!code) return;
+      const deptName = departmentNameById.get(String(cat.department_id)) || cat.departments?.name || 'Unknown';
+      const set = categoryCodeToDepartmentNames.get(code) || new Set<string>();
+      set.add(deptName);
+      categoryCodeToDepartmentNames.set(code, set);
     });
 
     // Direct expenses
@@ -358,7 +386,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     // Released expense requests
     let requestQuery = supabase
       .from('expense_requests')
-      .select('category_id, amount, status, released_at, updated_at, department_id, fiscal_year')
+      .select('id, category_id, amount, status, released_at, updated_at, department_id, fiscal_year')
       .eq('fiscal_year', fiscalYear)
       .eq('status', 'released')
       .not('category_id', 'is', null);
@@ -366,11 +394,49 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     const { data: requestRows, error: requestError } = await requestQuery;
     if (requestError) throw requestError;
 
+    // Liquidation items (actual transaction dates for cash advances)
+    const requestIds = (requestRows || []).map((r: any) => r.id);
+    let liquidationIds: string[] = [];
+    let requestIdsWithLiquidation = new Set<string>();
+    if (requestIds.length) {
+      const { data: liquidationIdRows, error: liquidationIdError } = await supabase
+        .from('request_liquidations')
+        .select('id, request_id')
+        .in('request_id', requestIds);
+      if (liquidationIdError) throw liquidationIdError;
+      liquidationIds = (liquidationIdRows || []).map((row: any) => row.id).filter(Boolean);
+      requestIdsWithLiquidation = new Set((liquidationIdRows || []).map((row: any) => String(row.request_id)).filter(Boolean));
+    }
+
+    let liquidationRows: any[] = [];
+    if (liquidationIds.length) {
+      const { data: liqRows, error: liquidationError } = await supabase
+        .from('liquidation_items')
+        .select('category_id, amount, expense_date, cash_advance_id, liquidation_id')
+        .in('liquidation_id', liquidationIds);
+      if (liquidationError) throw liquidationError;
+      liquidationRows = liqRows || [];
+    }
+
+    // Build code lookup for actual spend (category_id -> code)
+    const codeByCategoryId = new Map<string, string>();
+    const addCodeByCategoryId = (categoryId: string, codeFallback?: string) => {
+      if (!categoryId || codeByCategoryId.has(categoryId)) return;
+      const cat = categoryById.get(categoryId);
+      if (cat) {
+        codeByCategoryId.set(categoryId, String(cat.category_code || '').trim().toUpperCase());
+      } else if (codeFallback) {
+        codeByCategoryId.set(categoryId, codeFallback);
+      }
+    };
+
+    (directRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id));
+    (requestRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id));
+    (liquidationRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id));
+
     const actualsByCategoryMonth = new Map<string, Map<string, { amountSpent: number; transactionCount: number }>>();
     const addActual = (categoryId: string, dateStr: string, amount: number) => {
-      const cat = categoryById.get(categoryId);
-      if (!cat) return;
-      const code = String(cat.category_code || '').trim();
+      const code = codeByCategoryId.get(categoryId);
       if (!code) return;
       const month = getMonthLabel(dateStr);
       if (!month || !months.includes(month)) return;
@@ -388,47 +454,69 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
       addActual(row.category_id, row.expense_date, row.amount);
     });
 
+    (liquidationRows || []).forEach((row: any) => {
+      addActual(row.category_id, row.expense_date, row.amount);
+    });
+
+    // For requests without liquidation items, use released_at as fallback
     (requestRows || []).forEach((row: any) => {
       if (allowedDepartmentIds && !allowedDepartmentIds.includes(String(row.department_id))) return;
+      if (requestIdsWithLiquidation.has(String(row.id))) return;
       const dateStr = row.released_at || row.updated_at;
       if (!dateStr) return;
       addActual(row.category_id, dateStr, row.amount);
     });
 
-    const categoryBreakdown = Array.from(budgetByCode.values())
-      .sort((a, b) => a.code.localeCompare(b.code))
-      .map((budget) => {
-        const monthMap = actualsByCategoryMonth.get(budget.code) || new Map<string, { amountSpent: number; transactionCount: number }>();
-        let runningTotal = 0;
-        const monthly = months.map((month) => {
-          const spent = monthMap.get(month)?.amountSpent || 0;
-          runningTotal += spent;
-          return { month, amountSpent: spent, runningTotal };
-        });
-        const totalSpentToDate = runningTotal;
-        const percentOfBudgetUsed = budget.fy2026Total > 0 ? (totalSpentToDate / budget.fy2026Total) * 100 : 0;
-        const monthlyPace = budget.fy2026Total > 0 ? (budget.fy2026Total / 12) * monthsElapsed : 0;
-        let paceStatus: 'On track' | 'Ahead of pace' | 'Over budget' | 'No spend' = 'No spend';
-        if (totalSpentToDate > 0) {
-          if (totalSpentToDate > budget.fy2026Total) {
-            paceStatus = 'Over budget';
-          } else if (totalSpentToDate > monthlyPace) {
-            paceStatus = 'Ahead of pace';
-          } else {
-            paceStatus = 'On track';
-          }
-        }
-        return {
-          code: budget.code,
-          expenseGroup: budget.expenseGroup,
-          department: Array.from(budget.departments).map((id) => categoryById.get(id)?.departments?.name || 'Unknown').join(', '),
-          monthly,
-          fy2026Budget: budget.fy2026Total,
-          totalSpentToDate,
-          percentOfBudgetUsed: Math.round(percentOfBudgetUsed * 10) / 10,
-          paceStatus
-        };
+    // Build category breakdown from the master list
+    const categoryBreakdown = masterCategories.map((master) => {
+      const code = master.code.toUpperCase();
+      const budgetInfo = budgetByCode.get(code);
+      const fy2026Budget = budgetInfo?.budgetAmount || 0;
+      const deptNames = budgetInfo
+        ? Array.from(categoryCodeToDepartmentNames.get(code) || new Set()).filter(Boolean)
+        : master.department.map((d) => String(d || '').trim()).filter(Boolean);
+
+      const monthMap = actualsByCategoryMonth.get(code) || new Map<string, { amountSpent: number; transactionCount: number }>();
+      let runningTotal = 0;
+      const monthly = months.map((month) => {
+        const spent = monthMap.get(month)?.amountSpent || 0;
+        runningTotal += spent;
+        return { month, amountSpent: spent, runningTotal };
       });
+      const totalSpentToDate = runningTotal;
+      const percentOfBudgetUsed = fy2026Budget > 0 ? (totalSpentToDate / fy2026Budget) * 100 : null;
+      const monthlyPace = fy2026Budget > 0 ? (fy2026Budget / 12) * monthsElapsed : 0;
+
+      let paceStatus: 'On track' | 'Ahead of pace' | 'Over budget' | 'No spend' | 'Unbudgeted spend' = 'No spend';
+      if (totalSpentToDate > 0) {
+        if (fy2026Budget === 0) {
+          paceStatus = 'Unbudgeted spend';
+        } else if (totalSpentToDate > fy2026Budget) {
+          paceStatus = 'Over budget';
+        } else if (totalSpentToDate > monthlyPace) {
+          paceStatus = 'Ahead of pace';
+        } else {
+          paceStatus = 'On track';
+        }
+      }
+
+      return {
+        code,
+        expenseGroup: master.expenseGroup,
+        department: deptNames.length > 0 ? deptNames.join(', ') : 'Unknown',
+        monthly,
+        fy2026Budget,
+        totalSpentToDate,
+        percentOfBudgetUsed: percentOfBudgetUsed === null ? 'N/A (no budget)' : Math.round(percentOfBudgetUsed * 10) / 10,
+        paceStatus
+      };
+    });
+
+    // Sort: categories with spend first, then alphabetically
+    categoryBreakdown.sort((a, b) => {
+      if (a.totalSpentToDate !== b.totalSpentToDate) return b.totalSpentToDate - a.totalSpentToDate;
+      return a.code.localeCompare(b.code);
+    });
 
     const topCategories = categoryBreakdown
       .filter((c) => c.totalSpentToDate > 0)
@@ -437,20 +525,23 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
       .map((c) => ({ code: c.code, expenseGroup: c.expenseGroup, totalSpent: c.totalSpentToDate }));
 
     const dataGaps: string[] = [];
-    if (categories.length === 0) dataGaps.push(`No budget categories found for fiscal year ${fiscalYear}.`);
-    if (actualsByCategoryMonth.size === 0) dataGaps.push(`No released expenses or direct expenses recorded for fiscal year ${fiscalYear}.`);
-    const codesWithoutBudget = Array.from(actualsByCategoryMonth.keys()).filter((code) => !budgetByCode.has(code));
-    if (codesWithoutBudget.length > 0) {
-      dataGaps.push(`Spending recorded for ${codesWithoutBudget.length} category code(s) without matching FY${fiscalYear} budget: ${codesWithoutBudget.slice(0, 10).join(', ')}${codesWithoutBudget.length > 10 ? '...' : ''}.`);
+    const missingBudgetCodes = categoryBreakdown.filter((c) => c.fy2026Budget === 0 && c.totalSpentToDate > 0);
+    if (missingBudgetCodes.length > 0) {
+      dataGaps.push(`${missingBudgetCodes.length} category code(s) with spend but no FY${fiscalYear} budget: ${missingBudgetCodes.slice(0, 10).map((c) => c.code).join(', ')}${missingBudgetCodes.length > 10 ? '...' : ''}.`);
     }
+    const codesWithSpendButNoCategory = Array.from(actualsByCategoryMonth.keys()).filter((code) => !budgetByCode.has(code) && !masterCategories.some((m) => m.code.toUpperCase() === code));
+    if (codesWithSpendButNoCategory.length > 0) {
+      dataGaps.push(`Spending recorded for ${codesWithSpendButNoCategory.length} category code(s) not in the master list: ${codesWithSpendButNoCategory.slice(0, 10).join(', ')}${codesWithSpendButNoCategory.length > 10 ? '...' : ''}.`);
+    }
+    if (actualsByCategoryMonth.size === 0) dataGaps.push(`No released expenses or direct expenses recorded for fiscal year ${fiscalYear}.`);
 
-    const aheadCategories = categoryBreakdown.filter((c) => c.paceStatus === 'Ahead of pace' || c.paceStatus === 'Over budget');
+    const aheadCategories = categoryBreakdown.filter((c) => c.paceStatus === 'Ahead of pace' || c.paceStatus === 'Over budget' || c.paceStatus === 'Unbudgeted spend');
     let summary = `As of ${months.join('/')}, total actual spend across ${categoryBreakdown.length} categories is ${formatReportMoney(categoryBreakdown.reduce((sum, c) => sum + c.totalSpentToDate, 0))}.`;
     if (topCategories.length > 0) {
       summary += ` Top spend category is ${topCategories[0].expenseGroup} at ${formatReportMoney(topCategories[0].totalSpent)}.`;
     }
     if (aheadCategories.length > 0) {
-      summary += ` ${aheadCategories.length} categor${aheadCategories.length === 1 ? 'y is' : 'ies are'} ahead of pace or over budget.`;
+      summary += ` ${aheadCategories.length} categor${aheadCategories.length === 1 ? 'y is' : 'ies are'} ahead of pace, over budget, or unbudgeted.`;
     } else {
       summary += ' All categories are on track or have no spend.';
     }
@@ -460,7 +551,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Monthly Spend by Category');
       const headers = ['Code', 'Expense Group', 'Department', ...months, 'Total Spent', 'FY2026 Budget', '% Used', 'Pace Status'];
-      worksheet.columns = headers.map((h) => ({ header: h, key: h.replace(/\s+/g, ''), width: 16 }));
+      worksheet.columns = headers.map((h) => ({ header: h, key: h.replace(/\s+/g, '').replace(/[^a-zA-Z0-9]/g, ''), width: 16 }));
       categoryBreakdown.forEach((c) => {
         const row: any = {
           Code: c.code,
@@ -468,7 +559,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
           Department: c.department,
           TotalSpent: c.totalSpentToDate,
           FY2026Budget: c.fy2026Budget,
-          '%Used': c.percentOfBudgetUsed / 100,
+          Used: typeof c.percentOfBudgetUsed === 'number' ? c.percentOfBudgetUsed / 100 : null,
           PaceStatus: c.paceStatus
         };
         c.monthly.forEach((m) => {

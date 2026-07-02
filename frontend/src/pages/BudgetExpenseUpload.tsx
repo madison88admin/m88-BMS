@@ -763,7 +763,7 @@ const BudgetExpenseUpload = () => {
                           ))}
                           <td className="px-2 py-2 text-right font-mono font-semibold">{formatMoney(row.totalSpentToDate)}</td>
                           <td className="px-2 py-2 text-right font-mono">{formatMoney(row.fy2026Budget)}</td>
-                          <td className="px-2 py-2 text-right font-mono">{row.percentOfBudgetUsed}%</td>
+                          <td className="px-2 py-2 text-right font-mono">{typeof row.percentOfBudgetUsed === 'number' ? `${row.percentOfBudgetUsed}%` : row.percentOfBudgetUsed}</td>
                           <td className="px-2 py-2">{row.paceStatus}</td>
                         </tr>
                       ))}
