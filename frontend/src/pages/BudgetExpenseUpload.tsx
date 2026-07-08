@@ -67,7 +67,6 @@ const BudgetExpenseUpload = () => {
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
-  const [directExpenses, setDirectExpenses] = useState<any[]>([]);
   const [batchDrafts, setBatchDrafts] = useState<Record<string, Draft>>({});
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [savedTemplates, setSavedTemplates] = useState<Record<string, Record<string, Draft>>>({});
@@ -75,16 +74,16 @@ const BudgetExpenseUpload = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [batchDate, setBatchDate] = useState<string>(today());
   const [showConfirm, setShowConfirm] = useState(false);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [reportData, setReportData] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportFiscalYear, setReportFiscalYear] = useState<number>(2026);
   const [reportMonths, setReportMonths] = useState<string>('Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec');
   const [reportDepartmentId, setReportDepartmentId] = useState<string>('');
+  const [reportSearch, setReportSearch] = useState<string>('');
+  const [reportScopeFilter, setReportScopeFilter] = useState<string>('');
+  const [reportDeptSectionFilter, setReportDeptSectionFilter] = useState<string>('');
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{ category_id: string; amount: string; description: string; expense_date: string }>({ category_id: '', amount: '', description: '', expense_date: today() });
 
   useEffect(() => {
     const cachedUser = localStorage.getItem('user');
@@ -100,7 +99,6 @@ const BudgetExpenseUpload = () => {
   useEffect(() => {
     if (selectedDepartmentId) {
       void fetchCategories(selectedDepartmentId);
-      void fetchDirectExpenses();
       void fetchAuditLogs();
     }
   }, [selectedDepartmentId]);
@@ -144,17 +142,6 @@ const BudgetExpenseUpload = () => {
     } finally {
       setCategoriesLoading(false);
     }
-  };
-
-  const fetchDirectExpenses = async (departmentId?: string) => {
-    try {
-      const targetId = departmentId || selectedDepartmentId;
-      const dept = departments.find((d) => d.id === targetId);
-      const params: any = { fiscal_year: dept?.fiscal_year || new Date().getFullYear() };
-      if (targetId) params.department_id = targetId;
-      const res = await api.get('/api/expenses', { params });
-      setDirectExpenses(Array.isArray(res.data) ? res.data : []);
-    } catch { /* silent */ }
   };
 
   const fetchAuditLogs = async () => {
@@ -242,6 +229,30 @@ const BudgetExpenseUpload = () => {
     return batchEntries.reduce((sum, [, v]) => sum + toNumber(v.amount), 0);
   }, [batchEntries]);
 
+  const totalAvailableCount = useMemo(() => {
+    return matchedPresets.filter((p) => p.category).length;
+  }, [matchedPresets]);
+
+  const totalPresetCount = RECURRING_EXPENSE_PRESETS.length;
+
+  const groupTotals = useMemo(() => {
+    const totals: Record<string, { budgetSum: number; enteredSum: number; count: number }> = {};
+    matchedPresets.forEach((preset) => {
+      if (!totals[preset.parent_code]) {
+        totals[preset.parent_code] = { budgetSum: 0, enteredSum: 0, count: 0 };
+      }
+      if (preset.category) {
+        totals[preset.parent_code].budgetSum += toNumber(preset.category.remaining_amount);
+        totals[preset.parent_code].count += 1;
+      }
+      const draft = batchDrafts[preset.category_code];
+      if (draft && toNumber(draft.amount) > 0) {
+        totals[preset.parent_code].enteredSum += toNumber(draft.amount);
+      }
+    });
+    return totals;
+  }, [matchedPresets, batchDrafts]);
+
   const submitBatch = async () => {
     if (batchEntries.length === 0) {
       toast.error('Enter at least one amount');
@@ -262,7 +273,6 @@ const BudgetExpenseUpload = () => {
       toast.success(`${expenses.length} adjustments applied`);
       setBatchDrafts({});
       setSelectedTemplate('');
-      await fetchDirectExpenses();
       await fetchCategories(selectedDepartmentId);
       await fetchAuditLogs();
     } catch (err: any) {
@@ -273,55 +283,27 @@ const BudgetExpenseUpload = () => {
     }
   };
 
-  const startEdit = (de: any) => {
-    setEditingId(de.id);
-    setEditForm({
-      category_id: de.category_id || '',
-      amount: String(de.amount || ''),
-      description: de.description || '',
-      expense_date: de.expense_date || today()
-    });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditForm({ category_id: '', amount: '', description: '', expense_date: today() });
-  };
-
-  const saveEdit = async (id: string) => {
-    if (!editForm.amount || toNumber(editForm.amount) <= 0) {
-      toast.error('Enter a valid amount');
-      return;
-    }
-    try {
-      await api.put(`/api/expenses/${id}`, {
-        category_id: editForm.category_id,
-        amount: toNumber(editForm.amount),
-        description: editForm.description,
-        expense_date: editForm.expense_date
-      });
-      toast.success('Expense updated');
-      setEditingId(null);
-      await fetchDirectExpenses();
-      await fetchCategories(selectedDepartmentId);
-      await fetchAuditLogs();
-    } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to update expense'));
-    }
-  };
-
-  const deleteExpense = async (id: string) => {
-    try {
-      await api.delete(`/api/expenses/${id}`);
-      toast.success('Expense deleted');
-      setDeleteConfirmId(null);
-      await fetchDirectExpenses();
-      await fetchCategories(selectedDepartmentId);
-      await fetchAuditLogs();
-    } catch (err: any) {
-      toast.error(getErrorMessage(err, 'Failed to delete expense'));
-    }
-  };
+  const filteredReportSections = useMemo(() => {
+    if (!reportData?.sections) return [];
+    const search = reportSearch.trim().toLowerCase();
+    return reportData.sections
+      .filter((section: any) => {
+        if (reportDeptSectionFilter && section.department !== reportDeptSectionFilter) return false;
+        return true;
+      })
+      .map((section: any) => ({
+        ...section,
+        categories: (section.categories || []).filter((row: any) => {
+          if (reportScopeFilter && row.scope !== reportScopeFilter) return false;
+          if (search) {
+            const haystack = `${row.code} ${row.expenseGroup} ${row.department}`.toLowerCase();
+            if (!haystack.includes(search)) return false;
+          }
+          return true;
+        })
+      }))
+      .filter((section: any) => section.categories.length > 0);
+  }, [reportData, reportSearch, reportScopeFilter, reportDeptSectionFilter]);
 
   const fetchMonthlySpendReport = async () => {
     setReportLoading(true);
@@ -460,6 +442,9 @@ const BudgetExpenseUpload = () => {
               </div>
             ) : (
               <div className="space-y-3">
+                <div className="text-xs text-[var(--role-text)]/60 px-1">
+                  {totalAvailableCount} of {totalPresetCount} categories available
+                </div>
                 {Object.entries(
                   matchedPresets.reduce((acc, preset) => {
                     (acc[preset.parent_code] = acc[preset.parent_code] || []).push(preset);
@@ -519,6 +504,19 @@ const BudgetExpenseUpload = () => {
                         );
                       })}
                     </div>
+                    {(() => {
+                      const gt = groupTotals[parentCode];
+                      if (!gt) return null;
+                      return (
+                        <div className="px-3 py-2 bg-purple-50/50 border-t border-purple-100 flex items-center justify-between text-xs">
+                          <span className="font-semibold text-purple-800">Total {presets[0].parent_name}</span>
+                          <div className="flex gap-4">
+                            <span className="text-[var(--role-text)]/60">Budget: <span className="font-mono font-semibold">{formatMoney(gt.budgetSum)}</span></span>
+                            <span className="text-purple-700">Entered: <span className="font-mono font-semibold">{formatMoney(gt.enteredSum)}</span></span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -547,87 +545,6 @@ const BudgetExpenseUpload = () => {
           </div>
         </div>
       </div>
-
-      {directExpenses.length > 0 && (
-        <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4 mb-4">
-          <h3 className="text-sm font-semibold mb-2">Recent Adjustments</h3>
-          <div className="max-h-96 overflow-y-auto space-y-1">
-            {directExpenses
-              .filter((de) => (selectedDepartmentId ? de.department_id === selectedDepartmentId : true))
-              .slice(-40)
-              .reverse()
-              .map((de) => {
-                const isEditing = editingId === de.id;
-                return (
-                  <div key={de.id} className="flex flex-col gap-1 text-xs py-2 px-2 rounded border border-[var(--role-border)]/50">
-                    {isEditing ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] text-[var(--role-text)]/50">Category</label>
-                          <select
-                            value={editForm.category_id}
-                            onChange={(e) => setEditForm((f) => ({ ...f, category_id: e.target.value }))}
-                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                          >
-                            <option value="">Select category</option>
-                            {matchedPresets.filter((p) => p.category).map((p) => (
-                              <option key={p.category.id} value={p.category.id}>{p.category_code} · {p.category_name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-[var(--role-text)]/50">Amount</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            value={editForm.amount}
-                            onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
-                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-[var(--role-text)]/50">Date</label>
-                          <input
-                            type="date"
-                            value={editForm.expense_date}
-                            onChange={(e) => setEditForm((f) => ({ ...f, expense_date: e.target.value }))}
-                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-[var(--role-text)]/50">Description</label>
-                          <input
-                            type="text"
-                            value={editForm.description}
-                            onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
-                            className="w-full px-2 py-1.5 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)]"
-                          />
-                        </div>
-                        <div className="sm:col-span-2 flex justify-end gap-2">
-                          <button type="button" onClick={cancelEdit} className="px-3 py-1.5 text-[10px] rounded border border-gray-300 hover:bg-gray-50">Cancel</button>
-                          <button type="button" onClick={() => void saveEdit(de.id)} className="px-3 py-1.5 text-[10px] rounded bg-purple-600 text-white hover:bg-purple-700">Save</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="truncate font-medium text-[var(--role-text)]">{de.category} · {de.description || de.item_name}</div>
-                          <div className="text-[10px] text-[var(--role-text)]/50">{de.expense_date}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-semibold text-rose-600">{formatMoney(toNumber(de.amount))}</span>
-                          <button type="button" onClick={() => startEdit(de)} className="text-[10px] text-purple-600 hover:text-purple-800 underline">Edit</button>
-                          <button type="button" onClick={() => setDeleteConfirmId(de.id)} className="text-[10px] text-red-600 hover:text-red-800 underline">Delete</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
 
       {auditLogs.length > 0 && (
         <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
@@ -671,23 +588,6 @@ const BudgetExpenseUpload = () => {
               <button type="button" onClick={() => setShowConfirm(false)} className="px-4 py-2 text-xs rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
               <button type="button" onClick={() => void submitBatch()} disabled={batchSubmitting} className="px-4 py-2 text-xs rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">
                 {batchSubmitting ? 'Applying…' : 'Confirm Apply'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl p-5 max-w-md w-full shadow-xl">
-            <h3 className="text-lg font-semibold mb-2">Confirm Delete</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Delete this direct expense? The budget will be restored to the category.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 text-xs rounded-lg border border-gray-300 hover:bg-gray-50">Cancel</button>
-              <button type="button" onClick={() => void deleteExpense(deleteConfirmId)} className="px-4 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700">
-                Delete
               </button>
             </div>
           </div>
@@ -750,6 +650,37 @@ const BudgetExpenseUpload = () => {
                     {reportData.dataGaps.map((gap: string, i: number) => <div key={i}>{gap}</div>)}
                   </div>
                 )}
+                <div className="flex flex-wrap gap-2 items-center bg-purple-50/50 p-2 rounded-lg">
+                  <input
+                    type="text"
+                    placeholder="Search code or group..."
+                    value={reportSearch}
+                    onChange={(e) => setReportSearch(e.target.value)}
+                    className="px-2 py-1.5 text-xs rounded border border-gray-300 w-40"
+                  />
+                  <select
+                    value={reportScopeFilter}
+                    onChange={(e) => setReportScopeFilter(e.target.value)}
+                    className="px-2 py-1.5 text-xs rounded border border-gray-300"
+                  >
+                    <option value="">All Scopes</option>
+                    <option value="Shared">Shared</option>
+                    <option value="Department-specific">Department-specific</option>
+                  </select>
+                  <select
+                    value={reportDeptSectionFilter}
+                    onChange={(e) => setReportDeptSectionFilter(e.target.value)}
+                    className="px-2 py-1.5 text-xs rounded border border-gray-300"
+                  >
+                    <option value="">All Sections</option>
+                    {(reportData.sections || []).map((s: any) => (
+                      <option key={s.department} value={s.department}>{s.department}</option>
+                    ))}
+                  </select>
+                  {(reportSearch || reportScopeFilter || reportDeptSectionFilter) && (
+                    <button type="button" onClick={() => { setReportSearch(''); setReportScopeFilter(''); setReportDeptSectionFilter(''); }} className="text-xs text-gray-500 hover:text-gray-700 underline">Clear filters</button>
+                  )}
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead>
@@ -761,14 +692,14 @@ const BudgetExpenseUpload = () => {
                         {reportData.sections?.[0]?.categories?.[0]?.monthly?.map((m: any) => (
                           <th key={m.month} className="px-2 py-2 text-right font-semibold">{m.month}</th>
                         ))}
-                        <th className="px-2 py-2 text-right font-semibold">Total</th>
                         <th className="px-2 py-2 text-right font-semibold">Budget</th>
+                        <th className="px-2 py-2 text-right font-semibold">Expense</th>
                         <th className="px-2 py-2 text-right font-semibold">%</th>
                         <th className="px-2 py-2 text-left font-semibold">Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(reportData.sections || [{ department: 'All', categories: reportData.categoryBreakdown || [] }]).map((section: any) => (
+                      {filteredReportSections.map((section: any) => (
                         <>
                           <tr key={section.department} className="bg-purple-50">
                             <td colSpan={8 + (section.categories?.[0]?.monthly?.length || 12)} className="px-2 py-2 font-semibold text-purple-800">
@@ -784,8 +715,8 @@ const BudgetExpenseUpload = () => {
                               {row.monthly.map((m: any) => (
                                 <td key={m.month} className="px-2 py-2 text-right font-mono">{formatMoney(m.amountSpent)}</td>
                               ))}
-                              <td className="px-2 py-2 text-right font-mono font-semibold">{formatMoney(row.totalSpentToDate)}</td>
                               <td className="px-2 py-2 text-right font-mono">{formatMoney(row.fy2026Budget)}</td>
+                              <td className="px-2 py-2 text-right font-mono font-semibold">{formatMoney(row.totalSpentToDate)}</td>
                               <td className="px-2 py-2 text-right font-mono">{typeof row.percentOfBudgetUsed === 'number' ? `${row.percentOfBudgetUsed}%` : row.percentOfBudgetUsed}</td>
                               <td className="px-2 py-2">{row.paceStatus}</td>
                             </tr>

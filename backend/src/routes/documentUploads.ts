@@ -313,9 +313,22 @@ router.post('/', authenticate, async (req: any, res) => {
         .maybeSingle();
 
       if (!categoryError && existingCategory) {
-        const newBudgetAmount = toNumber(inserted.amount);
+        const currentBudget = toNumber(existingCategory.budget_amount);
+        const overrideAmount = toNumber(inserted.amount);
         const usedAmount = toNumber(existingCategory.used_amount);
         const committedAmount = toNumber(existingCategory.committed_amount);
+        const adjType = String(inserted.adjustment_type || 'reallocation').trim().toLowerCase();
+
+        let newBudgetAmount: number;
+        if (adjType === 'increase') {
+          newBudgetAmount = currentBudget + overrideAmount;
+        } else if (adjType === 'decrease') {
+          newBudgetAmount = Math.max(0, currentBudget - overrideAmount);
+        } else {
+          // reallocation: set the budget to the specified amount
+          newBudgetAmount = overrideAmount;
+        }
+
         const newRemainingAmount = Math.max(0, newBudgetAmount - usedAmount - committedAmount);
 
         await supabase

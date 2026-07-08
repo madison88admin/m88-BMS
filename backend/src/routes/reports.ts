@@ -380,7 +380,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
       expenseGroup: String(item.category || '').trim(),
       itemName: String(item.itemName || '').trim(),
       department: Array.isArray(item.dept) ? item.dept : [item.dept]
-    })).filter((item) => item.code);
+    })).filter((item) => item.code && item.expenseGroup !== 'Asset');
 
     // Budget categories for the fiscal year
     let categoryQuery = supabase

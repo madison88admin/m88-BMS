@@ -479,18 +479,34 @@ const DocumentUploads = () => {
               <h3 className="text-sm font-semibold mb-3">Before & After Preview</h3>
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div>
-                  <p className="text-xs text-[var(--role-text)]/60">Before</p>
-                  <p className="font-semibold">{formatMoney(currentBudgetInfo.remaining_amount || 0)}</p>
+                  <p className="text-xs text-[var(--role-text)]/60">Current Budget</p>
+                  <p className="font-semibold">{formatMoney(currentBudgetInfo.budget_amount || 0)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-[var(--role-text)]/60">New Budget</p>
-                  <p className="font-semibold">{formatMoney(Number.parseFloat(amount))}</p>
+                  <p className="font-semibold">{formatMoney((() => {
+                    const curr = currentBudgetInfo.budget_amount || 0;
+                    const amt = Number.parseFloat(amount) || 0;
+                    if (adjustmentType === 'increase') return curr + amt;
+                    if (adjustmentType === 'decrease') return Math.max(0, curr - amt);
+                    return amt;
+                  })())}</p>
                 </div>
                 <div>
                   <p className="text-xs text-[var(--role-text)]/60">Change</p>
-                  <p className={`font-semibold ${Number.parseFloat(amount) > (currentBudgetInfo.remaining_amount || 0) ? 'text-green-600' : 'text-red-600'}`}>
-                    {Number.parseFloat(amount) > (currentBudgetInfo.remaining_amount || 0) ? '+' : ''}
-                    {formatMoney(Number.parseFloat(amount) - (currentBudgetInfo.remaining_amount || 0))}
+                  <p className={`font-semibold ${(() => {
+                    const curr = currentBudgetInfo.budget_amount || 0;
+                    const amt = Number.parseFloat(amount) || 0;
+                    const newVal = adjustmentType === 'increase' ? curr + amt : adjustmentType === 'decrease' ? Math.max(0, curr - amt) : amt;
+                    return newVal > curr ? 'text-green-600' : 'text-red-600';
+                  })()}`}>
+                    {(() => {
+                      const curr = currentBudgetInfo.budget_amount || 0;
+                      const amt = Number.parseFloat(amount) || 0;
+                      const newVal = adjustmentType === 'increase' ? curr + amt : adjustmentType === 'decrease' ? Math.max(0, curr - amt) : amt;
+                      const diff = newVal - curr;
+                      return (diff > 0 ? '+' : '') + formatMoney(diff);
+                    })()}
                   </p>
                 </div>
               </div>
@@ -606,9 +622,8 @@ const DocumentUploads = () => {
                     <th className="text-left px-4 py-3 text-sm font-semibold">Date</th>
                     <th className="text-left px-4 py-3 text-sm font-semibold">Department</th>
                     <th className="text-left px-4 py-3 text-sm font-semibold">Category</th>
-                    <th className="text-right px-4 py-3 text-sm font-semibold">Old Amount</th>
-                    <th className="text-right px-4 py-3 text-sm font-semibold">New Amount</th>
-                    <th className="text-right px-4 py-3 text-sm font-semibold">Change</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold">Current Budget</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold">Override Amount</th>
                     <th className="text-left px-4 py-3 text-sm font-semibold">Adjustment Type</th>
                     <th className="text-left px-4 py-3 text-sm font-semibold">Changed By</th>
                     <th className="text-left px-4 py-3 text-sm font-semibold">Status</th>
@@ -627,13 +642,8 @@ const DocumentUploads = () => {
                       <td className="px-4 py-3 text-sm">{upload.created_at ? formatDateTime(upload.created_at) : '—'}</td>
                       <td className="px-4 py-3 text-sm">{departmentNameById.get(upload.department_id) || upload.department_id}</td>
                       <td className="px-4 py-3 text-sm">{upload.category_code} — {upload.category_name}</td>
-                      <td className="px-4 py-3 text-sm text-right">{upload.current_remaining_amount != null ? formatMoney(upload.current_remaining_amount) : '—'}</td>
+                      <td className="px-4 py-3 text-sm text-right">{upload.budget_amount != null ? formatMoney(upload.budget_amount) : '—'}</td>
                       <td className="px-4 py-3 text-sm text-right">{upload.amount ? formatMoney(upload.amount) : '—'}</td>
-                      <td className={`px-4 py-3 text-sm text-right ${upload.amount && upload.amount > (upload.current_remaining_amount || 0) ? 'text-green-600' : 'text-red-600'}`}>
-                        {upload.amount && upload.current_remaining_amount != null
-                          ? (upload.amount > upload.current_remaining_amount ? '+' : '') + formatMoney(upload.amount - upload.current_remaining_amount)
-                          : '—'}
-                      </td>
                       <td className="px-4 py-3 text-sm capitalize">{upload.adjustment_type || '—'}</td>
                       <td className="px-4 py-3 text-sm">{upload.uploaded_by || '—'}</td>
                       <td className="px-4 py-3 text-sm">
