@@ -454,7 +454,6 @@ const BudgetExpenseUpload = () => {
                   <div key={parentCode} className="border border-purple-100 rounded-lg overflow-hidden bg-white">
                     <div className="px-3 py-2 bg-purple-100/50 text-xs font-semibold text-purple-800 flex items-center justify-between">
                       <span>{parentCode} · {presets[0].parent_name}</span>
-                      <span className="text-purple-600/70 font-normal">{presets.filter((p) => p.category).length} of {presets.length} categories available</span>
                     </div>
                     <div className="divide-y divide-purple-50">
                       {presets.map((preset) => {
@@ -695,7 +694,6 @@ const BudgetExpenseUpload = () => {
                         <th className="px-2 py-2 text-right font-semibold">Budget</th>
                         <th className="px-2 py-2 text-right font-semibold">Expense</th>
                         <th className="px-2 py-2 text-right font-semibold">%</th>
-                        <th className="px-2 py-2 text-left font-semibold">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -718,7 +716,6 @@ const BudgetExpenseUpload = () => {
                               <td className="px-2 py-2 text-right font-mono">{formatMoney(row.fy2026Budget)}</td>
                               <td className="px-2 py-2 text-right font-mono font-semibold">{formatMoney(row.totalSpentToDate)}</td>
                               <td className="px-2 py-2 text-right font-mono">{typeof row.percentOfBudgetUsed === 'number' ? `${row.percentOfBudgetUsed}%` : row.percentOfBudgetUsed}</td>
-                              <td className="px-2 py-2">{row.paceStatus}</td>
                             </tr>
                           ))}
                         </>
