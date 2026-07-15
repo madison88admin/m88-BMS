@@ -27,7 +27,7 @@ router.post('/', authenticate, upload.single('file'), async (req: AuthRequest, r
     console.log(`Target path: ${filePath}`);
 
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('attachments')
+      .from('M88_BMS')
       .upload(filePath, buffer, { 
         contentType: mimetype, 
         upsert: false 
@@ -44,7 +44,7 @@ router.post('/', authenticate, upload.single('file'), async (req: AuthRequest, r
     console.log('Upload successful in storage:', uploadData);
 
     const { data: publicData } = supabase.storage
-      .from('attachments')
+      .from('M88_BMS')
       .getPublicUrl(filePath);
 
     if (!publicData?.publicUrl) {
