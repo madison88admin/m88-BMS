@@ -92,7 +92,7 @@ const AuditTrail = () => {
           
           setLogs(logsRes.data || []);
         } else {
-          const res = await api.get('/api/audit-logs');
+          const res = await api.get('/api/requests/audit-logs');
           setLogs(
             (res.data || []).map((log: any) => ({
               ...log,
@@ -209,7 +209,7 @@ const AuditTrail = () => {
   const downloadExport = async (format: 'csv' | 'pdf') => {
     const token = localStorage.getItem('token');
     try {
-      const res = await api.get(`/api/audit-logs/export.${format}`, {
+      const res = await api.get(`/api/requests/audit-logs/export.${format}`, {
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(res.data);

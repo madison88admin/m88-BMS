@@ -219,8 +219,12 @@ router.post('/login', async (req, res) => {
   try {
     const { password } = req.body;
     const email = normalizeEmail(req.body?.email);
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
     console.log('Login attempt for email:', email);
-    console.log('Supabase URL:', process.env.SUPABASE_URL);
 
     const { data: user, error } = await supabase
       .from('users')

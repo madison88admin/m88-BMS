@@ -6,7 +6,7 @@ import { restoreAllBudgetCategoriesForFiscalYear } from '../utils/restoreBudgetC
 import { filterBudgetCategoriesForUser } from '../utils/budgetCategoryVisibility';
 import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
 import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
-import { checkBudgetUtilizationWarning, notifyDepartmentSupervisor } from '../utils/workflowNotify';
+import { checkBudgetUtilizationWarning } from '../utils/workflowNotify';
 import { ensureDepartmentCostCenterCode } from '../utils/costCenters';
 import { isMainCategoryCode } from '../utils/budgetCategoryHierarchy';
 import { updateM88ManilaCostCenterBudget } from '../utils/generalBudget';
@@ -158,21 +158,7 @@ router.get('/categories', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (
     }
 
     if (department_id && department_id !== '') {
-      if (req.user?.role === 'admin' || req.user?.role === 'super_admin' || req.user?.role === 'accounting') {
-        query = query.eq('department_id', department_id);
-      } else if (req.user?.department_id && String(req.user.department_id) === String(department_id)) {
-        query = query.eq('department_id', department_id);
-      } else {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-    } else if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin' && req.user?.role !== 'accounting') {
-      // Regular users use their own department_id from token
-      if (req.user?.department_id) {
-        query = query.eq('department_id', req.user.department_id);
-      } else {
-        // If no department in token, return empty
-        return res.json([]);
-      }
+      query = query.eq('department_id', department_id);
     }
 
     const { data, error } = await query.order('category_name');
@@ -333,11 +319,6 @@ router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'ad
       newValue: { is_locked: false },
       remarks: req.body?.reason || 'Unlocked by accounting',
     });
-    await notifyDepartmentSupervisor(
-      current.department_id,
-      `Budget category "${current.category_name}" was unlocked by accounting. You may submit revisions if needed.`
-    );
-
     // Sync department budget after unlock
     await syncDepartmentBudget(current.department_id, current.fiscal_year);
 
@@ -385,11 +366,6 @@ router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admi
       newValue: { is_locked: true },
       remarks: req.body?.reason || 'Locked by accounting',
     });
-
-    await notifyDepartmentSupervisor(
-      current.department_id,
-      `Budget category "${current.category_name}" was locked by accounting. No further edits are allowed until unlocked.`
-    );
 
     // Sync department budget after lock
     await syncDepartmentBudget(current.department_id, current.fiscal_year);

@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { supabase } from '../utils/supabase';
-import { authenticate } from '../middleware/auth';
-import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
+import { authenticate, authorize } from '../middleware/auth';
+import { getLatestConfiguredFiscalYear, getAccessibleDepartmentIdsForUser } from '../utils/fiscal';
 import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
-import { notifyDepartmentSupervisor } from '../utils/workflowNotify';
+import { notifyUser, notifyDepartmentSupervisor } from '../utils/workflowNotify';
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
@@ -211,6 +211,147 @@ router.get('/:id', authenticate, async (req: any, res) => {
   } catch (err: any) {
     console.error('Failed to fetch travel booking:', err);
     res.status(500).json({ error: err.message || 'Failed to fetch travel booking' });
+  }
+});
+
+// PATCH /api/travel-bookings/:id/approve - Supervisor approves travel booking
+router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+
+    const { data: booking, error: fetchError } = await supabase
+      .from('travel_bookings')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (fetchError || !booking) return res.status(404).json({ error: 'Travel booking not found' });
+
+    if (booking.status !== 'pending_supervisor') {
+      return res.status(400).json({ error: 'Only pending travel bookings can be approved' });
+    }
+
+    // Verify supervisor has access to this department
+    if (req.user.role === 'supervisor') {
+      const accessibleDepts = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+      if (!accessibleDepts.includes(booking.department_id)) {
+        return res.status(403).json({ error: 'Forbidden — you do not manage this department' });
+      }
+    }
+
+    // Update booking status
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('travel_bookings')
+      .update({ status: 'approved', approved_by: req.user.id, approved_at: new Date(), updated_at: new Date() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+
+    // Update linked expense request status
+    if (booking.request_id) {
+      await supabase
+        .from('expense_requests')
+        .update({ status: 'approved', approved_by: req.user.id, approved_at: new Date(), updated_at: new Date() })
+        .eq('id', booking.request_id);
+    }
+
+    // Audit log
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+      recordType: 'travel_booking',
+      recordId: booking.id,
+      recordLabel: booking.booking_code,
+      oldValue: { status: 'pending_supervisor' },
+      newValue: { status: 'approved' },
+      remarks: req.body.note || 'Supervisor approved travel booking',
+    });
+
+    // Notify the requester
+    await notifyUser(
+      booking.user_id,
+      'Travel Booking Approved',
+      `Your travel booking ${booking.booking_code} has been approved by your supervisor.`
+    );
+
+    res.json({ ...updatedBooking, message: 'Travel booking approved' });
+  } catch (err: any) {
+    console.error('Failed to approve travel booking:', err);
+    res.status(500).json({ error: err.message || 'Failed to approve travel booking' });
+  }
+});
+
+// PATCH /api/travel-bookings/:id/reject - Supervisor rejects travel booking
+router.patch('/:id/reject', authenticate, authorize('supervisor', 'admin'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    const { data: booking, error: fetchError } = await supabase
+      .from('travel_bookings')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (fetchError || !booking) return res.status(404).json({ error: 'Travel booking not found' });
+
+    if (booking.status !== 'pending_supervisor') {
+      return res.status(400).json({ error: 'Only pending travel bookings can be rejected' });
+    }
+
+    // Verify supervisor has access
+    if (req.user.role === 'supervisor') {
+      const accessibleDepts = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+      if (!accessibleDepts.includes(booking.department_id)) {
+        return res.status(403).json({ error: 'Forbidden — you do not manage this department' });
+      }
+    }
+
+    // Update booking status
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('travel_bookings')
+      .update({ status: 'rejected', rejected_by: req.user.id, rejected_at: new Date(), rejection_reason: reason.trim(), updated_at: new Date() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+
+    // Update linked expense request status
+    if (booking.request_id) {
+      await supabase
+        .from('expense_requests')
+        .update({ status: 'rejected', rejected_by: req.user.id, rejected_at: new Date(), rejected_reason: reason.trim(), updated_at: new Date() })
+        .eq('id', booking.request_id);
+    }
+
+    // Audit log
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.REIMBURSEMENT_REJECTED,
+      recordType: 'travel_booking',
+      recordId: booking.id,
+      recordLabel: booking.booking_code,
+      oldValue: { status: 'pending_supervisor' },
+      newValue: { status: 'rejected' },
+      remarks: reason.trim(),
+    });
+
+    // Notify the requester
+    await notifyUser(
+      booking.user_id,
+      'Travel Booking Rejected',
+      `Your travel booking ${booking.booking_code} has been rejected. Reason: ${reason.trim()}`
+    );
+
+    res.json({ ...updatedBooking, message: 'Travel booking rejected' });
+  } catch (err: any) {
+    console.error('Failed to reject travel booking:', err);
+    res.status(500).json({ error: err.message || 'Failed to reject travel booking' });
   }
 });
 

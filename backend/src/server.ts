@@ -119,6 +119,10 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     statusCode = 401;
     errorCode = 'UNAUTHORIZED';
     message = 'Authentication failed. Please log in again.';
+  } else if (err instanceof SyntaxError && err.message?.includes('JSON')) {
+    statusCode = 400;
+    errorCode = 'BAD_REQUEST';
+    message = 'Malformed JSON in request body.';
   } else if (err.name === 'ValidationError' || err.message?.includes('validation')) {
     statusCode = 400;
     errorCode = 'VALIDATION_ERROR';

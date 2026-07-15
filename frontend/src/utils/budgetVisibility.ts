@@ -31,35 +31,7 @@ export function mapDepartmentNameToShort(name?: string): string | null {
 }
 
 export function filterCategoriesForUser(categories: any[], user: any, departmentName?: string): any[] {
-  if (!Array.isArray(categories)) return [];
-  const role = String((user && user.role) || '').toLowerCase();
-  const filteredRoles = new Set(['employee','supervisor','manager','vp','president']);
-  if (!filteredRoles.has(role)) return categories; // accounting/admin/super_admin view all
-
-  const expenseCats = getCachedExpenseCategories();
-  if (!expenseCats) return categories; // if we don't have expense mapping cached, avoid blocking UI — fall back to server filtering
-
-  const deptShort = mapDepartmentNameToShort(departmentName || '');
-
-  // Build set of allowed codes from expense_categories cache
-  const allowed = new Set<string>();
-  expenseCats.forEach((ec: any) => {
-    const code = String(ec.main_category_code || '').trim();
-    const dept = String(ec.department || '').trim();
-    if (!code) return;
-    if (!ALLOWED_MAIN_CODES.has(code)) return;
-    if (dept === 'All') { allowed.add(code); return; }
-    if (deptShort && dept === deptShort) { allowed.add(code); return; }
-  });
-
-  // Filter categories: only main categories, allowed codes present
-  return categories.filter(cat => {
-    if (cat.parent_category_id) return false; // only main categories
-    const code = String(cat.category_code || '').trim();
-    if (!ALLOWED_MAIN_CODES.has(code)) return false;
-    if (allowed.size === 0) return false;
-    return allowed.has(code);
-  });
+  return Array.isArray(categories) ? categories : [];
 }
 
 export default { filterCategoriesForUser, getCachedExpenseCategories, mapDepartmentNameToShort };

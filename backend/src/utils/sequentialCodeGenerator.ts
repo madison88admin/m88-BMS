@@ -21,12 +21,14 @@ export async function generateSequentialCode(
   // Query the highest existing code for this prefix across ALL rows.
   // The prefix itself encodes the type (REQ, CA, BUD, etc.), so we must not
   // filter by request_type - legacy rows may have a different/null type.
+  // Use a regex filter to only consider numeric-suffixed codes (e.g. REQ-00010)
+  // and ignore legacy hex codes (e.g. REQ-FAFB46CC) that would break sorting.
   const { data, error } = await supabase
     .from(tableName)
     .select(codeColumn)
     .like(codeColumn, `${prefix}-%`)
     .order(codeColumn, { ascending: false })
-    .limit(1);
+    .limit(100);
 
   if (error) {
     console.error(`[sequentialCodeGenerator] Error querying ${tableName}:`, error);
@@ -35,14 +37,18 @@ export async function generateSequentialCode(
 
   let nextNumber = 1; // Start at 00001 if no existing records
 
+  // Find the highest numeric suffix among existing codes
   if (data && data.length > 0) {
-    const lastCode = data[0][codeColumn];
-    const match = String(lastCode).match(/-(\d+)$/);
-    const lastNumber = match ? parseInt(match[1], 10) : NaN;
-
-    if (!isNaN(lastNumber)) {
-      nextNumber = lastNumber + 1;
+    let maxNumber = 0;
+    for (const row of data) {
+      const code = String(row[codeColumn] || '');
+      const match = code.match(/-(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNumber) maxNumber = num;
+      }
     }
+    if (maxNumber > 0) nextNumber = maxNumber + 1;
   }
 
   // Retry loop in case another request grabbed the same number concurrently

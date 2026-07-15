@@ -8,7 +8,7 @@ import { formatMoney, toNumber , getErrorMessage } from '../utils/format';
 const RequestForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [items, setItems] = useState([{ name: '', amount: '' }]);
+  const [items, setItems] = useState<{ name: string; amount: string; category_id?: string }[]>([{ name: '', amount: '' }]);
   const [form, setForm] = useState({
     category: '',
     purpose: '',
@@ -57,7 +57,7 @@ const RequestForm = () => {
           try {
             const itemsRes = await api.get(`/api/requests/${id}/items`);
             const requestItems = Array.isArray(itemsRes.data) && itemsRes.data.length > 0
-              ? itemsRes.data.map((item: any) => ({ name: item.description || item.item_name || '', amount: String(item.amount || 0) }))
+              ? itemsRes.data.map((item: any) => ({ name: item.description || item.item_name || '', amount: String(item.amount || 0), category_id: item.category_id || undefined }))
               : [{ name: req.item_name || '', amount: String(req.amount || 0) }];
             setItems(requestItems);
           } catch (err) {
@@ -204,7 +204,8 @@ const RequestForm = () => {
           purpose: `${form.purpose}\n\nItem Breakdown:\n${itemBreakdown}`,
           items: items.map(item => ({
             description: item.name,
-            amount: toNumber(item.amount)
+            amount: toNumber(item.amount),
+            category_id: item.category_id || undefined
           }))
         });
 

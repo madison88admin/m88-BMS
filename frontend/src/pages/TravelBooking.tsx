@@ -3,7 +3,7 @@ import api from '../api';
 import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
 import type { BookingType, FlightSegment, HotelStay } from '../types/travelBooking';
-import { jsPDF } from 'jspdf';
+import { formatDateTime, getErrorMessage } from '../utils/format';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -34,6 +34,12 @@ const TravelBooking = () => {
   const [departments, setDepartments] = useState<any[]>([]);
   const [costCenters, setCostCenters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [userRole, setUserRole] = useState('');
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [showForm, setShowForm] = useState(true);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const [bookingType, setBookingType] = useState<BookingType>('flight');
   const [departmentId, setDepartmentId] = useState('');
@@ -44,13 +50,13 @@ const TravelBooking = () => {
   const [hotelStays, setHotelStays] = useState<HotelStay[]>([initialHotelStay()]);
   const [notes, setNotes] = useState('');
   const [requesterName, setRequesterName] = useState('');
-  const [supervisorName, setSupervisorName] = useState('');
 
   useEffect(() => {
     const bootstrap = async () => {
       try {
         const meRes = await api.get('/api/auth/me');
         setRequesterName(meRes.data?.name || '');
+        setUserRole(meRes.data?.role || '');
 
         const deptRes = await api.get('/api/departments');
         const depts = Array.isArray(deptRes.data) ? deptRes.data : [];
@@ -109,7 +115,6 @@ const TravelBooking = () => {
     if (!costCenterId) return 'Please select a cost center';
     if (!purpose.trim()) return 'Purpose is required';
     if (!requesterName.trim()) return 'Requester name is required';
-    if (!supervisorName.trim()) return 'Supervisor name is required';
     if (showFlight && flightSegments.some((s) => !s.originCity || !s.destinationCity || !s.departureDate || !s.arrivalDate)) {
       return 'Please complete all flight segment details';
     }
@@ -119,571 +124,337 @@ const TravelBooking = () => {
     return null;
   };
 
-  const generatePDF = () => {
+  const fetchBookings = async () => {
+    try {
+      const res = await api.get('/api/travel-bookings');
+      setBookings(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch bookings:', err);
+    }
+  };
+
+  const submitBooking = async () => {
     const error = validate();
     if (error) { toast.error(error); return; }
 
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
-    const contentWidth = pageWidth - margin * 2;
-    let y = margin;
-
-    // Colors
-    const primary = '#1E3A8A';
-    const accent = '#3B82F6';
-    const lightGray = '#F8FAFC';
-    const border = '#E5E7EB';
-    const text = '#111827';
-    const secondary = '#6B7280';
-
-    const hexToRgb = (hex: string) => {
-      const v = hex.replace('#', '');
-      return {
-        r: parseInt(v.substring(0, 2), 16),
-        g: parseInt(v.substring(2, 4), 16),
-        b: parseInt(v.substring(4, 6), 16),
-      };
-    };
-
-    const color = (hex: string) => {
-      const c = hexToRgb(hex);
-      doc.setTextColor(c.r, c.g, c.b);
-    };
-    const fill = (hex: string) => {
-      const c = hexToRgb(hex);
-      doc.setFillColor(c.r, c.g, c.b);
-    };
-    const draw = (hex: string) => {
-      const c = hexToRgb(hex);
-      doc.setDrawColor(c.r, c.g, c.b);
-    };
-    const centerText = (textStr: string, yPos: number, size: number, bold = false) => {
-      doc.setFontSize(size);
-      doc.setFont('helvetica', bold ? 'bold' : 'normal');
-      const textWidth = doc.getTextWidth(textStr);
-      doc.text(textStr, (pageWidth - textWidth) / 2, yPos);
-    };
-
-    const drawSectionHeader = (title: string, yPos: number) => {
-      const height = 10;
-      fill(lightGray);
-      draw(accent);
-      doc.setLineWidth(0.5);
-      // Background with left accent border
-      doc.rect(margin, yPos - height + 3, contentWidth, height, 'FD');
-      doc.setLineWidth(2);
-      doc.line(margin, yPos - height + 3, margin, yPos + 3);
-      color(text);
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text(title.toUpperCase(), margin + 6, yPos);
-      return yPos + height + 4;
-    };
-
-    const drawLabelValue = (label: string, value: string, x: number, yPos: number, colWidth: number) => {
-      color(secondary);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'semibold');
-      doc.text(label, x, yPos);
-      color(text);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      const val = value || '-';
-      const split = doc.splitTextToSize(val, colWidth - 4);
-      doc.text(split, x, yPos + 5);
-      return split.length * 5;
-    };
-
-    const checkNewPage = (neededHeight: number) => {
-      if (y + neededHeight > pageHeight - margin) {
-        doc.addPage();
-        y = margin;
-      }
-    };
-
-    // Header
-    centerText('MADISON88', y, 10, true);
-    y += 8;
-    color(primary);
-    doc.setFontSize(24);
-    doc.setFont('helvetica', 'bold');
-    const title = 'Travel Booking Certification';
-    const titleWidth = doc.getTextWidth(title);
-    doc.text(title, (pageWidth - titleWidth) / 2, y);
-    y += 8;
-    color(secondary);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    const sub = 'Internal Travel Authorization & Certification';
-    const subWidth = doc.getTextWidth(sub);
-    doc.text(sub, (pageWidth - subWidth) / 2, y);
-    y += 8;
-    draw(border);
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 14;
-
-    const dept = departments.find((d) => d.id === departmentId);
-    const cc = costCenters.find((c) => c.id === costCenterId);
-    const typeLabel = bookingTypeOptions.find((o) => o.value === bookingType)?.label || '';
-
-    // Request Information section
-    y = drawSectionHeader('Request Information', y);
-    const col1 = margin;
-    const col2 = margin + contentWidth / 2 + 4;
-    const colWidth = contentWidth / 2 - 4;
-    let rowHeight = 0;
-    let rowStart = y;
-
-    const addInfoRow = (label1: string, value1: string, label2: string, value2: string) => {
-      const h1 = drawLabelValue(label1, value1, col1, rowStart, colWidth);
-      const h2 = drawLabelValue(label2, value2, col2, rowStart, colWidth);
-      const maxH = Math.max(h1, h2) + 14;
-      rowStart += maxH;
-      rowHeight += maxH;
-    };
-
-    addInfoRow('Requester', requesterName, 'Department', dept?.name || '');
-    addInfoRow('Cost Center', cc?.name || '', 'Booking Type', typeLabel);
-    addInfoRow('Passport Expiration', passportExpiration || 'N/A', 'Date', new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
-    y = rowStart + 4;
-
-    // Purpose
-    color(secondary);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'semibold');
-    doc.text('Purpose of Travel', margin, y);
-    y += 5;
-    color(text);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    const purposeLines = doc.splitTextToSize(purpose || '-', contentWidth);
-    doc.text(purposeLines, margin, y);
-    y += purposeLines.length * 5 + 12;
-
-    // Flight Details
-    if (showFlight && flightSegments.length > 0) {
-      checkNewPage(40);
-      y = drawSectionHeader('Flight Details', y);
-
-      flightSegments.forEach((segment, idx) => {
-        checkNewPage(55);
-        const cardTop = y - 4;
-        const cardHeight = 46;
-        fill('#FFFFFF');
-        draw(border);
-        doc.setLineWidth(0.5);
-        doc.roundedRect(margin, cardTop, contentWidth, cardHeight, 3, 3, 'FD');
-
-        color(primary);
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Segment ${idx + 1}`, margin + 6, cardTop + 9);
-
-        draw(border);
-        doc.setLineWidth(0.3);
-        doc.line(margin + 6, cardTop + 13, pageWidth - margin - 6, cardTop + 13);
-
-        const segCol1 = margin + 6;
-        const segCol2 = margin + contentWidth / 2 + 2;
-        const segColWidth = contentWidth / 2 - 8;
-        let segY = cardTop + 20;
-
-        drawLabelValue('Route', `${segment.originCity} → ${segment.destinationCity}`, segCol1, segY, segColWidth);
-        segY += 16;
-        drawLabelValue('Departure', segment.departureDate, segCol1, segY, segColWidth);
-        drawLabelValue('Arrival', segment.arrivalDate, segCol2, segY, segColWidth);
-        segY += 16;
-        if (segment.terminalNotes) {
-          drawLabelValue('Notes', segment.terminalNotes, segCol1, segY, contentWidth - 12);
-        }
-
-        y = cardTop + cardHeight + 8;
+    setSubmitting(true);
+    try {
+      await api.post('/api/travel-bookings', {
+        department_id: departmentId,
+        booking_type: bookingType,
+        purpose,
+        total_estimated_amount: 0,
+        flight_segments: showFlight ? flightSegments.map(({ id, ...rest }) => rest) : [],
+        hotel_stays: showHotel ? hotelStays.map(({ id, ...rest }) => rest) : [],
+        flight_details: { passportExpiration, costCenterId, requesterName },
+        notes,
       });
+      toast.success('Travel booking submitted for supervisor approval');
+      await fetchBookings();
+      setShowForm(false);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Submission failed'));
+    } finally {
+      setSubmitting(false);
     }
+  };
 
-    // Hotel Details
-    if (showHotel && hotelStays.length > 0) {
-      checkNewPage(40);
-      y = drawSectionHeader('Hotel Details', y);
-
-      hotelStays.forEach((stay, idx) => {
-        checkNewPage(50);
-        const cardTop = y - 4;
-        const cardHeight = 40;
-        fill('#FFFFFF');
-        draw(border);
-        doc.setLineWidth(0.5);
-        doc.roundedRect(margin, cardTop, contentWidth, cardHeight, 3, 3, 'FD');
-
-        color(primary);
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Stay ${idx + 1}`, margin + 6, cardTop + 9);
-
-        draw(border);
-        doc.setLineWidth(0.3);
-        doc.line(margin + 6, cardTop + 13, pageWidth - margin - 6, cardTop + 13);
-
-        const segCol1 = margin + 6;
-        const segCol2 = margin + contentWidth / 2 + 2;
-        const segColWidth = contentWidth / 2 - 8;
-        let segY = cardTop + 20;
-
-        drawLabelValue('City / Area', stay.cityArea, segCol1, segY, segColWidth);
-        drawLabelValue('Total Nights', String(stay.totalNights), segCol2, segY, segColWidth);
-        segY += 16;
-        drawLabelValue('Check-in', stay.checkInDate, segCol1, segY, segColWidth);
-        drawLabelValue('Check-out', stay.checkOutDate, segCol2, segY, segColWidth);
-
-        y = cardTop + cardHeight + 8;
-      });
+  const approveBooking = async (bookingId: string) => {
+    try {
+      await api.patch(`/api/travel-bookings/${bookingId}/approve`);
+      toast.success('Travel booking approved');
+      await fetchBookings();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Approval failed'));
     }
+  };
 
-    // Additional Notes
-    if (notes) {
-      checkNewPage(40);
-      y = drawSectionHeader('Additional Notes', y);
-
-      fill('#FFFFFF');
-      draw(border);
-      doc.setLineWidth(0.5);
-      const notesHeight = 22 + doc.splitTextToSize(notes, contentWidth - 12).length * 5;
-      doc.roundedRect(margin, y - 4, contentWidth, notesHeight, 3, 3, 'FD');
-
-      color(text);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      const splitNotes = doc.splitTextToSize(notes, contentWidth - 12);
-      doc.text(splitNotes, margin + 6, y + 5);
-      y += notesHeight + 12;
+  const rejectBooking = async (bookingId: string) => {
+    if (!rejectReason.trim()) {
+      toast.error('Please provide a rejection reason');
+      return;
     }
-
-    // Certification
-    checkNewPage(60);
-    y = drawSectionHeader('Certification', y);
-
-    fill(lightGray);
-    draw(border);
-    doc.setLineWidth(0.5);
-    const certText = `I hereby certify that the information provided above is true and correct to the best of my knowledge, and that this travel booking has been reviewed and approved for processing.`;
-    const certLines = doc.splitTextToSize(certText, contentWidth - 16);
-    const certHeight = 14 + certLines.length * 5;
-    doc.roundedRect(margin, y - 4, contentWidth, certHeight, 3, 3, 'FD');
-
-    color(text);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text(certLines, margin + 8, y + 5);
-    y += certHeight + 16;
-
-    // Signatures
-    checkNewPage(50);
-    y = drawSectionHeader('Signatures', y);
-
-    const sigWidth = 70;
-    const sigY = y + 10;
-    draw(secondary);
-    doc.setLineWidth(0.5);
-    doc.line(margin, sigY, margin + sigWidth, sigY);
-    doc.line(pageWidth - margin - sigWidth, sigY, pageWidth - margin, sigY);
-
-    color(text);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text(requesterName, margin, sigY + 6);
-    doc.text(supervisorName, pageWidth - margin - sigWidth, sigY + 6);
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    color(secondary);
-    doc.text('Requester', margin, sigY + 12);
-    doc.text('Supervisor', pageWidth - margin - sigWidth, sigY + 12);
-
-    doc.text('Date: ____________', margin, sigY + 20);
-    doc.text('Date: ____________', pageWidth - margin - sigWidth, sigY + 20);
-
-    // Footer
-    doc.setFontSize(8);
-    color(secondary);
-    const footer = `Generated by Madison88 BMS • ${new Date().toLocaleString('en-US')}`;
-    const footerWidth = doc.getTextWidth(footer);
-    doc.text(footer, (pageWidth - footerWidth) / 2, pageHeight - 10);
-
-    doc.save(`travel-booking-${Date.now()}.pdf`);
-    toast.success('PDF certification generated');
+    try {
+      await api.patch(`/api/travel-bookings/${bookingId}/reject`, { reason: rejectReason.trim() });
+      toast.success('Travel booking rejected');
+      setRejectingId(null);
+      setRejectReason('');
+      await fetchBookings();
+    } catch (err: any) {
+      toast.error(getErrorMessage(err, 'Rejection failed'));
+    }
   };
 
   if (loading) return <PageSkeleton />;
+
+  const statusColors: Record<string, string> = {
+    pending_supervisor: 'bg-amber-500/20 text-amber-600 border-amber-500/30',
+    approved: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
+    rejected: 'bg-red-500/20 text-red-600 border-red-500/30',
+  };
+
+  const canApprove = userRole === 'supervisor' || userRole === 'admin';
 
   return (
     <div className="text-[var(--role-text)] page-transition">
       <div className="page-header mb-8">
         <h1 className="page-title">Travel Booking</h1>
-        <p className="page-subtitle">Generate travel booking certification PDF with supervisor sign-off.</p>
+        <p className="page-subtitle">Submit travel bookings for supervisor approval — no PDF needed.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Booking Type */}
-        <div className="lg:col-span-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
-          <h3 className="text-sm font-semibold mb-3">Booking Type</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {bookingTypeOptions.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => setBookingType(option.value)}
-                className={`flex flex-col items-center justify-center gap-2 rounded-xl border p-4 transition text-left ${
-                  bookingType === option.value
-                    ? 'border-[var(--role-primary)] bg-[var(--role-primary)]/10'
-                    : 'border-[var(--role-border)] bg-[var(--role-surface)] hover:bg-black/5'
-                }`}
-              >
-                <span className="text-sm font-semibold">{option.label}</span>
-                <span className="text-xs text-[var(--role-text)]/60">{option.description}</span>
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setShowForm(true)}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${showForm ? 'bg-[var(--role-primary)] text-white' : 'bg-[var(--role-accent)] text-[var(--role-text)] border border-[var(--role-border)]'}`}
+        >
+          New Booking
+        </button>
+        <button
+          onClick={() => { setShowForm(false); fetchBookings(); }}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${!showForm ? 'bg-[var(--role-primary)] text-white' : 'bg-[var(--role-accent)] text-[var(--role-text)] border border-[var(--role-border)]'}`}
+        >
+          My Bookings {canApprove ? '& Approvals' : ''}
+        </button>
+      </div>
+
+      {showForm ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
+            <h3 className="text-sm font-semibold mb-3">Booking Type</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {bookingTypeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setBookingType(option.value)}
+                  className={`flex flex-col items-center justify-center gap-2 rounded-xl border p-4 transition text-left ${
+                    bookingType === option.value
+                      ? 'border-[var(--role-primary)] bg-[var(--role-primary)]/10'
+                      : 'border-[var(--role-border)] bg-[var(--role-surface)] hover:bg-black/5'
+                  }`}
+                >
+                  <span className="text-sm font-semibold">{option.label}</span>
+                  <span className="text-xs text-[var(--role-text)]/60">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 space-y-6">
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
+              <h3 className="text-sm font-semibold mb-4">Trip Information</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Department</label>
+                  <select className="input-field w-full" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+                    <option value="">Select department</option>
+                    {departments.map((d) => (<option key={d.id} value={d.id}>{d.name}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Cost Center</label>
+                  <select className="input-field w-full" value={costCenterId} onChange={(e) => setCostCenterId(e.target.value)}>
+                    <option value="">Select cost center</option>
+                    {costCenters.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Passport Expiration</label>
+                  <input type="date" className="input-field w-full" value={passportExpiration} onChange={(e) => setPassportExpiration(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Purpose of Travel</label>
+                <textarea className="input-field w-full" rows={3} value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Describe the purpose of this trip..." />
+              </div>
+            </div>
+
+            {showFlight && (
+              <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold">Flight Details</h3>
+                  <button onClick={addFlightSegment} className="text-xs text-[var(--role-primary)] hover:underline">+ Add segment</button>
+                </div>
+                <div className="space-y-4">
+                  {flightSegments.map((segment, idx) => (
+                    <div key={segment.id} className="rounded-lg border border-[var(--role-border)] p-4 relative">
+                      {flightSegments.length > 1 && (
+                        <button onClick={() => removeFlightSegment(segment.id)} className="absolute top-2 right-2 text-[var(--role-text)]/40 hover:text-red-500">✕</button>
+                      )}
+                      <p className="text-xs font-medium text-[var(--role-text)]/60 mb-2">Segment {idx + 1}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                        <input className="input-field w-full" placeholder="Origin city" value={segment.originCity} onChange={(e) => updateFlightSegment(segment.id, 'originCity', e.target.value)} />
+                        <input className="input-field w-full" placeholder="Destination city" value={segment.destinationCity} onChange={(e) => updateFlightSegment(segment.id, 'destinationCity', e.target.value)} />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                        <div>
+                          <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Departure</label>
+                          <input type="date" className="input-field w-full" value={segment.departureDate} onChange={(e) => updateFlightSegment(segment.id, 'departureDate', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Arrival</label>
+                          <input type="date" className="input-field w-full" value={segment.arrivalDate} onChange={(e) => updateFlightSegment(segment.id, 'arrivalDate', e.target.value)} />
+                        </div>
+                      </div>
+                      <input className="input-field w-full" placeholder="Airline / terminal notes (optional)" value={segment.terminalNotes} onChange={(e) => updateFlightSegment(segment.id, 'terminalNotes', e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {showHotel && (
+              <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold">Hotel Details</h3>
+                  <button onClick={addHotelStay} className="text-xs text-[var(--role-primary)] hover:underline">+ Add stay</button>
+                </div>
+                <div className="space-y-4">
+                  {hotelStays.map((stay, idx) => (
+                    <div key={stay.id} className="rounded-lg border border-[var(--role-border)] p-4 relative">
+                      {hotelStays.length > 1 && (
+                        <button onClick={() => removeHotelStay(stay.id)} className="absolute top-2 right-2 text-[var(--role-text)]/40 hover:text-red-500">✕</button>
+                      )}
+                      <p className="text-xs font-medium text-[var(--role-text)]/60 mb-2">Stay {idx + 1}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                        <input className="input-field w-full" placeholder="City / area" value={stay.cityArea} onChange={(e) => updateHotelStay(stay.id, 'cityArea', e.target.value)} />
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-[var(--role-text)]/60">Nights:</span>
+                          <span className="text-sm font-semibold">{stay.totalNights}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Check-in</label>
+                          <input type="date" className="input-field w-full" value={stay.checkInDate} onChange={(e) => updateHotelStay(stay.id, 'checkInDate', e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Check-out</label>
+                          <input type="date" className="input-field w-full" value={stay.checkOutDate} onChange={(e) => updateHotelStay(stay.id, 'checkOutDate', e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
+              <h3 className="text-sm font-semibold mb-2">Additional Notes</h3>
+              <textarea className="input-field w-full" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any additional information..." />
+            </div>
+          </div>
+
+          <div className="lg:col-span-1">
+            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5 sticky top-4">
+              <h3 className="text-sm font-semibold mb-4">Summary</h3>
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Requester Name</label>
+                  <input className="input-field w-full" value={requesterName} onChange={(e) => setRequesterName(e.target.value)} placeholder="Full name" />
+                </div>
+                <div className="pt-2 border-t border-[var(--role-border)]">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-[var(--role-text)]/60">Type</span>
+                    <span>{bookingTypeOptions.find((o) => o.value === bookingType)?.label}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className="text-[var(--role-text)]/60">Flight segments</span>
+                    <span>{showFlight ? flightSegments.length : 0}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className="text-[var(--role-text)]/60">Hotel stays</span>
+                    <span>{showHotel ? hotelStays.length : 0}</span>
+                  </div>
+                </div>
+              </div>
+              <button onClick={submitBooking} disabled={submitting} className="btn-primary w-full !rounded-xl !py-3 disabled:opacity-50 disabled:cursor-not-allowed">
+                {submitting ? 'Submitting...' : 'Submit for Approval'}
               </button>
-            ))}
+            </div>
           </div>
         </div>
-
-        {/* Main Form */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Trip Info */}
-          <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
-            <h3 className="text-sm font-semibold mb-4">Trip Information</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Department</label>
-                <select
-                  className="input-field w-full"
-                  value={departmentId}
-                  onChange={(e) => setDepartmentId(e.target.value)}
-                >
-                  <option value="">Select department</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Cost Center</label>
-                <select
-                  className="input-field w-full"
-                  value={costCenterId}
-                  onChange={(e) => setCostCenterId(e.target.value)}
-                >
-                  <option value="">Select cost center</option>
-                  {costCenters.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Passport Expiration</label>
-                <input
-                  type="date"
-                  className="input-field w-full"
-                  value={passportExpiration}
-                  onChange={(e) => setPassportExpiration(e.target.value)}
-                />
-              </div>
+      ) : (
+        <div className="space-y-4">
+          {bookings.length === 0 ? (
+            <div className="panel-muted text-center py-12">
+              <p className="text-[var(--role-text)]/60">No travel bookings yet.</p>
             </div>
-            <div>
-              <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Purpose of Travel</label>
-              <textarea
-                className="input-field w-full"
-                rows={3}
-                value={purpose}
-                onChange={(e) => setPurpose(e.target.value)}
-                placeholder="Describe the purpose of this trip..."
-              />
-            </div>
-          </div>
-
-          {/* Flight Details */}
-          {showFlight && (
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold">Flight Details</h3>
-                <button onClick={addFlightSegment} className="text-xs text-[var(--role-primary)] hover:underline">+ Add segment</button>
-              </div>
-              <div className="space-y-4">
-                {flightSegments.map((segment, idx) => (
-                  <div key={segment.id} className="rounded-lg border border-[var(--role-border)] p-4 relative">
-                    {flightSegments.length > 1 && (
-                      <button
-                        onClick={() => removeFlightSegment(segment.id)}
-                        className="absolute top-2 right-2 text-[var(--role-text)]/40 hover:text-red-500"
-                      >
-                        ✕
-                      </button>
-                    )}
-                    <p className="text-xs font-medium text-[var(--role-text)]/60 mb-2">Segment {idx + 1}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                      <input
-                        className="input-field w-full"
-                        placeholder="Origin city"
-                        value={segment.originCity}
-                        onChange={(e) => updateFlightSegment(segment.id, 'originCity', e.target.value)}
-                      />
-                      <input
-                        className="input-field w-full"
-                        placeholder="Destination city"
-                        value={segment.destinationCity}
-                        onChange={(e) => updateFlightSegment(segment.id, 'destinationCity', e.target.value)}
-                      />
+          ) : (
+            bookings.map((booking) => (
+              <div key={booking.id} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
+                  <div>
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="font-bold text-[var(--role-primary)]">{booking.booking_code}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColors[booking.status] || 'bg-gray-500/20 text-gray-600 border-gray-500/30'}`}>
+                        {booking.status?.replace(/_/g, ' ')}
+                      </span>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                      <div>
-                        <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Departure</label>
-                        <input
-                          type="datetime-local"
-                          className="input-field w-full"
-                          value={segment.departureDate}
-                          onChange={(e) => updateFlightSegment(segment.id, 'departureDate', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Arrival</label>
-                        <input
-                          type="datetime-local"
-                          className="input-field w-full"
-                          value={segment.arrivalDate}
-                          onChange={(e) => updateFlightSegment(segment.id, 'arrivalDate', e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <textarea
-                      className="input-field w-full"
-                      rows={2}
-                      placeholder="Terminal / gate notes"
-                      value={segment.terminalNotes}
-                      onChange={(e) => updateFlightSegment(segment.id, 'terminalNotes', e.target.value)}
-                    />
+                    <p className="text-sm text-[var(--role-text)]/70">{booking.purpose}</p>
+                    <p className="text-xs text-[var(--role-text)]/50 mt-1">
+                      {booking.booking_type === 'flight' ? 'Flight' : booking.booking_type === 'hotel' ? 'Hotel' : 'Flight + Hotel'}
+                      {' • '}Submitted {formatDateTime(booking.created_at)}
+                      {booking.user?.name && ` • by ${booking.user.name}`}
+                    </p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Hotel Details */}
-          {showHotel && (
-            <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold">Hotel Details</h3>
-                <button onClick={addHotelStay} className="text-xs text-[var(--role-primary)] hover:underline">+ Add stay</button>
-              </div>
-              <div className="space-y-4">
-                {hotelStays.map((stay, idx) => (
-                  <div key={stay.id} className="rounded-lg border border-[var(--role-border)] p-4 relative">
-                    {hotelStays.length > 1 && (
-                      <button
-                        onClick={() => removeHotelStay(stay.id)}
-                        className="absolute top-2 right-2 text-[var(--role-text)]/40 hover:text-red-500"
-                      >
-                        ✕
+                  {canApprove && booking.status === 'pending_supervisor' && (
+                    <div className="flex gap-2">
+                      <button onClick={() => approveBooking(booking.id)} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition">
+                        Approve
                       </button>
-                    )}
-                    <p className="text-xs font-medium text-[var(--role-text)]/60 mb-2">Stay {idx + 1}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                      <input
-                        className="input-field w-full"
-                        placeholder="City / area"
-                        value={stay.cityArea}
-                        onChange={(e) => updateHotelStay(stay.id, 'cityArea', e.target.value)}
-                      />
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-[var(--role-text)]/60">Nights:</span>
-                        <span className="text-sm font-semibold">{stay.totalNights}</span>
-                      </div>
+                      <button onClick={() => { setRejectingId(booking.id); setRejectReason(''); }} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition">
+                        Reject
+                      </button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Check-in</label>
-                        <input
-                          type="date"
-                          className="input-field w-full"
-                          value={stay.checkInDate}
-                          onChange={(e) => updateHotelStay(stay.id, 'checkInDate', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Check-out</label>
-                        <input
-                          type="date"
-                          className="input-field w-full"
-                          value={stay.checkOutDate}
-                          onChange={(e) => updateHotelStay(stay.id, 'checkOutDate', e.target.value)}
-                        />
-                      </div>
+                  )}
+                </div>
+
+                {booking.flight_segments?.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-[var(--role-border)]">
+                    <p className="text-xs font-semibold text-[var(--role-text)]/60 mb-2">Flights</p>
+                    <div className="space-y-1">
+                      {booking.flight_segments.map((seg: any) => (
+                        <p key={seg.id} className="text-xs text-[var(--role-text)]/70">
+                          {seg.origin_city} → {seg.destination_city} • {formatDateTime(seg.departure_date)}
+                        </p>
+                      ))}
                     </div>
                   </div>
-                ))}
+                )}
+
+                {booking.hotel_stays?.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-[var(--role-border)]">
+                    <p className="text-xs font-semibold text-[var(--role-text)]/60 mb-2">Hotels</p>
+                    <div className="space-y-1">
+                      {booking.hotel_stays.map((stay: any) => (
+                        <p key={stay.id} className="text-xs text-[var(--role-text)]/70">
+                          {stay.hotel_name || stay.city_area} • {stay.total_nights} nights • Check-in {formatDateTime(stay.check_in_date)}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {booking.status === 'rejected' && booking.rejection_reason && (
+                  <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                    <p className="text-xs text-red-600"><strong>Rejection reason:</strong> {booking.rejection_reason}</p>
+                  </div>
+                )}
+
+                {rejectingId === booking.id && (
+                  <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 space-y-2">
+                    <textarea className="input-field w-full" rows={2} placeholder="Enter rejection reason..." value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+                    <div className="flex gap-2">
+                      <button onClick={() => rejectBooking(booking.id)} className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Confirm Reject</button>
+                      <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="px-3 py-1.5 rounded-lg bg-gray-500/20 text-[var(--role-text)] text-xs font-medium hover:bg-gray-500/30">Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            ))
           )}
-
-          {/* Notes */}
-          <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5">
-            <h3 className="text-sm font-semibold mb-2">Additional Notes</h3>
-            <textarea
-              className="input-field w-full"
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any additional information..."
-            />
-          </div>
         </div>
-
-        {/* Certification Panel */}
-        <div className="lg:col-span-1">
-          <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] p-5 sticky top-4">
-            <h3 className="text-sm font-semibold mb-4">Certification</h3>
-            <div className="space-y-4 mb-4">
-              <div>
-                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Requester Name</label>
-                <input
-                  className="input-field w-full"
-                  value={requesterName}
-                  onChange={(e) => setRequesterName(e.target.value)}
-                  placeholder="Full name"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-[var(--role-text)]/60 mb-1 block">Supervisor Name</label>
-                <input
-                  className="input-field w-full"
-                  value={supervisorName}
-                  onChange={(e) => setSupervisorName(e.target.value)}
-                  placeholder="Supervisor full name"
-                />
-              </div>
-              <div className="pt-2 border-t border-[var(--role-border)]">
-                <div className="flex justify-between text-sm">
-                  <span className="text-[var(--role-text)]/60">Type</span>
-                  <span>{bookingTypeOptions.find((o) => o.value === bookingType)?.label}</span>
-                </div>
-                <div className="flex justify-between text-sm mt-1">
-                  <span className="text-[var(--role-text)]/60">Flight segments</span>
-                  <span>{showFlight ? flightSegments.length : 0}</span>
-                </div>
-                <div className="flex justify-between text-sm mt-1">
-                  <span className="text-[var(--role-text)]/60">Hotel stays</span>
-                  <span>{showHotel ? hotelStays.length : 0}</span>
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={generatePDF}
-              className="btn-primary w-full !rounded-xl !py-3"
-            >
-              Generate PDF Certification
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

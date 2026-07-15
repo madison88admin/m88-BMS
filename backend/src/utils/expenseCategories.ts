@@ -122,8 +122,6 @@ export const filterOfficialExpenseList = (
     if (requestType === 'cash_advance' && !item.canCA) return false;
     if (requestType === 'reimbursement' && !item.canRE) return false;
 
-    if (departmentName && !departmentMatchesExpenseItem(departmentName, item)) return false;
-
     return true;
   });
 };

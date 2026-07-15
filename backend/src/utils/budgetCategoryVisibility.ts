@@ -2,9 +2,8 @@ import { expenseCategoryAllowsDepartment } from '../constants/departmentMapping'
 
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 
-const shouldApplyVisibilityFilter = (role?: string) => {
-  const normalized = normalizeRole(role);
-  return normalized === 'employee' || normalized === 'manager' || normalized === 'supervisor';
+const shouldApplyVisibilityFilter = (_role?: string) => {
+  return false;
 };
 
 const normalizeCategoryCode = (value: unknown) => String(value || '').trim().toUpperCase();

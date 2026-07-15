@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import WebSocket from 'ws';
 
 dotenv.config();
 
@@ -10,13 +11,12 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-if (process.env.NODE_ENV === 'production' && /localhost|127\.0\.0\.1/i.test(supabaseUrl)) {
-  throw new Error('Production SUPABASE_URL must point to the hosted database, not localhost.');
-}
-
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   db: {
-    schema: 'public'
+    schema: 'M88_BMS'
+  },
+  realtime: {
+    transport: WebSocket as any
   },
   global: {
     headers: {

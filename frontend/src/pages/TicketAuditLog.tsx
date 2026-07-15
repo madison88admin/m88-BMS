@@ -6,16 +6,31 @@ import toast from 'react-hot-toast';
 interface AuditLog {
   id: string;
   created_at: string;
-  user_name: string;
-  user_role: string;
-  department_name: string;
-  action_type: string;
-  record_type: string;
-  record_id: string;
-  record_label: string;
-  old_value: any;
-  new_value: any;
-  remarks: string;
+  event_time?: string;
+  // Fields from audit_logs table
+  user_name?: string;
+  user_role?: string;
+  department_name?: string;
+  action_type?: string;
+  record_type?: string;
+  record_id?: string;
+  record_label?: string;
+  old_value?: any;
+  new_value?: any;
+  remarks?: string;
+  // Fields from approval_logs / request_audit_logs
+  request_id?: string;
+  actor_id?: string;
+  actor_name?: string;
+  actor_role?: string;
+  action?: string;
+  stage?: string;
+  note?: string;
+  log_type?: string;
+  // Enriched fields from backend
+  request_code?: string;
+  item_name?: string;
+  request_status?: string;
 }
 
 interface Request {
@@ -74,7 +89,7 @@ const TicketAuditLog = () => {
 
   const fetchAuditLogs = async () => {
     try {
-      const res = await api.get('/api/audit-logs', { params: { limit: 1000 } });
+      const res = await api.get('/api/requests/audit-logs', { params: { limit: 1000 } });
       setAuditLogs(res.data || []);
     } catch (err) {
       console.error('Failed to fetch audit logs:', err);
@@ -83,9 +98,8 @@ const TicketAuditLog = () => {
 
   const fetchRequestAuditLogs = async (requestId: string) => {
     try {
-      const res = await api.get('/api/audit-logs', { params: { limit: 1000 } });
-      const logs = (res.data || []).filter((log: AuditLog) => log.record_id === requestId);
-      setAuditLogs(logs);
+      const res = await api.get(`/api/requests/${requestId}/audit-logs`);
+      setAuditLogs(res.data || []);
     } catch (err) {
       console.error('Failed to fetch request audit logs:', err);
     }
@@ -262,24 +276,29 @@ const TicketAuditLog = () => {
             {auditLogs.length === 0 ? (
               <p className="text-gray-500 text-center py-4">No audit logs found</p>
             ) : (
-              auditLogs.map(log => (
-                <div key={log.id} className="p-4 mb-2 rounded-lg bg-gray-50 border border-gray-200">
+              auditLogs.map((log, index) => {
+                const actionLabel = log.action_type || log.action || 'unknown';
+                const actorName = log.user_name || log.actor_name || 'Unknown';
+                const actorRole = log.user_role || log.actor_role || '';
+                const note = log.remarks || log.note || '';
+                const eventTime = log.created_at || log.event_time || '';
+                const reqCode = log.request_code || log.record_label || (selectedRequest?.request_code || '');
+                return (
+                <div key={log.id || index} className="p-4 mb-2 rounded-lg bg-gray-50 border border-gray-200">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <p className="font-semibold">{getActionLabel(log.action_type)}</p>
+                      <p className="font-semibold">{getActionLabel(actionLabel)}</p>
                       <p className="text-sm text-gray-600">
-                        {log.user_name && log.user_name !== 'unknown' 
-                          ? log.user_name 
-                          : selectedRequest?.employee_name || 'Unknown User'} ({log.user_role || 'Unknown'})
+                        {actorName} ({actorRole})
                       </p>
                     </div>
-                    <p className="text-xs text-gray-400">{formatDateTime(log.created_at)}</p>
+                    <p className="text-xs text-gray-400">{formatDateTime(eventTime)}</p>
                   </div>
                   <div className="text-sm text-gray-600">
-                    <p>Record: {log.record_label || log.record_id}</p>
+                    <p>Record: {reqCode}</p>
                     {selectedRequest && <p>Ticket Owner: {selectedRequest.employee_name}</p>}
                     {log.department_name && <p>Department: {log.department_name}</p>}
-                    {log.remarks && <p className="text-gray-500 italic">"{log.remarks}"</p>}
+                    {note && <p className="text-gray-500 italic">"{note}"</p>}
                     {(log.old_value || log.new_value) && (
                       <div className="mt-2 p-2 bg-white rounded border border-gray-200">
                         {log.old_value && <p className="text-xs text-red-600">Old: {JSON.stringify(log.old_value)}</p>}
@@ -288,7 +307,8 @@ const TicketAuditLog = () => {
                     )}
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

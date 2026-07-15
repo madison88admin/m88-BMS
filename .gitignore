@@ -28,4 +28,5 @@ local-dev-server.js
 # Test and temporary files
 *.txt
 *.ps1
+*.tar.gz
 END_TO_END_QA_REPORT*.md

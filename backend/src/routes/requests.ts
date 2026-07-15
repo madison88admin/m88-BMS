@@ -1201,43 +1201,12 @@ router.get('/official-list', authenticate, async (req: any, res) => {
   try {
     const baseList = await resolveOfficialExpenseList();
     if (mannerOfSubmission === 'for_upload') {
-      const uploadList = baseList.filter((item: any) => String(item.mannerOfSubmission || 'for_submission') === 'for_upload');
-      if (userRole === 'accounting') {
-        return res.json(uploadList);
-      }
-      if (!departmentId) return res.json([]);
-      const { data: deptData } = await supabase.from('departments').select('name').eq('id', departmentId).maybeSingle();
-      const departmentName = String(deptData?.name || '').trim();
-      const isFinanceOrAdminDept = departmentName === 'Finance Department' || departmentName === 'Admin Department';
-
-      const list = uploadList
-        .filter((item: any) => {
-          if (item.canCA && item.canRE) return true;
-          if (!departmentName) return false;
-          return departmentMatchesExpenseItem(departmentName, item);
-        })
-        .filter((item: any) => {
-          if (item.canCA || item.canRE) return true;
-          return isFinanceOrAdminDept;
-        });
-
-      return res.json(list);
+      // Budget Adjustment: return ALL categories/subcategories to ALL users
+      return res.json(baseList);
     }
     let list = baseList;
 
-    if (departmentId) {
-      const { data: deptData } = await supabase.from('departments').select('name').eq('id', departmentId).maybeSingle();
-      const departmentName = deptData?.name || '';
-      list = await buildOfficialListForDepartment(departmentId, activeFiscalYear, baseList);
-      list = filterOfficialExpenseList(list.length ? list : baseList, {
-        requestType,
-        departmentName,
-        userRole: req.user.role,
-      });
-      return res.json(list);
-    }
-
-    list = filterOfficialExpenseList(baseList, {
+    list = filterOfficialExpenseList(list, {
       requestType,
       userRole: req.user.role,
     });
@@ -1358,6 +1327,12 @@ router.get('/', authenticate, async (req: any, res) => {
     query = query.eq('department_id', requestedDepartmentId);
   }
 
+  // Apply status filter if provided (e.g. ?status=pending_vp)
+  const requestedStatus = req.query.status ? String(req.query.status) : null;
+  if (requestedStatus) {
+    query = query.eq('status', requestedStatus);
+  }
+
   const { data, error } = await query.order('request_code', { ascending: true });
   if (error) return res.status(400).json({ error });
 
@@ -1426,32 +1401,27 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
 
   let initialStatus;
   
-  // Budget requests have a different approval workflow than expense requests
+  // Sequential approval flow: Supervisor → Accounting → VP → President
+  // (no threshold-based skipping — every request goes through all stages)
   if (isBudgetFlow) {
-    // Budget approval workflow: Supervisor > Accounting > (VP or President based on amount)
     if (userRole === 'employee' || userRole === 'manager') {
       initialStatus = 'pending_supervisor';
     } else if (userRole === 'supervisor') {
       initialStatus = 'pending_accounting';
     } else if (userRole === 'accounting') {
-      // Accounting routes budget proposals based on amount: $500+ goes to President, <$500 goes to VP
-      initialStatus = requestAmount >= BUDGET_PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+      initialStatus = 'pending_vp';
     } else if (userRole === 'vp') {
       initialStatus = 'pending_president';
     } else {
       initialStatus = 'pending_accounting';
     }
   } else {
-    // Expense approval workflow based on amount thresholds
     if (userRole === 'employee' || userRole === 'manager') {
       initialStatus = 'pending_supervisor';
     } else if (userRole === 'supervisor') {
-      const currency = metadata?.currency || 'PHP';
-      const presidentThreshold = getPresidentThreshold(currency);
-      initialStatus = requestAmount >= presidentThreshold ? 'pending_president' : 'pending_vp';
+      initialStatus = 'pending_accounting';
     } else if (userRole === 'accounting') {
-      // Accounting routes based on amount: $500K+ goes to President, <$500K goes to VP
-      initialStatus = requestAmount >= PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp';
+      initialStatus = 'pending_vp';
     } else if (userRole === 'vp') {
       initialStatus = 'pending_president';
     } else {
@@ -1684,29 +1654,11 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   res.json(responseRows[0]);
 });
 
-// GET /api/requests/audit-logs — legacy combined view (accounting+ only; supervisors blocked)
+// GET /api/requests/audit-logs — combined view (accounting+ only; supervisors blocked)
 router.get('/audit-logs', authenticate, authorize('accounting', 'vp', 'president', 'admin', 'super_admin'), async (req: any, res) => {
-  const { data: dedicatedLogs, error: dedicatedError } = await supabase
-    .from('audit_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(500);
-
-  if (!dedicatedError && dedicatedLogs?.length) {
-    return res.json(
-      dedicatedLogs.map((log: any) => ({
-        ...log,
-        log_type: 'audit',
-        event_time: log.created_at,
-        actor_name: log.user_name,
-        actor_role: log.user_role,
-        note: log.remarks,
-        action: log.action_type,
-      }))
-    );
-  }
-
-  const [approvalLogsResult, allocationLogsResult, auditLogsResult] = await Promise.all([
+  // Always fetch from all three log sources and merge them
+  const [dedicatedResult, approvalLogsResult, allocationLogsResult, auditLogsResult] = await Promise.all([
+    supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(500),
     supabase.from('approval_logs').select('*').order('timestamp', { ascending: false }).limit(150),
     supabase.from('allocation_logs').select('*').order('created_at', { ascending: false }).limit(150),
     supabase.from('request_audit_logs').select('*').order('created_at', { ascending: false }).limit(150)
@@ -1715,6 +1667,17 @@ router.get('/audit-logs', authenticate, authorize('accounting', 'vp', 'president
   if (approvalLogsResult.error) return res.status(400).json({ error: approvalLogsResult.error });
   if (allocationLogsResult.error) return res.status(400).json({ error: allocationLogsResult.error });
   if (auditLogsResult.error) return res.status(400).json({ error: auditLogsResult.error });
+
+  // Map dedicated audit_logs entries
+  const dedicatedLogs = (dedicatedResult.data || []).map((log: any) => ({
+    ...log,
+    log_type: 'audit',
+    event_time: log.created_at,
+    actor_name: log.user_name,
+    actor_role: log.user_role,
+    note: log.remarks,
+    action: log.action_type,
+  }));
 
   const approvalLogs = (approvalLogsResult.data || []).map((log: any) => ({
     ...log,
@@ -1726,17 +1689,17 @@ router.get('/audit-logs', authenticate, authorize('accounting', 'vp', 'president
     log_type: 'allocation',
     event_time: log.created_at
   }));
-  const auditLogs = (auditLogsResult.data || []).map((log: any) => ({
+  const requestAuditLogs = (auditLogsResult.data || []).map((log: any) => ({
     ...log,
     log_type: 'audit',
     event_time: log.created_at
   }));
 
-  const combinedLogs = [...approvalLogs, ...allocationLogs, ...auditLogs]
+  const combinedLogs = [...dedicatedLogs, ...approvalLogs, ...allocationLogs, ...requestAuditLogs]
     .sort((left: any, right: any) => new Date(right.event_time).getTime() - new Date(left.event_time).getTime())
     .slice(0, 200);
 
-  const actorIds = Array.from(new Set(combinedLogs.map((log: any) => log.actor_id).filter(Boolean)));
+  const actorIds = Array.from(new Set(combinedLogs.map((log: any) => log.actor_id || log.user_id).filter(Boolean)));
   const requestIds = Array.from(new Set(combinedLogs.map((log: any) => log.request_id).filter(Boolean)));
 
   const [{ data: actors }, { data: requests }] = await Promise.all([
@@ -2352,14 +2315,9 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
   }
 
   const isBudgetFlow = request.request_type === 'budget_request' || request.request_type === 'budget_revision';
-  const requestAmount = toNumber(request.amount);
-  const currency = request.metadata?.currency || 'PHP';
-  const presidentThreshold = getPresidentThreshold(currency);
 
-  let nextStatus = 'pending_accounting';
-  if (!isBudgetFlow) {
-    nextStatus = requestAmount >= presidentThreshold ? 'pending_president' : 'pending_vp';
-  }
+  // Sequential flow: Supervisor → Accounting (always)
+  const nextStatus = 'pending_accounting';
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2403,15 +2361,12 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     remarks: isBudgetFlow ? 'Supervisor approved budget proposal' : 'Supervisor approved request'
   });
 
-  if (!isBudgetFlow) {
-    if (nextStatus === 'pending_president') {
-      await notifyPresident(`Request ${request.request_code} approved by supervisor — requires President review.`);
-    } else {
-      await notifyVp(`Request ${request.request_code} approved by supervisor — requires VP review.`);
-    }
-  } else {
-    await notifyAccounting(`Budget proposal ${request.request_code} approved by supervisor — pending accounting review.`);
-  }
+  // Notify accounting for all request types (sequential flow)
+  await notifyAccounting(
+    isBudgetFlow
+      ? `Budget proposal ${request.request_code} approved by supervisor — pending accounting review.`
+      : `Request ${request.request_code} approved by supervisor — pending accounting review.`
+  );
 
   // Invalidate department cache so projected_remaining reflects the status change
   invalidateCache('/api/departments');
@@ -2435,17 +2390,8 @@ router.post('/:id/co-approve', authenticate, authorize('vp', 'president', 'admin
     return res.status(404).json({ error: 'Request not found' });
   }
   
-  const amount = toNumber(request.amount);
   const userRole = req.user.role;
-  const currency = request.metadata?.currency || 'PHP';
-  const vpThreshold = getPresidentThreshold(currency);
 
-  // VP can only co-approve up to threshold (legacy parallel path)
-  if (userRole === 'vp' && amount > vpThreshold) {
-    return res.status(403).json({
-      error: `VP can only approve requests up to ${currency}${vpThreshold.toLocaleString()}. President approval required.`
-    });
-  }
   // Check if request is in pending_accounting status
   if (request.status !== 'pending_accounting') {
     return res.status(400).json({ 
@@ -2480,7 +2426,7 @@ router.post('/:id/co-approve', authenticate, authorize('vp', 'president', 'admin
       field_name: 'co_approved_by',
       old_value: '',
       new_value: req.user.id,
-      note: `Co-approved by ${userRole.toUpperCase()} (${currency})`
+      note: `Co-approved by ${userRole.toUpperCase()}`
     }
   ]);
 
@@ -2508,15 +2454,10 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     return res.status(400).json({ error: 'Request already cleared for fund release. Use the release action instead.' });
   }
 
-  // Determine next status based on request type and amount
+  // Determine next status — sequential flow: Accounting → VP (always)
   const budgetFlow = isBudgetWorkflow(request.request_type);
-  const requestAmount = toNumber(request.amount);
-  const currency = request.metadata?.currency || 'PHP';
-  const expensePresidentThreshold = getPresidentThreshold(currency);
 
-  const nextStatus = budgetFlow
-    ? (requestAmount >= BUDGET_PRESIDENT_THRESHOLD ? 'pending_president' : 'pending_vp')
-    : (requestAmount >= expensePresidentThreshold ? 'pending_president' : 'pending_vp');
+  const nextStatus = 'pending_vp';
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2542,12 +2483,8 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
       old_value: request.status,
       new_value: nextStatus,
       note: budgetFlow
-        ? requestAmount >= BUDGET_PRESIDENT_THRESHOLD
-          ? 'Accounting approved budget proposal — forwarded to President for final approval'
-          : 'Accounting approved budget proposal — forwarded to VP for final approval'
-        : nextStatus === 'pending_president'
-          ? 'Accounting approved request — forwarded to President review'
-          : 'Accounting approved request — forwarded to VP review'
+        ? 'Accounting approved budget proposal — forwarded to VP for review'
+        : 'Accounting approved request — forwarded to VP review'
     }
   ]);
 
@@ -2577,28 +2514,19 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     });
   }
 
-  if (nextStatus === 'pending_president') {
-    await notifyPresident(
-      budgetFlow
-        ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires President review.`
-        : `Request ${request.request_code} requires President review.`
-    );
-  } else {
-    await notifyVp(
-      budgetFlow
-        ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
-        : `Request ${request.request_code} requires VP review.`
-    );
-  }
+  // Notify VP (sequential flow: Accounting → VP always)
+  await notifyVp(
+    budgetFlow
+      ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
+      : `Request ${request.request_code} requires VP review.`
+  );
 
   if (!budgetFlow) {
     await notifyEmployee(
       request.employee_id,
       request.request_code,
-      'Request Approved',
-      nextStatus === 'pending_president'
-        ? `Your request ${request.request_code} has moved to President review.`
-        : `Your request ${request.request_code} has moved to VP review.`
+      'Request Update',
+      `Your request ${request.request_code} has moved to VP review.`
     );
   }
 
@@ -2625,10 +2553,6 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
     return res.status(400).json({ error: 'Only requests waiting for VP review can be approved here' });
   }
 
-  const amount = toNumber(request.amount);
-  const currency = request.metadata?.currency || 'PHP';
-  const presidentThreshold = getPresidentThreshold(currency);
-
   if (isBudgetWorkflow(request.request_type)) {
     await logFailedApprovalAttempt(req.user, id, request.request_code, 'Budget proposals require VP Mark as Viewed action');
     return res.status(400).json({
@@ -2636,19 +2560,9 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
     });
   }
 
-  let nextStatus = 'pending_president';
-  let updatePayload: Record<string, unknown> = { status: nextStatus, updated_at: new Date() };
-
-  if (amount <= presidentThreshold) {
-    nextStatus = 'pending_accounting';
-    updatePayload = {
-      status: nextStatus,
-      co_approved_by: req.user.id,
-      co_approved_at: new Date(),
-      co_approver_role: 'vp',
-      updated_at: new Date()
-    };
-  }
+  // Sequential flow: VP → President (always)
+  const nextStatus = 'pending_president';
+  const updatePayload: Record<string, unknown> = { status: nextStatus, updated_at: new Date() };
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2673,9 +2587,7 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
       field_name: 'status',
       old_value: request.status,
       new_value: nextStatus,
-      note: amount <= presidentThreshold
-        ? 'VP approved request — returned to accounting for fund release'
-        : 'VP reviewed request — forwarded to President'
+      note: 'VP reviewed request — forwarded to President'
     }
   ]);
 
@@ -2689,23 +2601,19 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
     recordLabel: request.request_code,
     oldValue: { status: request.status },
     newValue: { status: nextStatus },
-    remarks: amount <= presidentThreshold ? 'VP final approval' : 'Forwarded to President',
+    remarks: 'VP reviewed — forwarded to President',
   });
 
-  const notifyMessage = amount > presidentThreshold
-    ? `Your request ${request.request_code} has moved to President review.`
-    : `Your request ${request.request_code} has VP approval and is awaiting fund release.`;
+  // Sequential flow: VP → President (always). Only notify President.
+  // Do NOT send 'Approved' to employee/supervisor — President is the final approver.
+  await notifyPresident(`Request ${request.request_code} requires President approval.`);
 
-  if (amount > presidentThreshold) {
-    await notifyPresident(`Request ${request.request_code} requires President approval (amount above threshold).`);
-  } else if (request.request_type === 'cash_advance') {
-    await notifyEmployee(request.employee_id, request.request_code, 'Cash Advance Approved', notifyMessage);
-    await notifyDepartmentSupervisor(request.department_id, `Cash advance ${request.request_code} has been approved by VP.`);
-  } else if (request.request_type === 'reimbursement') {
-    await notifyEmployee(request.employee_id, request.request_code, 'Reimbursement Approved', notifyMessage);
-  } else {
-    await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', notifyMessage);
-  }
+  await notifyEmployee(
+    request.employee_id,
+    request.request_code,
+    'Request Update',
+    `Your request ${request.request_code} has moved to President review.`
+  );
 
   // Recalculate M88 Manila cost center pending/used amounts
   await updateM88ManilaCostCenterBudget(request.fiscal_year);
@@ -2761,7 +2669,6 @@ router.patch('/:id/mark-viewed', authenticate, authorize('vp', 'admin'), async (
   });
 
   await notifyPresident(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} is ready for final approval.`);
-  await notifyEmployee(request.employee_id, request.request_code, 'Budget Update', `Your ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been reviewed by VP and sent to President.`);
 
   res.json(data);
 });
@@ -3212,6 +3119,21 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
   // Supervisor/accounting submitters bypass supervisor stage on resubmit
   const resubmitStatus = (req.user.role === 'supervisor' || req.user.role === 'accounting') ? 'pending_accounting' : 'pending_supervisor';
 
+  // Build updated metadata if items or category changed
+  const existingMetadata = (typeof request.metadata === 'object' ? request.metadata : {}) || {};
+  const updatedMetadata: Record<string, any> = {
+    ...existingMetadata,
+    items: Array.isArray(items) && items.length > 0
+      ? items.map((item: any) => ({
+          item_name: toText(item.description || item.item_name || ''),
+          amount: toNumber(item.amount),
+          category_id: item.category_id || item.categoryId || null,
+          category: toText(item.category || '') || undefined
+        }))
+      : existingMetadata.items || [],
+    main_category: normalizedCategory || existingMetadata.main_category || request.category
+  };
+
   const { data, error } = await supabase
     .from('expense_requests')
     .update({
@@ -3222,6 +3144,7 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
       category: normalizedCategory || request.category,
       priority: normalizedPriority || request.priority,
       purpose: normalizedPurpose || request.purpose,
+      metadata: updatedMetadata,
       submitted_at: new Date(),
       returned_by: null,
       returned_at: null,
@@ -3241,26 +3164,30 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
   if (Array.isArray(items) && items.length > 0) {
     const { data: existingItems } = await supabase
       .from('request_items')
-      .select('id')
+      .select('id, category_id, amount')
       .eq('request_id', id)
       .order('created_at', { ascending: true });
     
     const existingItemIds = (existingItems || []).map((item: any) => item.id);
     
-    // Update each existing item with new amounts
+    // Update each existing item with new amounts, category, and name
     for (let i = 0; i < items.length && i < existingItemIds.length; i++) {
       const item = items[i];
       const itemAmount = toNumber(item.amount);
       const itemName = toText(item.description || item.item_name || '');
+      const itemCategoryId = item.category_id || item.categoryId || null;
       
       await supabase
         .from('request_items')
         .update({
           item_name: itemName,
           amount: itemAmount,
-          updated_at: new Date()
+          category_id: itemCategoryId
         })
-        .eq('id', existingItemIds[i]);
+        .eq('id', existingItemIds[i])
+        .then(({ error: updateErr }) => {
+          if (updateErr) console.error(`[resubmit] Failed to update item ${existingItemIds[i]}:`, updateErr);
+        });
     }
     
     // If more items provided than existing, insert new ones
@@ -3268,24 +3195,34 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
       const newItems = items.slice(existingItemIds.length).map((item: any) => ({
         request_id: id,
         item_name: toText(item.description || item.item_name || ''),
-        amount: toNumber(item.amount)
+        amount: toNumber(item.amount),
+        category_id: item.category_id || item.categoryId || null
       }));
       
       await supabase.from('request_items').insert(newItems);
     }
+    
+    // If fewer items provided than existing, delete the extra ones
+    if (items.length < existingItemIds.length) {
+      const idsToDelete = existingItemIds.slice(items.length);
+      await supabase
+        .from('request_items')
+        .delete()
+        .in('id', idsToDelete);
+    }
   }
 
-  // Update allocation if amount or department changes (assuming single item requests for now)
-  // For simplicity, we update the primary allocation to match the new request amount
+  // Update allocation if amount or department changes
   const allocationAmount = normalizedAmount !== undefined && normalizedAmount !== null ? normalizedAmount : request.amount;
+  const effectiveDepartmentId = req.body?.department_id || request.department_id;
   await supabase
     .from('request_allocations')
     .update({ 
       amount: allocationAmount,
+      department_id: effectiveDepartmentId,
       updated_at: new Date() 
     })
-    .eq('request_id', id)
-    .eq('department_id', request.department_id);
+    .eq('request_id', id);
 
   if (normalizedAttachments.length) {
     const { error: attachmentError } = await supabase.from('request_attachments').insert(
@@ -3328,16 +3265,48 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
   ]);
 
   // Re-commit budget categories on resubmit (per item if multi-item, else single category)
+  // First, release the OLD budget commitments, then apply new ones
+  const { data: oldItems } = await supabase
+    .from('request_items').select('id, category_id, amount').eq('request_id', id);
+
+  // Release old commitments for multi-item requests
+  if (oldItems && oldItems.length > 0) {
+    for (const oldItem of oldItems) {
+      if (!oldItem.category_id) continue;
+      const oldItemAmt = toNumber(oldItem.amount);
+      const { data: oldCatBudget } = await supabase.from('budget_categories').select('committed_amount, remaining_amount').eq('id', oldItem.category_id).single();
+      if (oldCatBudget) {
+        await supabase.from('budget_categories').update({
+          committed_amount: Math.max(0, toNumber(oldCatBudget.committed_amount) - oldItemAmt),
+          remaining_amount: toNumber(oldCatBudget.remaining_amount) + oldItemAmt,
+          updated_at: new Date()
+        }).eq('id', oldItem.category_id);
+      }
+    }
+  } else {
+    // Release old single-item commitment
+    if (request.category_id) {
+      const { data: oldCatBudget } = await supabase.from('budget_categories').select('committed_amount, remaining_amount').eq('id', request.category_id).single();
+      if (oldCatBudget) {
+        const oldAmt = toNumber(request.amount);
+        await supabase.from('budget_categories').update({
+          committed_amount: Math.max(0, toNumber(oldCatBudget.committed_amount) - oldAmt),
+          remaining_amount: toNumber(oldCatBudget.remaining_amount) + oldAmt,
+          updated_at: new Date()
+        }).eq('id', request.category_id);
+      }
+    }
+  }
+
+  // Now apply NEW commitments based on updated items
   const { data: resubmitItems } = await supabase
     .from('request_items').select('id, category_id, amount').eq('request_id', id);
 
   if (resubmitItems && resubmitItems.length > 0) {
-    // Multi-item: re-commit each item's category and update item amounts proportionally
-    const originalAmount = toNumber(request.amount);
-    const scaleFactor = originalAmount > 0 && toNumber(newAmount) !== originalAmount ? toNumber(newAmount) / originalAmount : 1;
+    // Multi-item: commit each item's category with the updated amount (no scaling needed)
     for (const rItem of resubmitItems) {
       if (!rItem.category_id) continue;
-      const itemAmt = toNumber(rItem.amount) * scaleFactor;
+      const itemAmt = toNumber(rItem.amount);
       const { data: catBudget } = await supabase.from('budget_categories').select('committed_amount, remaining_amount').eq('id', rItem.category_id).single();
       if (catBudget) {
         await supabase.from('budget_categories').update({
@@ -3346,15 +3315,12 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
           updated_at: new Date()
         }).eq('id', rItem.category_id);
       }
-      await supabase.from('request_items').update({
-        amount: itemAmt,
-        updated_at: new Date()
-      }).eq('id', rItem.id);
     }
   } else {
     // Single-item fallback
     const effectiveCategoryName = normalizedCategory || request.category;
-    const effectiveCategoryId = (await supabase.from('budget_categories').select('id').eq('category_name', String(effectiveCategoryName).trim()).eq('department_id', request.department_id).eq('fiscal_year', request.fiscal_year).maybeSingle()).data?.id;
+    const effectiveDeptId = req.body?.department_id || request.department_id;
+    const effectiveCategoryId = (await supabase.from('budget_categories').select('id').eq('category_name', String(effectiveCategoryName).trim()).eq('department_id', effectiveDeptId).eq('fiscal_year', request.fiscal_year).maybeSingle()).data?.id;
     if (effectiveCategoryId) {
       const { data: categoryBudget } = await supabase.from('budget_categories').select('committed_amount, remaining_amount').eq('id', effectiveCategoryId).single();
       if (categoryBudget) {
