@@ -2329,6 +2329,7 @@ const Approvals = () => {
                               {view === 'vp_approval' && req.status === 'pending_accounting' ? 'For Executive Review' : getStatusLabel(req.status)}
                             </span>
                             {(() => {
+                              if (req.request_type === 'travel_booking') return null;
                               const reqAmt = toNumber(req.amount);
                               const bsum = req.budget_summary || {};
                               const proj = bsum?.projected_remaining_after_approval;
@@ -2783,7 +2784,7 @@ const Approvals = () => {
 
 
 
-                    {user.role === 'supervisor' && (
+                    {user.role === 'supervisor' && req.request_type !== 'travel_booking' && (
 
                       <div className="mb-5 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
 
@@ -3336,6 +3337,8 @@ const Approvals = () => {
 
 
 
+                    {req.request_type !== 'travel_booking' && (
+
                     <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
 
                       {(req.allocations || []).map((allocation: any) => (
@@ -3364,6 +3367,8 @@ const Approvals = () => {
 
                     </div>
 
+                    )}
+
 
 
                     <div className="flex flex-wrap gap-3">
@@ -3374,7 +3379,7 @@ const Approvals = () => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
                             // VP always marks budget proposals as viewed (President does final approval)
                             const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow;
-                            const isOutOfBudget = req.within_budget === false;
+                            const isOutOfBudget = req.request_type !== 'travel_booking' && req.within_budget === false;
                             const canActAtStage =
                               (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
                               (user.role === 'accounting' && req.status === 'pending_accounting' && !req.co_approved_by) ||
