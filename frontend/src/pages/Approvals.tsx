@@ -451,7 +451,8 @@ const Approvals = () => {
 
     try {
       const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
-      if (request.within_budget === false && !isBudgetFlow) {
+      const isTravelBooking = requestType === 'travel_booking';
+      if (request.within_budget === false && !isBudgetFlow && !isTravelBooking) {
         throw new Error('Cannot approve request: outside approved budget.');
       }
 
@@ -2095,8 +2096,8 @@ const Approvals = () => {
                                   <button
                                     onClick={() => void executeApprove(req)}
                                     className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 transition whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                                    disabled={req.status === 'on_hold' || (req.within_budget === false && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision')}
-                                    title={req.status === 'on_hold' ? 'Cannot approve - request is On Hold' : (req.within_budget === false && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision') ? 'Cannot approve - request is outside approved budget' : 'Approve'}
+                                    disabled={req.status === 'on_hold' || (req.within_budget === false && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision' && req.request_type !== 'travel_booking')}
+                                    title={req.status === 'on_hold' ? 'Cannot approve - request is On Hold' : (req.within_budget === false && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision' && req.request_type !== 'travel_booking') ? 'Cannot approve - request is outside approved budget' : 'Approve'}
                                   >
                                     Approve
                                   </button>
