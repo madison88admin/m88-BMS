@@ -13,6 +13,10 @@ const normalizeCategoryName = (value: unknown) => String(value || '').trim().toL
 const getCategoryMapKey = (departmentId: string, fiscalYear: number, categoryName: string) =>
   `${departmentId}::${fiscalYear}::${normalizeCategoryName(categoryName)}`;
 
+const isAssetCategoryCode = (code: string) => /^17\d{2,}/.test(String(code || '').trim());
+
+export { isAssetCategoryCode };
+
 export const isBudgetCommittedStatus = (status?: string) => status === 'released' || status === 'approved';
 export const isBudgetWorkflow = (requestType?: string) => requestType === 'budget_request' || requestType === 'budget_revision';
 export const isActualExpenseCommittedStatus = (status?: string, requestType?: string) => isBudgetCommittedStatus(status) && !isBudgetWorkflow(requestType);
@@ -47,6 +51,7 @@ interface ExpenseRequestRow {
   request_type?: string;
   released_at?: string | null;
   updated_at?: string | null;
+  category_id?: string | null;
 }
 
 interface DepartmentBudgetSummary {
@@ -159,13 +164,14 @@ const getRequestBudgetImpacts = (
 };
 
 export const buildDepartmentBudgetSummaryMap = async () => {
-  const [departmentsResult, requestsResult, directExpensesResult, pettyCashResult] = await Promise.all([
+  const [departmentsResult, requestsResult, directExpensesResult, pettyCashResult, assetCategoriesResult] = await Promise.all([
     supabase
       .from('departments')
       .select('id, name, fiscal_year, annual_budget, used_budget, petty_cash_balance, updated_at, created_at'),
-    supabase.from('expense_requests').select('id, department_id, amount, status, request_type, released_at, updated_at'),
+    supabase.from('expense_requests').select('id, department_id, amount, status, request_type, released_at, updated_at, category_id'),
     supabase.from('direct_expenses').select('department_id, amount, expense_date'),
-    supabase.from('petty_cash_transactions').select('department_id, amount, type, transaction_date')
+    supabase.from('petty_cash_transactions').select('department_id, amount, type, transaction_date'),
+    supabase.from('budget_categories').select('id, category_code').like('category_code', '17%')
   ]);
 
   if (departmentsResult.error) throw departmentsResult.error;
@@ -177,6 +183,9 @@ export const buildDepartmentBudgetSummaryMap = async () => {
   const requests = (requestsResult.data || []) as ExpenseRequestRow[];
   const directExpenses = directExpensesResult.data || [];
   const pettyCashTransactions = pettyCashResult.data || [];
+
+  const assetCategoryIds = new Set((assetCategoriesResult.data || []).map((c: any) => c.id));
+  const nonAssetRequests = requests.filter((r: any) => !r.category_id || !assetCategoryIds.has(r.category_id));
   const allocationsByRequestId = await fetchRequestAllocationsByRequestId(requests.map((request) => request.id));
 
   const groupedDepartmentIds = new Map<string, string[]>();
@@ -199,7 +208,7 @@ export const buildDepartmentBudgetSummaryMap = async () => {
     }
   >();
 
-  requests.forEach((request) => {
+  nonAssetRequests.forEach((request) => {
     const impacts = getRequestBudgetImpacts(request, allocationsByRequestId);
     impacts.forEach((impact) => {
       const current = totalsByDepartmentId.get(impact.department_id) || {
@@ -247,7 +256,7 @@ export const buildDepartmentBudgetSummaryMap = async () => {
       .filter((txn: any) => ids.includes(txn.department_id) && txn.type === 'disbursement' && isDateInCurrentMonth(txn.transaction_date))
       .reduce((sum: number, txn: any) => sum + toNumber(txn.amount), 0);
     const releasedRequestsTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.released || 0), 0);
-    const releasedRequestsMonthly = requests
+    const releasedRequestsMonthly = nonAssetRequests
       .filter((request) => isActualExpenseCommittedStatus(request.status, request.request_type) && ids.includes(request.department_id) && isDateInCurrentMonth(request.released_at || request.updated_at))
       .reduce((sum, request) => {
         const allocations = allocationsByRequestId.get(request.id) || [];

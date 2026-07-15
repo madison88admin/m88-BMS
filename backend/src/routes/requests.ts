@@ -35,7 +35,7 @@ import {
 } from '../utils/workflowNotify';
 import { invalidateCache } from '../middleware/cache';
 import { generateRequestCode } from '../utils/sequentialCodeGenerator';
-import { findOrCreateM88ManilaCostCenter, isGeneralCategory, convertToPhp } from '../utils/generalBudget';
+import { findOrCreateM88ManilaCostCenter, isGeneralCategory, isAssetCategory, convertToPhp } from '../utils/generalBudget';
 
 const router = express.Router();
 
@@ -722,22 +722,30 @@ const releaseRequest = async (
   // Check if request uses General Category for dual deduction
   let isGeneralCategoryRequest = false;
   let generalCategoryId: string | null = null;
+  let isAssetCategoryRequest = false;
   
   if (request.category_id) {
     isGeneralCategoryRequest = await isGeneralCategory(request.category_id);
+    isAssetCategoryRequest = await isAssetCategory(request.category_id);
     generalCategoryId = request.category_id;
   } else if (request.category) {
     // For requests without category_id, check by category name
     const { data: cat } = await supabase
       .from('budget_categories')
-      .select('id, department_id')
+      .select('id, department_id, category_code')
       .eq('category_name', String(request.category).trim())
       .eq('department_id', request.department_id)
       .eq('fiscal_year', request.fiscal_year)
       .maybeSingle();
-    if (cat && cat.department_id === 'All') {
-      isGeneralCategoryRequest = true;
-      generalCategoryId = cat.id;
+    if (cat) {
+      if (cat.department_id === 'All') {
+        isGeneralCategoryRequest = true;
+        generalCategoryId = cat.id;
+      }
+      const code = String(cat.category_code || '').trim();
+      if (/^17\d{2,}/.test(code)) {
+        isAssetCategoryRequest = true;
+      }
     }
   }
 
@@ -873,7 +881,8 @@ const releaseRequest = async (
   }
 
   // Dual deduction for General Categories: also deduct from M88 Manila cost center
-  if (isGeneralCategoryRequest) {
+  // Skip for Asset categories — they should NOT reflect in the M88 cost center
+  if (isGeneralCategoryRequest && !isAssetCategoryRequest) {
     try {
       const costCenter = await findOrCreateM88ManilaCostCenter(request.fiscal_year);
       const requestCurrency = request.metadata?.currency || 'PHP';
@@ -1201,10 +1210,38 @@ router.get('/official-list', authenticate, async (req: any, res) => {
   try {
     const baseList = await resolveOfficialExpenseList();
     if (mannerOfSubmission === 'for_upload') {
-      // Budget Adjustment: return ALL categories/subcategories to ALL users
+      // Budget Adjustment: return ALL categories/subcategories including budget_categories table
+      const { data: allBudgetCategories } = await supabase
+        .from('budget_categories')
+        .select('id, category_code, category_name, parent_category_id, department_id')
+        .eq('fiscal_year', activeFiscalYear);
+
+      if (allBudgetCategories && allBudgetCategories.length > 0) {
+        const nameById = new Map(allBudgetCategories.map((bc: any) => [bc.id, bc.category_name]));
+        const enrichedCategories = allBudgetCategories.map((bc: any) => ({
+          ...bc,
+          parent_category_name: bc.parent_category_id ? nameById.get(bc.parent_category_id) || null : null,
+        }));
+        return res.json(mergeBudgetCategoriesIntoOfficialList(baseList, enrichedCategories, 'All Dept'));
+      }
       return res.json(baseList);
     }
     let list = baseList;
+
+    // Also merge in budget_categories from DB so all chart of accounts are visible
+    const { data: allBudgetCats } = await supabase
+      .from('budget_categories')
+      .select('id, category_code, category_name, parent_category_id, department_id')
+      .eq('fiscal_year', activeFiscalYear);
+
+    if (allBudgetCats && allBudgetCats.length > 0) {
+      const nameById = new Map(allBudgetCats.map((bc: any) => [bc.id, bc.category_name]));
+      const enrichedCats = allBudgetCats.map((bc: any) => ({
+        ...bc,
+        parent_category_name: bc.parent_category_id ? nameById.get(bc.parent_category_id) || null : null,
+      }));
+      list = mergeBudgetCategoriesIntoOfficialList(list, enrichedCats, 'All Dept');
+    }
 
     list = filterOfficialExpenseList(list, {
       requestType,

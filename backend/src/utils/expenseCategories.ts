@@ -106,21 +106,14 @@ export const filterOfficialExpenseList = (
     mannerOfSubmission?: 'for_submission' | 'for_upload';
   } = {}
 ): ExpenseItem[] => {
-  const { requestType, departmentName, userRole, mannerOfSubmission } = options;
+  const { mannerOfSubmission } = options;
 
   return items.filter((item) => {
     const submissionMode = item.mannerOfSubmission || 'for_submission';
 
     if (mannerOfSubmission) {
       if (submissionMode !== mannerOfSubmission) return false;
-    } else {
-      if (submissionMode === 'for_upload') return false;
     }
-
-    if (!isAccountingRole(userRole) && !item.canCA && !item.canRE) return false;
-
-    if (requestType === 'cash_advance' && !item.canCA) return false;
-    if (requestType === 'reimbursement' && !item.canRE) return false;
 
     return true;
   });

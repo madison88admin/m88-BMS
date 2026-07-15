@@ -168,3 +168,22 @@ export const isGeneralCategory = async (categoryId: string) => {
   }
   return data?.department_id === 'All';
 };
+
+/**
+ * Check if a budget category is an Asset category (category_code starts with '17')
+ */
+export const isAssetCategory = async (categoryId: string) => {
+  if (!categoryId) return false;
+  const { data, error } = await supabase
+    .from('budget_categories')
+    .select('category_code')
+    .eq('id', categoryId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[isAssetCategory] Error checking category', categoryId, error);
+    return false;
+  }
+  const code = String(data?.category_code || '').trim();
+  return /^17\d{2,}/.test(code);
+};
