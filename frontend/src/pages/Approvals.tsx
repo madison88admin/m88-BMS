@@ -1364,6 +1364,17 @@ const Approvals = () => {
     return String(request?.category || request?.main_category_name || request?.metadata?.main_category || '').trim();
   };
 
+  const getRequestSubCategoryName = (request: any): string => {
+    return String(request?.sub_category_name || request?.metadata?.sub_category || '').trim();
+  };
+
+  const getRequestCategoryDisplay = (request: any): string => {
+    const main = getRequestCategoryName(request);
+    const sub = getRequestSubCategoryName(request);
+    if (main && sub) return `${main} → ${sub}`;
+    return main || sub || '';
+  };
+
   const getRequestDepartmentShort = (request: any) => {
     const requestDeptId = request?.department_id;
     if (!requestDeptId) return null;
@@ -2053,7 +2064,7 @@ const Approvals = () => {
                               {/* Category */}
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-2.5 py-1 text-xs font-semibold text-[var(--role-text)]/80">
-                                  {getRequestCategoryName(req) || '—'}
+                                  {getRequestCategoryDisplay(req) || '—'}
                                 </span>
                               </td>
                               {/* Item */}
@@ -2421,9 +2432,9 @@ const Approvals = () => {
                                 <tr>
 
                                   {req.metadata.items[0]?.expense_date !== undefined ? (
-                                    <><th className="px-4 py-2 font-semibold">Date</th><th className="px-4 py-2 font-semibold">Payee</th><th className="px-4 py-2 font-semibold">Type</th></>
+                                    <><th className="px-4 py-2 font-semibold">Date</th><th className="px-4 py-2 font-semibold">Payee</th><th className="px-4 py-2 font-semibold">Type</th><th className="px-4 py-2 font-semibold">Category</th></>
                                   ) : (
-                                    <><th className="px-4 py-2 font-semibold">Item</th></>
+                                    <><th className="px-4 py-2 font-semibold">Item</th><th className="px-4 py-2 font-semibold">Category</th></>
                                   )}
 
                                   <th className="px-4 py-2 text-right font-semibold">Amount</th>
@@ -2439,10 +2450,11 @@ const Approvals = () => {
                                   <tr key={idx} className="border-b border-[var(--role-border)]/5 last:border-0">
 
                                     {item.expense_date !== undefined ? (
-                                      <><td className="px-4 py-2">{item.expense_date}</td><td className="px-4 py-2">{item.payee_name}</td><td className="px-4 py-2">{item.expense_type}</td></>
+                                      <><td className="px-4 py-2">{item.expense_date}</td><td className="px-4 py-2">{item.payee_name}</td><td className="px-4 py-2">{item.expense_type}</td><td className="px-4 py-2 text-xs">{[item.main_category, item.sub_category].filter(Boolean).join(' → ') || '—'}</td></>
                                     ) : (
                                       <>
                                         <td className="px-4 py-2">{item.item_name}</td>
+                                        <td className="px-4 py-2 text-xs">{[item.main_category, item.sub_category].filter(Boolean).join(' → ') || '—'}</td>
                                       </>
                                     )}
 
@@ -2454,7 +2466,7 @@ const Approvals = () => {
 
                                 <tr className="bg-[var(--role-border)]/5 font-bold">
 
-                                  <td colSpan={req.metadata.items[0]?.expense_date !== undefined ? 3 : 1} className="px-4 py-2 text-right">Total</td>
+                                  <td colSpan={req.metadata.items[0]?.expense_date !== undefined ? 4 : 2} className="px-4 py-2 text-right">Total</td>
 
                                   <td className="px-4 py-2 text-right">{displayMoney(requestAmount, requestCurrency)}</td>
 
@@ -2793,6 +2805,9 @@ const Approvals = () => {
                         <p className="mt-1 text-sm text-[var(--role-text)]/70">
 
                           Category: <span className="font-semibold text-[var(--role-text)]">{getRequestCategoryName(req)}</span>
+                          {getRequestSubCategoryName(req) && (
+                            <span className="text-[var(--role-text)]/50"> → <span className="font-semibold text-[var(--role-text)]/80">{getRequestSubCategoryName(req)}</span></span>
+                          )}
 
                         </p>
 

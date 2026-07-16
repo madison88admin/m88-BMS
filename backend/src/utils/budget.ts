@@ -503,6 +503,14 @@ export const enrichRequestsWithMainCategory = async (rows: any[]) => {
     return parent?.category_name || cat.category_name;
   };
 
+  const resolveSubCategoryNameFromCategoryId = (categoryId?: string | null) => {
+    if (!categoryId) return null;
+    const cat = catById.get(categoryId);
+    if (!cat) return null;
+    if (!cat.parent_category_id) return null;
+    return cat.category_name;
+  };
+
   return rows.map((row) => {
     const isBudget = row.request_type === 'budget_request' || row.request_type === 'budget_revision';
     let mainCategoryName: string | null = row.metadata?.main_category || null;
@@ -520,6 +528,8 @@ export const enrichRequestsWithMainCategory = async (rows: any[]) => {
       if (fromItems.length === 1) mainCategoryName = fromItems[0];
     }
 
+    const subCategoryName = resolveSubCategoryNameFromCategoryId(row.category_id);
+
     const enrichedItems = (row.metadata?.items || []).map((item: any) => ({
       ...item,
       main_category:
@@ -527,11 +537,13 @@ export const enrichRequestsWithMainCategory = async (rows: any[]) => {
         || resolveMainNameFromCategoryId(item.category_id)
         || mainCategoryName
         || null,
+      sub_category: resolveSubCategoryNameFromCategoryId(item.category_id) || null,
     }));
 
     return {
       ...row,
       main_category_name: mainCategoryName,
+      sub_category_name: subCategoryName,
       metadata: row.metadata
         ? { ...row.metadata, items: enrichedItems.length ? enrichedItems : row.metadata.items }
         : row.metadata,
