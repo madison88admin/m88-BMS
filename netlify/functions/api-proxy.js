@@ -56,10 +56,12 @@ exports.handler = async (event, context) => {
   if (httpMethod !== 'GET' && httpMethod !== 'HEAD' && event.body) {
     bodyData = event.body;
     if (event.isBase64Encoded) {
-      bodyData = Buffer.from(bodyData, 'base64').toString('utf8');
+      bodyData = Buffer.from(bodyData, 'base64');
+    } else {
+      bodyData = Buffer.from(bodyData, 'utf8');
     }
-    fwdHeaders['Content-Length'] = Buffer.byteLength(bodyData);
-    console.log('Proxy body length:', Buffer.byteLength(bodyData), 'isBase64:', event.isBase64Encoded);
+    fwdHeaders['Content-Length'] = bodyData.length;
+    console.log('Proxy body length:', bodyData.length, 'isBase64:', event.isBase64Encoded);
   }
   
   return new Promise((resolve) => {
@@ -76,6 +78,7 @@ exports.handler = async (event, context) => {
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
         console.log('Proxy response status:', res.statusCode, 'length:', data.length);
+        console.log('Proxy response body:', data.substring(0, 500));
         resolve({
           statusCode: res.statusCode,
           headers: { 'Content-Type': res.headers['content-type'] || 'application/json' },
