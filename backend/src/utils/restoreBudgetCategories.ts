@@ -74,7 +74,7 @@ const fetchCategoriesForDepartments = async (
     .select(
       'id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id, fiscal_year, is_locked'
     )
-    .in('department_id', departmentIds)
+    .or(`department_id.in.(${departmentIds.join(',')}),department_id.eq.All`)
     .eq('fiscal_year', fiscalYear)
     .order('category_name');
 

@@ -103,7 +103,7 @@ router.post('/', authenticate, authorize('admin', 'accounting'), async (req, res
 
 router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
   const departmentId = req.params.id;
-  if (req.user.role === 'employee' || req.user.role === 'manager' || req.user.role === 'supervisor' || req.user.role === 'accounting_limited') {
+  if (req.user.role === 'employee' || req.user.role === 'manager' || req.user.role === 'accounting_limited') {
     const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
     const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
     if (!accessibleDepartmentIds.includes(departmentId)) {

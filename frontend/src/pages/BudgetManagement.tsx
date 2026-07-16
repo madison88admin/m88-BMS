@@ -271,10 +271,6 @@ const BudgetManagement = () => {
   const visibleDepartments = useMemo(() => {
     const map = new Map<string, any>();
     const filtered = departments.filter(d => {
-      // Supervisors can only see their own department
-      if (user?.role === 'supervisor' && user?.department_id) {
-        return d.id === user.department_id;
-      }
       // Managers can only see their own department
       if (user?.role === 'manager' && user?.department_id) {
         return d.id === user.department_id;
