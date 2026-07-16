@@ -8,11 +8,7 @@
 [functions]
   directory = "netlify/functions"
 
-# SPA fallback (API proxy is in frontend/public/_redirects)
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# Redirects are in frontend/public/_redirects (copied to dist/ during build)
 
 # Configure secrets scanning
 [secrets-scanning]
