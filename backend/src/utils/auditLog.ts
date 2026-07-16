@@ -19,6 +19,8 @@ export const AUDIT_ACTIONS = {
   REIMBURSEMENT_SUBMITTED: 'reimbursement_submitted',
   REIMBURSEMENT_APPROVED: 'reimbursement_approved',
   REIMBURSEMENT_REJECTED: 'reimbursement_rejected',
+  REIMBURSEMENT_RETURNED: 'reimbursement_returned_for_revision',
+  CASH_ADVANCE_RETURNED: 'cash_advance_returned_for_revision',
   DOCUMENT_UPLOADED: 'document_uploaded',
   DOCUMENT_UPLOAD_REVIEWED: 'document_upload_reviewed',
   FAILED_APPROVAL_ATTEMPT: 'failed_approval_attempt',

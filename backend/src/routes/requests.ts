@@ -537,6 +537,57 @@ const reconcileCategoryTicketUsage = async (categoryId: string, budgetAmount: nu
   return { used, committed };
 };
 
+const commitBudgetOnSubmission = async (requestId: string, departmentId: string, fiscalYear: number, totalAmount: number, categoryId?: string, categoryName?: string, items?: any[]) => {
+  const { data: requestItems } = await supabase
+    .from('request_items')
+    .select('category_id, amount')
+    .eq('request_id', requestId);
+
+  if (requestItems && requestItems.length > 0) {
+    for (const rItem of requestItems) {
+      if (!rItem.category_id) continue;
+      const itemAmt = toNumber(rItem.amount);
+      const { data: catBudget } = await supabase
+        .from('budget_categories')
+        .select('id, committed_amount, remaining_amount')
+        .eq('id', rItem.category_id)
+        .maybeSingle();
+      if (!catBudget) continue;
+      await supabase.from('budget_categories').update({
+        committed_amount: toNumber(catBudget.committed_amount) + itemAmt,
+        remaining_amount: Math.max(0, toNumber(catBudget.remaining_amount) - itemAmt),
+        updated_at: new Date()
+      }).eq('id', catBudget.id);
+      await syncParentCategoryRemaining(catBudget.id);
+    }
+  } else {
+    let effectiveCategoryId = categoryId;
+    if (!effectiveCategoryId && categoryName) {
+      const { data: cat } = await supabase
+        .from('budget_categories')
+        .select('id')
+        .eq('category_name', String(categoryName).trim())
+        .eq('department_id', departmentId)
+        .eq('fiscal_year', fiscalYear)
+        .maybeSingle();
+      effectiveCategoryId = cat?.id;
+    }
+    if (!effectiveCategoryId) return;
+    const { data: catBudget } = await supabase
+      .from('budget_categories')
+      .select('id, committed_amount, remaining_amount')
+      .eq('id', effectiveCategoryId)
+      .maybeSingle();
+    if (!catBudget) return;
+    await supabase.from('budget_categories').update({
+      committed_amount: toNumber(catBudget.committed_amount) + totalAmount,
+      remaining_amount: Math.max(0, toNumber(catBudget.remaining_amount) - totalAmount),
+      updated_at: new Date()
+    }).eq('id', catBudget.id);
+    await syncParentCategoryRemaining(catBudget.id);
+  }
+};
+
 const syncParentCategoryRemaining = async (categoryId: string) => {
   const { data: category } = await supabase
     .from('budget_categories')
@@ -606,13 +657,16 @@ const applyApprovedBudgetProposal = async (request: any) => {
   // If this is a sub-category (has parent), update the sub-category directly
   if (requestedCategory.parent_category_id) {
     const previousAmount = toNumber(requestedCategory.budget_amount);
+    const subUsedAmount = toNumber(requestedCategory.used_amount);
+    const subCommittedAmount = toNumber(requestedCategory.committed_amount);
+    const subRemaining = Math.max(0, proposedAmount - subUsedAmount - subCommittedAmount);
     
     // Update sub-category budget
     await supabase
       .from('budget_categories')
       .update({
         budget_amount: proposedAmount,
-        remaining_amount: proposedAmount,
+        remaining_amount: subRemaining,
         is_locked: true,
         locked_at: new Date(),
         updated_at: new Date()
@@ -729,7 +783,8 @@ const resolveRejectAuditAction = (requestType?: string) => {
 
 const resolveReturnAuditAction = (requestType?: string) => {
   if (requestType === 'budget_request' || requestType === 'budget_revision') return AUDIT_ACTIONS.BUDGET_RETURNED;
-  return AUDIT_ACTIONS.BUDGET_RETURNED;
+  if (requestType === 'cash_advance') return AUDIT_ACTIONS.CASH_ADVANCE_RETURNED;
+  return AUDIT_ACTIONS.REIMBURSEMENT_RETURNED;
 };
 
 const isBudgetWorkflow = (requestType?: string) =>
@@ -1660,6 +1715,11 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
     );
 
     if (attachmentError) return res.status(400).json({ error: attachmentError });
+  }
+
+  // Reserve budget by incrementing committed_amount on the category(s)
+  if (!isBudgetFlow) {
+    await commitBudgetOnSubmission(data.id, targetDepartmentId, activeFiscalYear, totalAmount, category_id, category, items);
   }
 
   await supabase.from('approval_logs').insert({

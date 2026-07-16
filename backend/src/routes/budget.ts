@@ -300,7 +300,7 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
       if (parentCategory.parent_category_id) {
         return res.status(400).json({ error: 'Parent category cannot itself be a subcategory' });
       }
-      await assertChildAllocationFitsParent(parent_category_id, requestedBudget);
+      await autoExpandParentBudget(parent_category_id, requestedBudget);
       
       // Check for circular reference
       const checkCircularReference = async (categoryId: string, visited: Set<string> = new Set()): Promise<boolean> => {
