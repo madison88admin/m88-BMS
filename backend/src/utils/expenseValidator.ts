@@ -178,6 +178,11 @@ export function mergeBudgetCategoriesIntoOfficialList(
     );
     if (alreadyAdded) continue;
 
+    // Also skip if an entry with the same code already exists
+    // (prevents duplicates when official list and budget_categories use different category names)
+    const alreadyAddedByCode = merged.some((entry) => entry.code === code);
+    if (alreadyAddedByCode) continue;
+
     if (!parentName && topLevelWithOfficialItems.has(categoryName)) continue;
 
     merged.push({
