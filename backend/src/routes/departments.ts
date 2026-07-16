@@ -18,18 +18,6 @@ const isActualExpenseCommittedStatus = (request: any) => isBudgetCommittedStatus
 router.get('/', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (req: any, res) => {
   let departmentQuery = supabase.from('departments').select('*');
 
-  if (req.user.role === 'employee' || req.user.role === 'manager' || req.user.role === 'supervisor' || req.user.role === 'accounting_limited') {
-    const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
-    const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
-
-    if (accessibleDepartmentIds.length > 0) {
-      departmentQuery = departmentQuery.in('id', accessibleDepartmentIds);
-    } else {
-      // Always enforce department access - never fall back without explicit check
-      return res.json([]);
-    }
-  }
-
   const { data: departments, error } = await departmentQuery;
   if (error) return res.status(400).json({ error });
 

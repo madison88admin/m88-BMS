@@ -373,25 +373,11 @@ const NewRequestForm = () => {
           }
         }
 
-        // Initialize department if user has one
+        // Initialize department if user has one (as default, but user can change it)
         if (userData.department_id) {
-          const isStaff = userData.role !== 'admin' && userData.role !== 'accounting';
-          
-          setReimbursementForm(prev => {
-            if (isStaff || !prev.department_id) {
-              return { ...prev, department_id: userData.department_id };
-            }
-            return prev;
-          });
-          
-          setCashAdvanceForm(prev => {
-            if (isStaff || !prev.department_id) {
-              return { ...prev, department_id: userData.department_id };
-            }
-            return prev;
-          });
+          setReimbursementForm(prev => prev.department_id ? prev : ({ ...prev, department_id: userData.department_id }));
+          setCashAdvanceForm(prev => prev.department_id ? prev : ({ ...prev, department_id: userData.department_id }));
         } else if (departmentsRes.data?.length > 0) {
-          // If no department, default to first one for admins
           setReimbursementForm(prev => prev.department_id ? prev : ({ ...prev, department_id: departmentsRes.data[0].id }));
           setCashAdvanceForm(prev => prev.department_id ? prev : ({ ...prev, department_id: departmentsRes.data[0].id }));
         }
@@ -775,8 +761,7 @@ const NewRequestForm = () => {
                   setReimbursementForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
                   setReimbursementMainCategory('');
                 }}
-                disabled={user?.role !== 'admin' && user?.role !== 'accounting'}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
               >
                 {!reimbursementForm.department_id && <option value="">Select department...</option>}
                 {departments.map(dept => (
@@ -1169,8 +1154,7 @@ const NewRequestForm = () => {
                   setCashAdvanceForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
                   setCashAdvanceMainCategory('');
                 }}
-                disabled={user?.role !== 'admin' && user?.role !== 'accounting'}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
+                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
               >
                 {!cashAdvanceForm.department_id && <option value="">Select department...</option>}
                 {departments.map(dept => (
