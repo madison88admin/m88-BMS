@@ -1,56 +1,57 @@
-export default async (req, context) => {
-  // Get the original URL path from the request
-  const rawUrl = req.url || '';
-  let url;
-  try {
-    url = new URL(rawUrl);
-  } catch (e) {
-    url = new URL(rawUrl, 'http://localhost');
-  }
+const http = require('http');
+
+exports.handler = async (event, context) => {
+  const path = event.path || '';
+  const httpMethod = event.httpMethod || 'GET';
+  const queryString = event.queryStringParameters || {};
+  const headers = event.headers || {};
   
-  // The original path should be in the URL - extract everything after /api
-  let path = url.pathname || '';
-  // Remove function path prefix if present
-  path = path.replace(/^\/\.netlify\/functions\/api-proxy/, '');
-  // Remove /api prefix
-  path = path.replace(/^\/api/, '');
-  // Ensure starts with /
-  if (!path || !path.startsWith('/')) path = '/' + (path || '');
+  // Extract path after /api
+  let apiPath = path.replace(/^\/api/, '');
+  if (!apiPath.startsWith('/')) apiPath = '/' + apiPath;
   
-  const search = url.search || '';
-  const targetUrl = `http://5.223.78.194/api${path}${search}`;
+  // Build query string
+  const qs = Object.keys(queryString).map(k => `${k}=${encodeURIComponent(queryString[k])}`).join('&');
+  const targetUrl = `http://5.223.78.194/api${apiPath}${qs ? '?' + qs : ''}`;
   
-  // Forward headers
-  const headers = {};
-  try {
-    const authHeader = req.headers.get('authorization');
-    if (authHeader) headers['Authorization'] = authHeader;
-    const ctHeader = req.headers.get('content-type');
-    if (ctHeader) headers['Content-Type'] = ctHeader;
-  } catch (e) {}
+  // Build headers to forward
+  const fwdHeaders = {};
+  if (headers.authorization) fwdHeaders['Authorization'] = headers.authorization;
+  if (headers['content-type']) fwdHeaders['Content-Type'] = headers['content-type'];
   
-  const fetchOptions = { method: req.method, headers };
-  
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    try {
-      const body = await req.text();
-      if (body) fetchOptions.body = body;
-    } catch (e) {}
-  }
-  
-  try {
-    const response = await fetch(targetUrl, fetchOptions);
-    const data = await response.text();
-    const contentType = response.headers.get('content-type') || 'application/json';
+  return new Promise((resolve) => {
+    const urlObj = new URL(targetUrl);
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || 80,
+      path: urlObj.pathname + urlObj.search,
+      method: httpMethod,
+      headers: fwdHeaders,
+    };
     
-    return new Response(data, {
-      status: response.status,
-      headers: { 'Content-Type': contentType },
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode,
+          headers: { 'Content-Type': res.headers['content-type'] || 'application/json' },
+          body: data,
+        });
+      });
     });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: 'Proxy error: ' + (err.message || err) }), {
-      status: 502,
-      headers: { 'Content-Type': 'application/json' },
+    
+    req.on('error', (err) => {
+      resolve({
+        statusCode: 502,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Proxy error: ' + err.message }),
+      });
     });
-  }
+    
+    if (httpMethod !== 'GET' && event.body) {
+      req.write(event.body);
+    }
+    req.end();
+  });
 };
