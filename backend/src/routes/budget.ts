@@ -174,7 +174,8 @@ router.get('/categories', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (
     }
 
     if (department_id && department_id !== '') {
-      query = query.or(`department_id.eq.${department_id},department_id.eq.All`);
+      // Query for specific department only (department_id is UUID, no 'All' value exists)
+      query = query.eq('department_id', department_id);
     }
 
     const { data, error } = await query.order('category_name');

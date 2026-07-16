@@ -1,4 +1,4 @@
-const http = require('http');
+const https = require('https');
 
 exports.handler = async (event, context) => {
   // event.path contains the original request path when using rewrite
@@ -57,13 +57,14 @@ exports.handler = async (event, context) => {
   return new Promise((resolve) => {
     const options = {
       hostname: '5.223.78.194',
-      port: 80,
+      port: 443,
       path: targetPath,
       method: httpMethod,
       headers: fwdHeaders,
+      rejectUnauthorized: false, // Skip self-signed cert validation
     };
     
-    const req = http.request(options, (res) => {
+    const req = https.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
