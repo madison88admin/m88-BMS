@@ -15,12 +15,6 @@ exports.handler = async (event, context) => {
     path = event.headers['x-netlify-original-path'];
   }
   
-  console.log('Proxy event:', JSON.stringify({ 
-    path: event.path, 
-    rawUrl: event.rawUrl, 
-    resource: event.resource,
-    httpMethod: event.httpMethod 
-  }));
   
   const httpMethod = event.httpMethod || 'GET';
   const queryString = event.queryStringParameters || {};
@@ -37,7 +31,6 @@ exports.handler = async (event, context) => {
   const qs = Object.keys(queryString).map(k => `${k}=${encodeURIComponent(queryString[k])}`).join('&');
   const targetPath = `/api${apiPath}${qs ? '?' + qs : ''}`;
   
-  console.log('Proxy target:', `http://5.223.78.194${targetPath}`);
   
   // Build headers to forward — Netlify lowercases all header names
   const fwdHeaders = {};
@@ -48,8 +41,6 @@ exports.handler = async (event, context) => {
   const ct = headers['content-type'] || headers['Content-Type'] || headers['CONTENT-TYPE'];
   if (ct) fwdHeaders['Content-Type'] = ct;
   
-  console.log('Proxy headers received:', JSON.stringify(headers));
-  console.log('Proxy headers forwarded:', JSON.stringify(fwdHeaders));
   
   // Process body before creating request so Content-Length is set
   let bodyData = null;
@@ -61,7 +52,6 @@ exports.handler = async (event, context) => {
       bodyData = Buffer.from(bodyData, 'utf8');
     }
     fwdHeaders['Content-Length'] = bodyData.length;
-    console.log('Proxy body length:', bodyData.length, 'isBase64:', event.isBase64Encoded);
   }
   
   return new Promise((resolve) => {
@@ -77,8 +67,6 @@ exports.handler = async (event, context) => {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
-        console.log('Proxy response status:', res.statusCode, 'length:', data.length);
-        console.log('Proxy response body:', data.substring(0, 500));
         resolve({
           statusCode: res.statusCode,
           headers: { 'Content-Type': res.headers['content-type'] || 'application/json' },
