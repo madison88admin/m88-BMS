@@ -74,7 +74,7 @@ const fetchCategoriesForDepartments = async (
     .select(
       'id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id, fiscal_year, is_locked'
     )
-    .or(`department_id.in.(${departmentIds.join(',')}),department_id.eq.All`)
+    .in('department_id', departmentIds)
     .eq('fiscal_year', fiscalYear)
     .order('category_name');
 
@@ -82,18 +82,34 @@ const fetchCategoriesForDepartments = async (
     console.error(`[fetchCategoriesForDepartments] Query error:`, error);
     throw error;
   }
-  console.log(`[fetchCategoriesForDepartments] Query returned ${data?.length || 0} categories`);
-  if (data && data.length > 0) {
+
+  // Also fetch categories assigned to all departments (department_id = 'All')
+  const { data: allDeptCategories, error: allDeptError } = await supabase
+    .from('budget_categories')
+    .select(
+      'id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id, fiscal_year, is_locked'
+    )
+    .eq('department_id', 'All')
+    .eq('fiscal_year', fiscalYear)
+    .order('category_name');
+
+  if (allDeptError) {
+    console.error(`[fetchCategoriesForDepartments] All-dept query error:`, allDeptError);
+  }
+
+  const combined = [...(data || []), ...(allDeptCategories || [])];
+  console.log(`[fetchCategoriesForDepartments] Query returned ${data?.length || 0} dept categories + ${allDeptCategories?.length || 0} All categories = ${combined.length} total`);
+  if (combined.length > 0) {
     console.log(`[fetchCategoriesForDepartments] Sample category:`, {
-      id: data[0].id,
-      category_code: data[0].category_code,
-      category_name: data[0].category_name,
-      department_id: data[0].department_id,
-      fiscal_year: data[0].fiscal_year,
-      budget_amount: data[0].budget_amount
+      id: combined[0].id,
+      category_code: combined[0].category_code,
+      category_name: combined[0].category_name,
+      department_id: combined[0].department_id,
+      fiscal_year: combined[0].fiscal_year,
+      budget_amount: combined[0].budget_amount
     });
   }
-  return (data || []) as CategoryRow[];
+  return combined as CategoryRow[];
 };
 
 const findSourceCategories = async (
