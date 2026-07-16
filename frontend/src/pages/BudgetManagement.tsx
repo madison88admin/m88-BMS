@@ -265,8 +265,8 @@ const BudgetManagement = () => {
   const [analyticsDeptId, setAnalyticsDeptId] = useState<string>('');
   const [analyticsDept, setAnalyticsDept] = useState<string>('all');
 
-  // Accounting, admin, supervisor, VP, and President may lock/unlock/override budget matrix
-  const canEditMatrix = ['accounting', 'admin', 'supervisor', 'vp', 'president'].includes(String(user?.role || '').toLowerCase());
+  // Only accounting and admin may lock/unlock/override budget matrix
+  const canEditMatrix = ['accounting', 'admin'].includes(String(user?.role || '').toLowerCase());
   const isViewOnlyMatrix = !canEditMatrix;
 
   const visibleDepartments = useMemo(() => {

@@ -404,8 +404,8 @@ router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'ad
   }
 });
 
-// PATCH /api/budget/categories/:id/lock - Lock budget category (accounting/supervisor/admin)
-router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admin', 'supervisor'), async (req: any, res) => {
+// PATCH /api/budget/categories/:id/lock - Lock budget category (accounting/admin only)
+router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
   try {
     const { id } = req.params;
 
