@@ -39,10 +39,17 @@ exports.handler = async (event, context) => {
   
   console.log('Proxy target:', `http://5.223.78.194${targetPath}`);
   
-  // Build headers to forward
+  // Build headers to forward — Netlify lowercases all header names
   const fwdHeaders = {};
-  if (headers.authorization) fwdHeaders['Authorization'] = headers.authorization;
-  if (headers['content-type']) fwdHeaders['Content-Type'] = headers['content-type'];
+  if (headers.authorization || headers.Authorization) {
+    fwdHeaders['Authorization'] = headers.authorization || headers.Authorization;
+  }
+  // Check all common casings for content-type
+  const ct = headers['content-type'] || headers['Content-Type'] || headers['CONTENT-TYPE'];
+  if (ct) fwdHeaders['Content-Type'] = ct;
+  
+  console.log('Proxy headers received:', JSON.stringify(headers));
+  console.log('Proxy headers forwarded:', JSON.stringify(fwdHeaders));
   
   // Process body before creating request so Content-Length is set
   let bodyData = null;
