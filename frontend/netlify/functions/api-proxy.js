@@ -1,16 +1,23 @@
 export default async (req, context) => {
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/api/, '');
+  
+  // Extract the path after /api/ — handle different Netlify function URL formats
+  let path = url.pathname;
+  // Remove function prefix if present
+  path = path.replace(/^\/\.netlify\/functions\/api-proxy/, '');
+  // Remove /api prefix if present  
+  path = path.replace(/^\/api/, '');
+  // Ensure path starts with /
+  if (!path.startsWith('/')) path = '/' + path;
+  
   const targetUrl = `http://5.223.78.194:3001/api${path}${url.search}`;
   
-  // Forward the request to VPS
+  // Forward auth and content-type headers
   const headers = {};
-  if (req.headers.get('authorization')) {
-    headers['Authorization'] = req.headers.get('authorization');
-  }
-  if (req.headers.get('content-type')) {
-    headers['Content-Type'] = req.headers.get('content-type');
-  }
+  const authHeader = req.headers.get('authorization');
+  if (authHeader) headers['Authorization'] = authHeader;
+  const ctHeader = req.headers.get('content-type');
+  if (ctHeader) headers['Content-Type'] = ctHeader;
   
   const fetchOptions = {
     method: req.method,
@@ -18,8 +25,12 @@ export default async (req, context) => {
   };
   
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    const body = await req.text();
-    fetchOptions.body = body;
+    try {
+      const body = await req.text();
+      if (body) fetchOptions.body = body;
+    } catch (e) {
+      // No body
+    }
   }
   
   try {
