@@ -245,6 +245,7 @@ const BudgetManagement = () => {
   const [revisionHistory, setRevisionHistory] = useState<Record<string, any[]>>({});
   const [submittingProposal, setSubmittingProposal] = useState(false);
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
+  const [allMainCategories, setAllMainCategories] = useState<any[]>([]);
   const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
@@ -479,6 +480,27 @@ const BudgetManagement = () => {
     if (!availableFiscalYears.includes(selectedFiscalYear)) setSelectedFiscalYear(availableFiscalYears[0]);
   }, [availableFiscalYears]);
 
+  // Fetch ALL main categories for the fiscal year (for budget proposal — not limited to selected department)
+  useEffect(() => {
+    const fetchAllMainCategories = async () => {
+      try {
+        const fiscalYear = selectedFiscalYear || new Date().getFullYear();
+        const res = await api.get('/api/budget/categories', { params: { fiscal_year: fiscalYear } });
+        const allCats = Array.isArray(res.data) ? res.data : [];
+        const mainCats = allCats.filter((c: any) => !c.parent_category_id);
+        const uniqueByCode = new Map<string, any>();
+        mainCats.forEach((c: any) => {
+          const code = String(c.category_code || '').trim();
+          if (code && !uniqueByCode.has(code)) uniqueByCode.set(code, c);
+        });
+        setAllMainCategories(Array.from(uniqueByCode.values()).sort((a, b) => String(a.category_name).localeCompare(String(b.category_name))));
+      } catch (err) {
+        console.error('Failed to fetch all main categories:', err);
+      }
+    };
+    fetchAllMainCategories();
+  }, [selectedFiscalYear]);
+
   useEffect(() => {
     if (!filteredDepts.length) { setSelectedDepartmentId(''); return; }
     if (!filteredDepts.some(d => d.id === selectedDepartmentId)) setSelectedDepartmentId(filteredDepts[0].id);
@@ -688,8 +710,7 @@ const BudgetManagement = () => {
 
   const submitBudgetProposals = async () => {
     if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
-    const mainCategories = enrichedCategories.filter((c) => !c.parent_category_id);
-    const proposals = mainCategories
+    const proposals = allMainCategories
       .map((cat) => ({
         category: cat,
         amount: toNumber(proposalDrafts[cat.id] ?? cat.budget_amount)
@@ -1902,8 +1923,8 @@ const BudgetManagement = () => {
                       </div>
                     )}
 
-                    {/* Add form — hidden for supervisor once a budget proposal is approved (categories locked) */}
-                    {user?.role === 'supervisor' && parentCategoryOptions.length > 0 && !parentCategoryOptions.some((c) => c.is_locked) && (
+                    {/* Budget Proposal — shows ALL main categories across all departments */}
+                    {user?.role === 'supervisor' && allMainCategories.length > 0 && !allMainCategories.some((c) => c.is_locked) && (
                       <div className="mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
@@ -1914,8 +1935,8 @@ const BudgetManagement = () => {
                             {submittingProposal ? 'Submitting…' : 'Submit Proposal'}
                           </button>
                         </div>
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {parentCategoryOptions.map((cat) => (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {allMainCategories.map((cat) => (
                             <div key={cat.id} className="flex items-center gap-2 text-sm">
                               <span className="flex-1 truncate font-medium">{cat.category_name}</span>
                               <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Current: {displayMoney(toNumber(cat.budget_amount))}</span>
