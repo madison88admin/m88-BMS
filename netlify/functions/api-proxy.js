@@ -7,7 +7,7 @@ export default async (req, context) => {
   path = path.replace(/^\/api/, '');
   if (!path.startsWith('/')) path = '/' + path;
   
-  const targetUrl = `http://5.223.78.194:3001/api${path}${url.search}`;
+  const targetUrl = `http://5.223.78.194/api${path}${url.search}`;
   
   const headers = {};
   const authHeader = req.headers.get('authorization');
