@@ -378,51 +378,7 @@ const BudgetManagement = () => {
     [selectedBreakdown?.categories]
   );
 
-  // Apply client-side visibility filter for non-accounting viewers when listing categories
-  const visibleEnrichedCategories = useMemo(() => {
-    try {
-      const raw = localStorage.getItem('prefetch_expense_categories');
-      const expenseCache = raw ? JSON.parse(raw).data : null;
-      if (!expenseCache || !user) return enrichedCategories;
-      
-      const deptName = selectedDepartment?.name || '';
-      const { mapDepartmentNameToShort } = require('../utils/budgetVisibility');
-      const deptShort = mapDepartmentNameToShort(deptName);
-      
-      // Build set of allowed main category codes from expense_categories cache
-      const allowedMainCodes = new Set<string>();
-      expenseCache.forEach((ec: any) => {
-        const code = String(ec.main_category_code || '').trim();
-        const dept = String(ec.department || '').trim();
-        if (!code) return;
-        if (dept === 'All') { allowedMainCodes.add(code); return; }
-        if (deptShort && dept === deptShort) { allowedMainCodes.add(code); return; }
-      });
-      
-      // Filter categories based on department restrictions
-      return enrichedCategories.filter(c => {
-        const code = String(c.category_code || '').trim();
-        
-        // For main categories: only show if code is in allowed list
-        if (!c.parent_category_id) {
-          return allowedMainCodes.has(code);
-        }
-        
-        // For sub-categories: show if parent is allowed AND sub-category department is 'All' or matches department
-        const parentCode = String(c.parent_category_code || '').trim();
-        if (!allowedMainCodes.has(parentCode)) return false;
-        
-        // Get sub-category's department from expense cache
-        const subCatDept = expenseCache.find((ec: any) => ec.category_code === code);
-        if (!subCatDept) return true; // If not found, allow (fallback)
-        
-        const subDept = String(subCatDept.department || '').trim();
-        return subDept === 'All' || (deptShort && subDept === deptShort);
-      });
-    } catch (err) {
-      return enrichedCategories;
-    }
-  }, [enrichedCategories, user, selectedDepartment]);
+  const visibleEnrichedCategories = enrichedCategories;
 
   const lockedCategories = useMemo(
     () => visibleEnrichedCategories.filter((category) => category.is_locked),
