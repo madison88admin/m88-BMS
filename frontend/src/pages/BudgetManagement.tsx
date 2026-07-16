@@ -589,6 +589,7 @@ const BudgetManagement = () => {
     try {
       await api.put(`/api/budget/categories/${catId}`, { budget_amount: budget });
       toast.success('Category budget updated!');
+      setBudgetInputs(prev => { const n = { ...prev }; delete n[`cat_${catId}`]; return n; });
       if (selectedDepartmentId) { await fetchBreakdown(selectedDepartmentId, false, false); await fetchDepartments(false); await fetchM88ManilaCostCenter(); }
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to update category')); }
   };

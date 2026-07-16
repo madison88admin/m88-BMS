@@ -57,13 +57,19 @@ const syncMainCategoryRemaining = async (categoryId?: string | null) => {
   const directUsed = toNumber(category.used_amount);
   const directCommitted = toNumber(category.committed_amount);
 
+  // If there are children, ensure parent budget is at least the sum of child budgets
+  const currentParentBudget = toNumber(category.budget_amount);
+  const newParentBudget = (children || []).length > 0 && childBudgetTotal > currentParentBudget
+    ? childBudgetTotal
+    : currentParentBudget;
+
   // Main category remaining = budget - (direct usage + all child usage)
   // This reflects the actual money left across the entire category tree
-  const remainingAmount = Math.max(0, toNumber(category.budget_amount) - directUsed - directCommitted - childUsedTotal - childCommittedTotal);
+  const remainingAmount = Math.max(0, newParentBudget - directUsed - directCommitted - childUsedTotal - childCommittedTotal);
 
   await supabase
     .from('budget_categories')
-    .update({ remaining_amount: remainingAmount, updated_at: new Date() })
+    .update({ remaining_amount: remainingAmount, budget_amount: newParentBudget, updated_at: new Date() })
     .eq('id', category.id);
 };
 
@@ -93,6 +99,55 @@ const assertChildAllocationFitsParent = async (
     throw new Error(`Sub-category allocations exceed "${parentCategory.category_name}" budget. Available: ${(parentBudget - existingChildTotal).toFixed(2)}, Requested: ${requestedBudget.toFixed(2)}`);
   }
 
+  return parentCategory;
+};
+
+const autoExpandParentBudget = async (
+  parentCategoryId: string,
+  requestedSubBudget: number,
+  excludeCategoryId?: string
+) => {
+  const { data: parentCategory, error: parentError } = await supabase
+    .from('budget_categories')
+    .select('id, department_id, fiscal_year, parent_category_id, budget_amount, used_amount, committed_amount, category_name')
+    .eq('id', parentCategoryId)
+    .maybeSingle();
+
+  if (parentError || !parentCategory) {
+    throw new Error('Parent category not found');
+  }
+  if (parentCategory.parent_category_id) {
+    throw new Error('Parent category cannot itself be a subcategory');
+  }
+
+  const existingChildTotal = await sumChildBudgets(parentCategoryId, excludeCategoryId);
+  const nextChildTotal = existingChildTotal + requestedSubBudget;
+  const parentBudget = toNumber(parentCategory.budget_amount);
+
+  // If sub-categories fit within parent budget, no need to expand
+  if (nextChildTotal <= parentBudget) return parentCategory;
+
+  // Auto-expand parent budget to fit all sub-category allocations
+  const newParentBudget = nextChildTotal;
+  const directUsed = toNumber(parentCategory.used_amount);
+  const directCommitted = toNumber(parentCategory.committed_amount);
+
+  // Get children used/committed for remaining calculation
+  const { data: children } = await supabase
+    .from('budget_categories')
+    .select('used_amount, committed_amount')
+    .eq('parent_category_id', parentCategoryId);
+
+  const childUsedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.used_amount), 0);
+  const childCommittedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.committed_amount), 0);
+  const newRemaining = Math.max(0, newParentBudget - directUsed - directCommitted - childUsedTotal - childCommittedTotal);
+
+  await supabase
+    .from('budget_categories')
+    .update({ budget_amount: newParentBudget, remaining_amount: newRemaining, updated_at: new Date() })
+    .eq('id', parentCategoryId);
+
+  console.log(`[autoExpandParentBudget] Expanded "${parentCategory.category_name}" from ${parentBudget} to ${newParentBudget}`);
   return parentCategory;
 };
 
@@ -460,14 +515,14 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
         if (parentCategory.parent_category_id) {
           return res.status(400).json({ error: 'Parent category cannot itself be a subcategory' });
         }
-        await assertChildAllocationFitsParent(parent_category_id, requestedBudget, id);
+        await autoExpandParentBudget(parent_category_id, requestedBudget, id);
         updatePayload.parent_category_id = parent_category_id;
         nextParentCategoryId = parent_category_id;
       }
     }
 
     if (nextParentCategoryId) {
-      await assertChildAllocationFitsParent(nextParentCategoryId, requestedBudget, id);
+      await autoExpandParentBudget(nextParentCategoryId, requestedBudget, id);
     }
 
     if (!nextParentCategoryId && !isMovingToMain) {
