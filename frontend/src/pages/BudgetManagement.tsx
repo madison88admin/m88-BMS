@@ -1883,7 +1883,7 @@ const BudgetManagement = () => {
                     )}
 
                     {/* Budget Proposal — shows ALL main categories across all departments */}
-                    {user?.role === 'supervisor' && allMainCategories.length > 0 && !allMainCategories.some((c) => c.is_locked) && (
+                    {user?.role === 'supervisor' && allMainCategories.length > 0 && allMainCategories.some((c) => !c.is_locked) && (
                       <div className="mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
