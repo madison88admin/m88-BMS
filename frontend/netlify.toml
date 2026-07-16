@@ -5,14 +5,12 @@
 [build.environment]
   NODE_VERSION = "18"
 
-# Production API routing — choose ONE:
-#
-# Option A (Render backend — current production default):
-# Frontend makes direct API calls to Render backend
-# No redirect needed
-
-# Option B (Netlify Functions — sequential approval parity):
-# Remove Option A and use the redirects in the repo root netlify.toml instead.
+# API proxy: route /api/* to VPS backend (avoids mixed content from HTTPS Netlify to HTTP VPS)
+[[redirects]]
+  from = "/api/*"
+  to = "http://5.223.78.194/api/:splat"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/*"
