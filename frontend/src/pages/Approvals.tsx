@@ -2010,6 +2010,7 @@ const Approvals = () => {
                         <tr>
                           <th className="w-10 px-4 py-3"></th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Code</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Category</th>
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Item</th>
                           {/* Removed 'Type' column per Section 1.4 requirements */}
                           <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">Submitted By</th>
@@ -2049,7 +2050,13 @@ const Approvals = () => {
                               <td className="px-4 py-3 font-mono text-xs text-[var(--role-text)]/70 whitespace-nowrap">
                                 {req.request_code || '—'}
                               </td>
-                              {/* Category / Item */}
+                              {/* Category */}
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="rounded-full border border-[var(--role-border)] bg-[var(--role-accent)] px-2.5 py-1 text-xs font-semibold text-[var(--role-text)]/80">
+                                  {getRequestCategoryName(req) || '—'}
+                                </span>
+                              </td>
+                              {/* Item */}
                               <td className="px-4 py-3 max-w-[220px]">
                                 <p className="font-semibold text-[var(--role-text)] truncate" title={req.item_name}>{req.item_name}</p>
                                 {isInsufficientBudget && (
@@ -2138,7 +2145,7 @@ const Approvals = () => {
                         })}
                         {/* Group total row */}
                         <tr className="bg-[var(--role-accent)]/50 border-t-2 border-[var(--role-border)]/40">
-                          <td colSpan={7} className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">
+                          <td colSpan={8} className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/50">
                             Department Total
                           </td>
                           <td className="px-4 py-2.5 text-right font-bold text-[var(--role-text)]">
@@ -2780,6 +2787,16 @@ const Approvals = () => {
                         Requesting Department: <span className="font-semibold text-[var(--role-text)]">{req.department_name || 'Unknown department'}</span>
 
                       </p>
+
+                      {getRequestCategoryName(req) && (
+
+                        <p className="mt-1 text-sm text-[var(--role-text)]/70">
+
+                          Category: <span className="font-semibold text-[var(--role-text)]">{getRequestCategoryName(req)}</span>
+
+                        </p>
+
+                      )}
 
                     </div>
 
