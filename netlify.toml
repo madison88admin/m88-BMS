@@ -8,14 +8,7 @@
 [functions]
   directory = "netlify/functions"
 
-# API proxy: route all /api/* to VPS backend via Netlify Function
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api-proxy/:splat"
-  status = 200
-  force = true
-
-# SPA fallback
+# SPA fallback (API proxy is in frontend/public/_redirects)
 [[redirects]]
   from = "/*"
   to = "/index.html"
