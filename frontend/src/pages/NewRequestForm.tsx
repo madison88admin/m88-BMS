@@ -494,13 +494,17 @@ const NewRequestForm = () => {
       const selectedCategory = categories.find(c => c.category_name === reimbursementForm.main_category);
       const categoryId = selectedCategory?.id || '';
 
-      const itemsForBackend = reimbursementForm.items.map(item => ({
-        item_name: item.item,
-        main_category: reimbursementForm.main_category || 'Reimbursement',
-        category: reimbursementForm.main_category || 'Reimbursement',
-        category_id: categoryId,
-        amount: parseFloat(item.amount) || 0
-      }));
+      const itemsForBackend = reimbursementForm.items.map(item => {
+        const selectedItem = officialList.find(off => `${off.code} | ${off.itemName}` === item.item);
+        const itemCategoryId = resolveCategoryIdFromOfficialItem(selectedItem, categories) || categoryId;
+        return {
+          item_name: item.item,
+          main_category: reimbursementForm.main_category || 'Reimbursement',
+          category: selectedItem?.itemName || reimbursementForm.main_category || 'Reimbursement',
+          category_id: itemCategoryId,
+          amount: parseFloat(item.amount) || 0
+        };
+      });
 
       const reimbursementAttachments = reimbursementForm.attachments.length > 0
         ? await uploadFiles(reimbursementForm.attachments)
@@ -557,13 +561,17 @@ const NewRequestForm = () => {
     try {
       const selectedCategory = categories.find(c => c.category_name === cashAdvanceForm.main_category);
       const categoryId = selectedCategory?.id || '';
-      const itemsForBackend = cashAdvanceForm.breakdown.map(item => ({
-        item_name: item.item,
-        main_category: cashAdvanceForm.main_category || 'Cash Advance',
-        category: cashAdvanceForm.main_category || 'Cash Advance',
-        category_id: categoryId,
-        amount: parseFloat(item.amount) || 0
-      }));
+      const itemsForBackend = cashAdvanceForm.breakdown.map((item: any) => {
+        const selectedItem = officialList.find(off => `${off.code} | ${off.itemName}` === item.item);
+        const itemCategoryId = resolveCategoryIdFromOfficialItem(selectedItem, categories) || categoryId;
+        return {
+          item_name: item.item,
+          main_category: cashAdvanceForm.main_category || 'Cash Advance',
+          category: selectedItem?.itemName || cashAdvanceForm.main_category || 'Cash Advance',
+          category_id: itemCategoryId,
+          amount: parseFloat(item.amount) || 0
+        };
+      });
 
       const cashAdvanceAttachments = cashAdvanceForm.attachments.length > 0
         ? await uploadFiles(cashAdvanceForm.attachments)

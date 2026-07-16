@@ -198,7 +198,19 @@ const validateCategoryBudgetsForSubmission = async (
 
       if (error) return error.message;
       if (!category) {
-        return `Requested category "${name}" was not found for the selected department and fiscal year.`;
+        // Fallback: try matching by category_code in case the name is a group name (e.g. 'Asset')
+        const { data: categoryByCode, error: codeError } = await supabase
+          .from('budget_categories')
+          .select('id, category_name, department_id, fiscal_year, remaining_amount, parent_category_id')
+          .eq('department_id', targetDepartmentId)
+          .eq('fiscal_year', fiscalYear)
+          .eq('category_code', name)
+          .maybeSingle();
+
+        if (codeError) return codeError.message;
+        if (!categoryByCode) {
+          return `Requested category "${name}" was not found for the selected department and fiscal year.`;
+        }
       }
 
       // Note: allow submission even when remaining budget is insufficient.
@@ -243,8 +255,20 @@ const validateCategoryBudgetsForSubmission = async (
 
   const { data: category, error } = await categoryQuery.maybeSingle();
   if (error) return error.message;
-  if (!category) {
-    return `Category "${normalizedCategoryName || normalizedCategoryId}" was not found for the selected department and fiscal year.`;
+  if (!category && !normalizedCategoryId) {
+    // Fallback: try matching by category_code in case the name is a group name (e.g. 'Asset')
+    const { data: categoryByCode, error: codeError } = await supabase
+      .from('budget_categories')
+      .select('id, category_name, department_id, fiscal_year, remaining_amount, parent_category_id')
+      .eq('department_id', targetDepartmentId)
+      .eq('fiscal_year', fiscalYear)
+      .eq('category_code', normalizedCategoryName)
+      .maybeSingle();
+
+    if (codeError) return codeError.message;
+    if (!categoryByCode) {
+      return `Category "${normalizedCategoryName || normalizedCategoryId}" was not found for the selected department and fiscal year.`;
+    }
   }
 
   // Allow submission even if remaining budget is insufficient; supervisors will review remaining_amount on the ticket.

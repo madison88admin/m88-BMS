@@ -138,12 +138,12 @@ export const OFFICIAL_EXPENSE_LIST: ExpenseItem[] = [
   // 9900 Sundry
   { code: '9900', itemName: 'Sundry & Misc', category: 'Sundry', dept: 'All Dept', canCA: true, canRE: true },
 
-  // Asset categories — for budgeting only, not for expense upload
-  { code: '1700', itemName: 'Office Equipment', category: 'Asset', dept: 'All Dept', canCA: false, canRE: false },
-  { code: '1701', itemName: 'Furniture & Fixtures', category: 'Asset', dept: 'All Dept', canCA: false, canRE: false },
-  { code: '1702', itemName: 'Computer & IT Equipment', category: 'Asset', dept: 'All Dept', canCA: false, canRE: false },
-  { code: '1703', itemName: 'Transportation Equipment', category: 'Asset', dept: 'All Dept', canCA: false, canRE: false },
-  { code: '1704', itemName: 'Leasehold Improvements', category: 'Asset', dept: 'All Dept', canCA: false, canRE: false }
+  // Asset categories
+  { code: '1700', itemName: 'Office Equipment', category: 'Asset', dept: 'All Dept', canCA: true, canRE: true },
+  { code: '1701', itemName: 'Furniture & Fixtures', category: 'Asset', dept: 'All Dept', canCA: true, canRE: true },
+  { code: '1702', itemName: 'Computer & IT Equipment', category: 'Asset', dept: 'All Dept', canCA: true, canRE: true },
+  { code: '1703', itemName: 'Transportation Equipment', category: 'Asset', dept: 'All Dept', canCA: true, canRE: true },
+  { code: '1704', itemName: 'Leasehold Improvements', category: 'Asset', dept: 'All Dept', canCA: true, canRE: true }
 ];
 
 type BudgetCategoryRow = {
