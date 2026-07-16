@@ -985,16 +985,12 @@ const BudgetManagement = () => {
   const fetchSpendingBreakdown = async () => {
     setSpendingBreakdownLoading(true);
     try {
-      const deptId = costCenterFilterDept !== 'all' ? costCenterFilterDept : selectedDepartmentId;
-      if (!deptId) {
-        setSpendingBreakdown([]);
-        return;
-      }
+      const deptId = costCenterFilterDept !== 'all' ? costCenterFilterDept : (selectedDepartmentId || '');
 
       const fiscalYear = selectedFiscalYear || new Date().getFullYear();
-      const res = await api.get('/api/budget/categories', {
-        params: { department_id: deptId, fiscal_year: fiscalYear }
-      });
+      const params: any = { fiscal_year: fiscalYear };
+      if (deptId) params.department_id = deptId;
+      const res = await api.get('/api/budget/categories', { params });
 
       const categories = Array.isArray(res.data) ? res.data : [];
 
@@ -1054,19 +1050,14 @@ const BudgetManagement = () => {
     fetchSpendingBreakdown();
   }, [costCenterFilterDept, costCenterFilterCategory, selectedDepartmentId, selectedFiscalYear]);
 
-  // Fetch categories for selected department in cost center filter
+  // Fetch categories for cost center filter — show all categories regardless of department
   useEffect(() => {
     const fetchCostCenterCategories = async () => {
-      if (costCenterFilterDept === 'all') {
-        setCostCenterCategories([]);
-        return;
-      }
-
       try {
         const fiscalYear = selectedFiscalYear || new Date().getFullYear();
-        const res = await api.get('/api/budget/categories', {
-          params: { department_id: costCenterFilterDept, fiscal_year: fiscalYear }
-        });
+        const params: any = { fiscal_year: fiscalYear };
+        if (costCenterFilterDept !== 'all') params.department_id = costCenterFilterDept;
+        const res = await api.get('/api/budget/categories', { params });
         const categories = Array.isArray(res.data) ? res.data : [];
         setCostCenterCategories(categories);
       } catch (err) {
@@ -1557,7 +1548,7 @@ const BudgetManagement = () => {
               value={costCenterFilterCategory}
               onChange={(e) => setCostCenterFilterCategory(e.target.value)}
               className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
-              disabled={costCenterFilterDept === 'all'}
+              disabled={false}
             >
               <option value="all">All Categories</option>
               {costCenterCategories.map((cat: any) => (
