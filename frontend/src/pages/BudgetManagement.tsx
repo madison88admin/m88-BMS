@@ -271,12 +271,16 @@ const BudgetManagement = () => {
 
   const visibleDepartments = useMemo(() => {
     const map = new Map<string, any>();
+    const allDeptRoles = ['accounting', 'admin', 'super_admin', 'vp', 'president'];
+    const canSeeAllDepts = allDeptRoles.includes(String(user?.role || '').toLowerCase());
     const filtered = departments.filter(d => {
-      // Managers can only see their own department
-      if (user?.role === 'manager' && user?.department_id) {
+      // Only accounting/admin/super_admin/vp/president can see all departments
+      if (canSeeAllDepts) return true;
+      // Supervisors, managers, employees: only their own department
+      if (user?.department_id) {
         return d.id === user.department_id;
       }
-      return true;
+      return false;
     });
     filtered
       .filter(d => !/^m88/i.test(d.name || ''))
@@ -1359,7 +1363,7 @@ const BudgetManagement = () => {
         {(costCenterFilterDept !== 'all' || costCenterFilterCategory !== 'all') && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-[var(--role-surface)] px-3 py-2">
             <span className="text-xs text-[var(--role-text)]/60">
-              Showing: {costCenterFilterDept !== 'all' ? departments.find(d => d.id === costCenterFilterDept)?.name : 'All Departments'} · {costCenterFilterCategory !== 'all' ? costCenterFilterCategory : 'All Categories'}
+              Showing: {costCenterFilterDept !== 'all' ? visibleDepartments.find(d => d.id === costCenterFilterDept)?.name : 'All Departments'} · {costCenterFilterCategory !== 'all' ? costCenterFilterCategory : 'All Categories'}
             </span>
             <button
               onClick={() => { setCostCenterFilterDept('all'); setCostCenterFilterCategory('all'); }}
@@ -1565,7 +1569,7 @@ const BudgetManagement = () => {
               className="w-full px-2 py-1.5 text-xs rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-[var(--role-text)]"
             >
               <option value="all">All Departments</option>
-              {departments.map(dept => (
+              {visibleDepartments.map(dept => (
                 <option key={dept.id} value={dept.id}>{dept.name}</option>
               ))}
             </select>
