@@ -83,22 +83,8 @@ const fetchCategoriesForDepartments = async (
     throw error;
   }
 
-  // Also fetch categories assigned to all departments (department_id = 'All')
-  const { data: allDeptCategories, error: allDeptError } = await supabase
-    .from('budget_categories')
-    .select(
-      'id, category_code, category_name, budget_amount, used_amount, committed_amount, remaining_amount, department_id, parent_category_id, fiscal_year, is_locked'
-    )
-    .eq('department_id', 'All')
-    .eq('fiscal_year', fiscalYear)
-    .order('category_name');
-
-  if (allDeptError) {
-    console.error(`[fetchCategoriesForDepartments] All-dept query error:`, allDeptError);
-  }
-
-  const combined = [...(data || []), ...(allDeptCategories || [])];
-  console.log(`[fetchCategoriesForDepartments] Query returned ${data?.length || 0} dept categories + ${allDeptCategories?.length || 0} All categories = ${combined.length} total`);
+  const combined = [...(data || [])];
+  console.log(`[fetchCategoriesForDepartments] Query returned ${data?.length || 0} categories`);
   if (combined.length > 0) {
     console.log(`[fetchCategoriesForDepartments] Sample category:`, {
       id: combined[0].id,

@@ -484,12 +484,18 @@ const BudgetManagement = () => {
     if (!availableFiscalYears.includes(selectedFiscalYear)) setSelectedFiscalYear(availableFiscalYears[0]);
   }, [availableFiscalYears]);
 
-  // Fetch ALL main categories for the fiscal year (for budget proposal — not limited to selected department)
+  // Fetch ALL main categories for the fiscal year (for budget proposal)
+  // Use the user's own department for supervisors so category IDs match on submit
   useEffect(() => {
     const fetchAllMainCategories = async () => {
       try {
         const fiscalYear = selectedFiscalYear || new Date().getFullYear();
-        const res = await api.get('/api/budget/categories', { params: { fiscal_year: fiscalYear } });
+        const allDeptRoles = ['accounting', 'admin', 'super_admin', 'vp', 'president'];
+        const canSeeAllDepts = allDeptRoles.includes(String(user?.role || '').toLowerCase());
+        const deptId = canSeeAllDepts ? (selectedDepartmentId || '') : (user?.department_id || '');
+        const params: any = { fiscal_year: fiscalYear };
+        if (deptId) params.department_id = deptId;
+        const res = await api.get('/api/budget/categories', { params });
         const allCats = Array.isArray(res.data) ? res.data : [];
         const mainCats = allCats.filter((c: any) => !c.parent_category_id);
         const uniqueByCode = new Map<string, any>();
@@ -503,7 +509,7 @@ const BudgetManagement = () => {
       }
     };
     fetchAllMainCategories();
-  }, [selectedFiscalYear]);
+  }, [selectedFiscalYear, selectedDepartmentId, user?.role, user?.department_id]);
 
   useEffect(() => {
     if (!filteredDepts.length) { setSelectedDepartmentId(''); return; }
