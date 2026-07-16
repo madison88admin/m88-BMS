@@ -44,6 +44,17 @@ exports.handler = async (event, context) => {
   if (headers.authorization) fwdHeaders['Authorization'] = headers.authorization;
   if (headers['content-type']) fwdHeaders['Content-Type'] = headers['content-type'];
   
+  // Process body before creating request so Content-Length is set
+  let bodyData = null;
+  if (httpMethod !== 'GET' && httpMethod !== 'HEAD' && event.body) {
+    bodyData = event.body;
+    if (event.isBase64Encoded) {
+      bodyData = Buffer.from(bodyData, 'base64').toString('utf8');
+    }
+    fwdHeaders['Content-Length'] = Buffer.byteLength(bodyData);
+    console.log('Proxy body length:', Buffer.byteLength(bodyData), 'isBase64:', event.isBase64Encoded);
+  }
+  
   return new Promise((resolve) => {
     const options = {
       hostname: '5.223.78.194',
@@ -75,13 +86,8 @@ exports.handler = async (event, context) => {
       });
     });
     
-    if (httpMethod !== 'GET' && httpMethod !== 'HEAD' && event.body) {
-      let body = event.body;
-      // Netlify may base64-encode the body
-      if (event.isBase64Encoded) {
-        body = Buffer.from(body, 'base64').toString('utf8');
-      }
-      req.write(body);
+    if (bodyData) {
+      req.write(bodyData);
     }
     req.end();
   });
