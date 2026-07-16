@@ -3135,7 +3135,7 @@ const Approvals = () => {
                               <option value="">Select cost center...</option>
                               {costCenters.map((cc) => (
                                 <option key={cc.id} value={cc.id}>
-                                  {cc.name} ({formatMoney(cc.remaining_amount, 'PHP')} remaining)
+                                  {cc.name} — FY{cc.fiscal_year || '?'} ({formatMoney(cc.remaining_amount, 'PHP')} remaining)
                                 </option>
                               ))}
                             </select>
