@@ -1,2 +1,2 @@
-/api/*  https://5.223.78.194/api/:splat  200
+/api/*  /.netlify/functions/api-proxy  200
 /*    /index.html   200
