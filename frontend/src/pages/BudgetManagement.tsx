@@ -1076,11 +1076,15 @@ const BudgetManagement = () => {
     const fetchCostCenterCategories = async () => {
       try {
         const fiscalYear = selectedFiscalYear || new Date().getFullYear();
-        const params: any = { fiscal_year: fiscalYear };
-        if (costCenterFilterDept !== 'all') params.department_id = costCenterFilterDept;
-        const res = await api.get('/api/budget/categories', { params });
+        const res = await api.get('/api/budget/categories', { params: { fiscal_year: fiscalYear } });
         const categories = Array.isArray(res.data) ? res.data : [];
-        setCostCenterCategories(categories);
+        const mainCats = categories.filter(c => !c.parent_category_id);
+        const uniqueByCode = new Map<string, any>();
+        mainCats.forEach((c: any) => {
+          const code = String(c.category_code || '').trim();
+          if (code && !uniqueByCode.has(code)) uniqueByCode.set(code, c);
+        });
+        setCostCenterCategories(Array.from(uniqueByCode.values()).sort((a, b) => String(a.category_name).localeCompare(String(b.category_name))));
       } catch (err) {
         console.error('Failed to fetch cost center categories:', err);
         setCostCenterCategories([]);
@@ -1088,7 +1092,7 @@ const BudgetManagement = () => {
     };
 
     fetchCostCenterCategories();
-  }, [costCenterFilterDept, selectedFiscalYear]);
+  }, [selectedFiscalYear]);
 
   // Auto-refresh spending breakdown every 15 seconds
   useEffect(() => {
@@ -1607,21 +1611,8 @@ const BudgetManagement = () => {
                     onClick={() => {
                       setSelectedDepartmentId(dept.id);
                       setSelectedNodeId(dept.id);
-                      setExpandedDepts(prev => {
-                        const next = new Set(prev);
-                        if (next.has(dept.id)) next.delete(dept.id); else next.add(dept.id);
-                        return next;
-                      });
                     }}
                   >
-                    {/* Expand/collapse chevron */}
-                    <svg
-                      className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--role-text)]/30 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="text-xs font-semibold text-[var(--role-text)] truncate">{dept.name}</p>
@@ -1639,42 +1630,6 @@ const BudgetManagement = () => {
                       </div>
                     </div>
                   </div>
-
-                  {/* Category children — shown when dept is expanded and selected */}
-                  {isExpanded && isSelected && deptCategories.length > 0 && (
-                    <div className="relative ml-5 mt-0.5 space-y-0.5 pb-1">
-                      {/* Vertical connector line from parent */}
-                      <div className="absolute left-0 top-0 bottom-0 w-px bg-[var(--role-border)]" />
-                      {deptCategories
-                        .filter(c => !c.parent_category_id)
-                        .filter(c => {
-                          // Filter by cost center category selection
-                          if (costCenterFilterCategory !== 'all') {
-                            return c.category_code === costCenterFilterCategory;
-                          }
-                          return true;
-                        })
-                        .sort((a, b) => String(a.category_name).localeCompare(String(b.category_name)))
-                        .map(cat => (
-                          <div
-                            key={cat.id}
-                            className={`relative flex items-center gap-1.5 rounded-lg pl-4 pr-2 py-1.5 cursor-pointer transition text-xs ${selectedNodeId === cat.id ? 'bg-[var(--role-primary)]/10 text-[var(--role-primary)]' : 'text-[var(--role-text)]/70 hover:bg-[var(--role-accent)]'}`}
-                            onClick={(e) => { e.stopPropagation(); setSelectedNodeId(cat.id); }}
-                          >
-                            {/* Horizontal tick connector */}
-                            <div className="absolute left-0 top-1/2 w-3 h-px bg-[var(--role-border)]" />
-                            {cat.is_locked && (
-                              <svg className="h-3 w-3 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                              </svg>
-                            )}
-                            <span className="truncate">{cat.category_name}</span>
-                            <span className="ml-auto shrink-0 text-[10px] text-[var(--role-text)]/40 font-mono">{cat.category_code}</span>
-                          </div>
-                        ))
-                      }
-                    </div>
-                  )}
                 </div>
               );
             })}
