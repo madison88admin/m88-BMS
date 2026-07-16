@@ -75,8 +75,13 @@ exports.handler = async (event, context) => {
       });
     });
     
-    if (httpMethod !== 'GET' && event.body) {
-      req.write(event.body);
+    if (httpMethod !== 'GET' && httpMethod !== 'HEAD' && event.body) {
+      let body = event.body;
+      // Netlify may base64-encode the body
+      if (event.isBase64Encoded) {
+        body = Buffer.from(body, 'base64').toString('utf8');
+      }
+      req.write(body);
     }
     req.end();
   });
