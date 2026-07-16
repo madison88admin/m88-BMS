@@ -335,16 +335,16 @@ const RequestForm = () => {
                   const remaining = toNumber(cat.remaining_amount);
                   const isOutOfBudget = remaining <= 0 && requestType !== 'reimbursement' && requestType !== 'cash_advance';
                   return (
-                    <option key={cat.id} value={cat.category_name} disabled={isOutOfBudget && userRole === 'employee'}>
+                    <option key={cat.id} value={cat.category_name}>
                       {cat.category_code ? `${cat.category_code} - ` : ''}{cat.category_name} 
-                      {(userRole === 'admin' || userRole === 'accounting') && ` (₱${remaining.toLocaleString()} remaining)`}
+                      {` (₱${remaining.toLocaleString()} remaining)`}
                       {isOutOfBudget ? ' - OUT OF BUDGET' : ''}
                     </option>
                   );
                 })}
               </select>
               
-              {selectedCategoryBudget && (userRole === 'admin' || userRole === 'accounting') && (
+              {selectedCategoryBudget && (
                 <div className={`rounded-xl p-4 border ${(toNumber(selectedCategoryBudget.remaining_amount) >= totalAmount || requestType === 'reimbursement' || requestType === 'cash_advance') ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>

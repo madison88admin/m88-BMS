@@ -513,6 +513,40 @@ const reconcileCategoryTicketUsage = async (categoryId: string, budgetAmount: nu
   return { used, committed };
 };
 
+const syncParentCategoryRemaining = async (categoryId: string) => {
+  const { data: category } = await supabase
+    .from('budget_categories')
+    .select('id, parent_category_id')
+    .eq('id', categoryId)
+    .maybeSingle();
+
+  if (!category || !category.parent_category_id) return;
+
+  const parentId = category.parent_category_id;
+  const { data: parent } = await supabase
+    .from('budget_categories')
+    .select('id, budget_amount, used_amount, committed_amount')
+    .eq('id', parentId)
+    .maybeSingle();
+
+  if (!parent) return;
+
+  const { data: children } = await supabase
+    .from('budget_categories')
+    .select('id, used_amount, committed_amount')
+    .eq('parent_category_id', parentId);
+
+  const childUsedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.used_amount), 0);
+  const childCommittedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.committed_amount), 0);
+
+  const remainingAmount = Math.max(0, toNumber(parent.budget_amount) - toNumber(parent.used_amount) - toNumber(parent.committed_amount) - childUsedTotal - childCommittedTotal);
+
+  await supabase
+    .from('budget_categories')
+    .update({ remaining_amount: remainingAmount, updated_at: new Date() })
+    .eq('id', parentId);
+};
+
 const resolveMainCategory = async (categoryId: string) => {
   const { data: category } = await supabase
     .from('budget_categories')
@@ -563,15 +597,19 @@ const applyApprovedBudgetProposal = async (request: any) => {
 
     // Reconcile sub-category usage
     await reconcileCategoryTicketUsage(requestedCategory.id, proposedAmount, 0);
+
+    // Sync parent main category remaining to reflect sub-category changes
+    await syncParentCategoryRemaining(requestedCategory.id);
   } else {
     // This is a main category (no parent) — update normally
     const previousAmount = toNumber(requestedCategory.budget_amount);
     const { data: children } = await supabase
       .from('budget_categories')
-      .select('budget_amount')
+      .select('budget_amount, used_amount, committed_amount')
       .eq('parent_category_id', requestedCategory.id);
-    const childTotal = (children || []).reduce((sum: number, child: any) => sum + toNumber(child.budget_amount), 0);
-    const newRemaining = Math.max(0, proposedAmount - childTotal);
+    const childUsedTotal = (children || []).reduce((sum: number, child: any) => sum + toNumber(child.used_amount), 0);
+    const childCommittedTotal = (children || []).reduce((sum: number, child: any) => sum + toNumber(child.committed_amount), 0);
+    const newRemaining = Math.max(0, proposedAmount - toNumber(requestedCategory.used_amount) - toNumber(requestedCategory.committed_amount) - childUsedTotal - childCommittedTotal);
 
     await supabase
       .from('budget_categories')
@@ -584,7 +622,7 @@ const applyApprovedBudgetProposal = async (request: any) => {
       })
       .eq('id', requestedCategory.id);
 
-    await reconcileCategoryTicketUsage(requestedCategory.id, proposedAmount, childTotal);
+    await reconcileCategoryTicketUsage(requestedCategory.id, proposedAmount, childUsedTotal + childCommittedTotal);
   }
 
   await lockDepartmentBudgetMatrix(request.department_id, request.fiscal_year);
@@ -828,6 +866,7 @@ const releaseRequest = async (
             note: `Category budget deducted for ${catBudget.category_name || catBudget.id}`
           });
           await checkBudgetUtilizationWarning(catBudget.id);
+          await syncParentCategoryRemaining(catBudget.id);
         }
       }
     } else if (request.category_id || request.category) {
@@ -875,6 +914,7 @@ const releaseRequest = async (
             note: `Category budget deducted for ${categoryBudget.category_name || categoryBudget.id}`
           });
           await checkBudgetUtilizationWarning(categoryBudget.id);
+          await syncParentCategoryRemaining(categoryBudget.id);
         }
       }
     }
@@ -2352,17 +2392,26 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
   }
 
   const isBudgetFlow = request.request_type === 'budget_request' || request.request_type === 'budget_revision';
+  const isTravelBooking = request.request_type === 'travel_booking';
 
-  // Sequential flow: Supervisor → Accounting (always)
-  const nextStatus = 'pending_accounting';
+  // Travel bookings: supervisor approval is final — no accounting/VP/president chain
+  const nextStatus = isTravelBooking ? 'approved' : 'pending_accounting';
 
   const { data, error } = await supabase
     .from('expense_requests')
-    .update({ status: nextStatus, updated_at: new Date() })
+    .update({ status: nextStatus, updated_at: new Date(), approved_by: req.user.id, approved_at: new Date() })
     .eq('id', id)
     .select()
     .single();
   if (error) return res.status(400).json({ error });
+
+  // Sync linked travel_bookings record if this is a travel booking
+  if (isTravelBooking && request.metadata?.travel_booking_id) {
+    await supabase
+      .from('travel_bookings')
+      .update({ status: 'approved', approved_by: req.user.id, approved_at: new Date(), updated_at: new Date() })
+      .eq('id', request.metadata.travel_booking_id);
+  }
 
   await supabase.from('approval_logs').insert({
     request_id: id,
@@ -2398,12 +2447,21 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     remarks: isBudgetFlow ? 'Supervisor approved budget proposal' : 'Supervisor approved request'
   });
 
-  // Notify accounting for all request types (sequential flow)
-  await notifyAccounting(
-    isBudgetFlow
-      ? `Budget proposal ${request.request_code} approved by supervisor — pending accounting review.`
-      : `Request ${request.request_code} approved by supervisor — pending accounting review.`
-  );
+  // Notify: travel bookings go directly to employee; others go to accounting
+  if (isTravelBooking) {
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Travel Booking Approved',
+      `Your travel booking ${request.request_code} has been approved by your supervisor.`
+    );
+  } else {
+    await notifyAccounting(
+      isBudgetFlow
+        ? `Budget proposal ${request.request_code} approved by supervisor — pending accounting review.`
+        : `Request ${request.request_code} approved by supervisor — pending accounting review.`
+    );
+  }
 
   // Invalidate department cache so projected_remaining reflects the status change
   invalidateCache('/api/departments');

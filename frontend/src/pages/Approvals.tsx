@@ -3122,7 +3122,7 @@ const Approvals = () => {
                             >
                               <option value="">Select budget category...</option>
                               {budgetCategories
-                                .filter((bc) => bc.department_id === req.department_id)
+                                .filter((bc) => bc.department_id === req.department_id || bc.department_id === 'All')
                                 .map((bc) => (
                                   <option key={bc.id} value={bc.id}>
                                     {bc.category_name} ({formatMoney(bc.remaining_amount, 'PHP')} remaining)

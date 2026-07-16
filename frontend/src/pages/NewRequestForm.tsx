@@ -113,9 +113,6 @@ const NewRequestForm = () => {
   };
 
   const isVisibleForRequestForm = (item: OfficialExpense, canUse: 'canRE' | 'canCA') => {
-    if (isStaffUser && item.mannerOfSubmission === 'for_upload') return false;
-    if (!item[canUse]) return false;
-    if (!item.canCA && !item.canRE && isStaffUser) return false;
     return matchesDepartment(item);
   };
 

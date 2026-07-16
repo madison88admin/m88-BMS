@@ -173,7 +173,7 @@ router.get('/', authenticate, async (req: any, res) => {
 
     let query = supabase
       .from('travel_bookings')
-      .select('*, flight_segments:travel_booking_flights(*), hotel_stays:travel_booking_hotels(*), user:users(name, email)');
+      .select('*');
 
     if (userRole === 'employee' || userRole === 'manager') {
       query = query.eq('user_id', userId);
@@ -184,10 +184,51 @@ router.get('/', authenticate, async (req: any, res) => {
     if (status) query = query.eq('status', status);
     if (department_id) query = query.eq('department_id', department_id);
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data: bookings, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
 
-    res.json(data || []);
+    // Fetch user names separately
+    const userIds = Array.from(new Set((bookings || []).map((b: any) => b.user_id).filter(Boolean)));
+    let userMap: Map<string, any> = new Map();
+    if (userIds.length > 0) {
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, name, email')
+        .in('id', userIds);
+      userMap = new Map((users || []).map((u: any) => [u.id, u]));
+    }
+
+    // Fetch flight segments and hotel stays separately for all bookings
+    const bookingIds = (bookings || []).map((b: any) => b.id);
+    let flightsByBooking: Map<string, any[]> = new Map();
+    let hotelsByBooking: Map<string, any[]> = new Map();
+
+    if (bookingIds.length > 0) {
+      const [flightsRes, hotelsRes] = await Promise.all([
+        supabase.from('travel_booking_flights').select('*').in('booking_id', bookingIds).order('sequence', { ascending: true }),
+        supabase.from('travel_booking_hotels').select('*').in('booking_id', bookingIds).order('sequence', { ascending: true }),
+      ]);
+
+      (flightsRes.data || []).forEach((f: any) => {
+        const arr = flightsByBooking.get(f.booking_id) || [];
+        arr.push(f);
+        flightsByBooking.set(f.booking_id, arr);
+      });
+      (hotelsRes.data || []).forEach((h: any) => {
+        const arr = hotelsByBooking.get(h.booking_id) || [];
+        arr.push(h);
+        hotelsByBooking.set(h.booking_id, arr);
+      });
+    }
+
+    const enriched = (bookings || []).map((b: any) => ({
+      ...b,
+      user: userMap.get(b.user_id) || null,
+      flight_segments: flightsByBooking.get(b.id) || [],
+      hotel_stays: hotelsByBooking.get(b.id) || [],
+    }));
+
+    res.json(enriched);
   } catch (err: any) {
     console.error('Failed to fetch travel bookings:', err);
     res.status(500).json({ error: err.message || 'Failed to fetch travel bookings' });
@@ -198,16 +239,26 @@ router.get('/', authenticate, async (req: any, res) => {
 router.get('/:id', authenticate, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { data, error } = await supabase
+    const { data: booking, error } = await supabase
       .from('travel_bookings')
-      .select('*, flight_segments:travel_booking_flights(*), hotel_stays:travel_booking_hotels(*)')
+      .select('*')
       .eq('id', id)
       .single();
 
     if (error) throw error;
-    if (!data) return res.status(404).json({ error: 'Travel booking not found' });
+    if (!booking) return res.status(404).json({ error: 'Travel booking not found' });
 
-    res.json(data);
+    // Fetch flights and hotels separately
+    const [flightsRes, hotelsRes] = await Promise.all([
+      supabase.from('travel_booking_flights').select('*').eq('booking_id', id).order('sequence', { ascending: true }),
+      supabase.from('travel_booking_hotels').select('*').eq('booking_id', id).order('sequence', { ascending: true }),
+    ]);
+
+    res.json({
+      ...booking,
+      flight_segments: flightsRes.data || [],
+      hotel_stays: hotelsRes.data || [],
+    });
   } catch (err: any) {
     console.error('Failed to fetch travel booking:', err);
     res.status(500).json({ error: err.message || 'Failed to fetch travel booking' });

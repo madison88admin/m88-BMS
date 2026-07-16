@@ -42,8 +42,24 @@ const syncMainCategoryRemaining = async (categoryId?: string | null) => {
   if (error) throw error;
   if (!category || category.parent_category_id) return;
 
-  const childTotal = await sumChildBudgets(category.id);
-  const remainingAmount = Math.max(0, toNumber(category.budget_amount) - childTotal);
+  // Fetch all children with their budget, used, and committed amounts
+  const { data: children, error: childError } = await supabase
+    .from('budget_categories')
+    .select('id, budget_amount, used_amount, committed_amount')
+    .eq('parent_category_id', category.id);
+
+  if (childError) throw childError;
+
+  const childBudgetTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.budget_amount), 0);
+  const childUsedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.used_amount), 0);
+  const childCommittedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.committed_amount), 0);
+
+  const directUsed = toNumber(category.used_amount);
+  const directCommitted = toNumber(category.committed_amount);
+
+  // Main category remaining = budget - (direct usage + all child usage)
+  // This reflects the actual money left across the entire category tree
+  const remainingAmount = Math.max(0, toNumber(category.budget_amount) - directUsed - directCommitted - childUsedTotal - childCommittedTotal);
 
   await supabase
     .from('budget_categories')
@@ -190,7 +206,7 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
         .from('departments')
         .select('id, annual_budget')
         .eq('id', department_id)
-        .single(),
+        .maybeSingle(),
       supabase
         .from('budget_categories')
         .select('budget_amount')
@@ -198,7 +214,7 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
         .eq('fiscal_year', fiscal_year || activeFiscalYear)
     ]);
 
-    if (departmentError || !department) {
+    if (department_id !== 'All' && (departmentError || !department)) {
       return res.status(404).json({ error: 'Department not found' });
     }
 
@@ -269,11 +285,11 @@ router.post('/categories', authenticate, authorize('accounting', 'admin', 'super
 
     if (error) throw error;
 
-    await syncDepartmentBudget(department_id, targetFY);
-    await syncMainCategoryRemaining(parent_category_id || data.id);
-
-    // Update M88 Manila cost center budget (sum of all departments' annual budgets)
-    await updateM88ManilaCostCenterBudget(targetFY, req.user);
+    if (department_id !== 'All') {
+      await syncDepartmentBudget(department_id, targetFY);
+      await syncMainCategoryRemaining(parent_category_id || data.id);
+      await updateM88ManilaCostCenterBudget(targetFY, req.user);
+    }
 
     // Invalidate cache for budget categories
     invalidateCache('/api/budget/categories');
@@ -454,11 +470,17 @@ router.put('/categories/:id', authenticate, authorize('accounting', 'admin', 'su
     }
 
     if (!nextParentCategoryId && !isMovingToMain) {
-      const childTotal = await sumChildBudgets(id);
+      const { data: children } = await supabase
+        .from('budget_categories')
+        .select('budget_amount, used_amount, committed_amount')
+        .eq('parent_category_id', id);
+      const childTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.budget_amount), 0);
       if (requestedBudget < childTotal) {
         return res.status(400).json({ error: `Main category budget cannot be below its sub-category allocations. Allocated: ${childTotal.toFixed(2)}` });
       }
-      updatePayload.remaining_amount = Math.max(0, requestedBudget - childTotal);
+      const childUsedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.used_amount), 0);
+      const childCommittedTotal = (children || []).reduce((sum: number, c: any) => sum + toNumber(c.committed_amount), 0);
+      updatePayload.remaining_amount = Math.max(0, requestedBudget - usedAmount - committedAmount - childUsedTotal - childCommittedTotal);
     }
 
     const { data, error } = await supabase
