@@ -687,6 +687,10 @@ const BudgetManagement = () => {
   };
 
   const [unlockRequests, setUnlockRequests] = useState<any[]>([]);
+  const [unlockModal, setUnlockModal] = useState<{ catId: string; catName: string } | null>(null);
+  const [unlockReason, setUnlockReason] = useState('');
+  const [denyModal, setDenyModal] = useState<{ reqId: string; catName: string } | null>(null);
+  const [denyNote, setDenyNote] = useState('');
 
   const fetchUnlockRequests = useCallback(async () => {
     try {
@@ -700,6 +704,8 @@ const BudgetManagement = () => {
       await api.post(`/api/budget/categories/${catId}/request-unlock`, { reason: reason || '' });
       toast.success('Unlock request sent to Accounting for approval');
       await fetchUnlockRequests();
+      setUnlockModal(null);
+      setUnlockReason('');
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to send unlock request')); }
   };
 
@@ -717,6 +723,8 @@ const BudgetManagement = () => {
       await api.patch(`/api/budget/unlock-requests/${reqId}/deny`, { note: note || '' });
       toast.success('Unlock request denied');
       await fetchUnlockRequests();
+      setDenyModal(null);
+      setDenyNote('');
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to deny unlock request')); }
   };
 
@@ -1805,10 +1813,7 @@ const BudgetManagement = () => {
                                 </button>
                               ) : canRequestUnlock ? (
                                 <button
-                                  onClick={() => {
-                                    const reason = prompt(`Why do you need to unlock "${cat.category_name}"?`);
-                                    if (reason !== null) requestUnlockCategory(cat.id, reason);
-                                  }}
+                                  onClick={() => setUnlockModal({ catId: cat.id, catName: cat.category_name })}
                                   disabled={!!pendingRequest}
                                   className="text-xs font-semibold text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg hover:bg-amber-200 transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                                 >
@@ -1857,10 +1862,7 @@ const BudgetManagement = () => {
                             Approve
                           </button>
                           <button
-                            onClick={() => {
-                              const note = prompt('Reason for denial (optional):');
-                              denyUnlockRequest(req.id, note || '');
-                            }}
+                            onClick={() => setDenyModal({ reqId: req.id, catName: req.budget_categories?.category_name || '' })}
                             className="text-xs font-semibold text-white bg-red-500 px-2.5 py-1 rounded-lg hover:bg-red-600 transition"
                           >
                             Deny
@@ -2448,6 +2450,83 @@ const BudgetManagement = () => {
         </div>
         <button className="btn-primary mt-4" onClick={createDepartment}>Create Department</button>
       </div>
+
+      {/* Unlock Request Modal */}
+      {unlockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setUnlockModal(null); setUnlockReason(''); }}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100">
+                <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Request Budget Unlock</h3>
+                <p className="text-sm text-gray-500">{unlockModal.catName}</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Please provide a reason for unlocking this budget category. This will be sent to Accounting for approval.</p>
+            <textarea
+              className="field-input min-h-[80px] resize-none"
+              placeholder="Enter reason for unlock request..."
+              value={unlockReason}
+              onChange={e => setUnlockReason(e.target.value)}
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition" onClick={() => { setUnlockModal(null); setUnlockReason(''); }}>
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 text-sm font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition disabled:opacity-50"
+                disabled={!unlockReason.trim()}
+                onClick={() => requestUnlockCategory(unlockModal.catId, unlockReason.trim())}
+              >
+                Submit Request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deny Unlock Request Modal */}
+      {denyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setDenyModal(null); setDenyNote(''); }}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100">
+                <svg className="h-5 w-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Deny Unlock Request</h3>
+                <p className="text-sm text-gray-500">{denyModal.catName}</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Provide a reason for denying this unlock request (optional).</p>
+            <textarea
+              className="field-input min-h-[80px] resize-none"
+              placeholder="Reason for denial (optional)..."
+              value={denyNote}
+              onChange={e => setDenyNote(e.target.value)}
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition" onClick={() => { setDenyModal(null); setDenyNote(''); }}>
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 transition"
+                onClick={() => denyUnlockRequest(denyModal.reqId, denyNote.trim())}
+              >
+                Deny Request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
