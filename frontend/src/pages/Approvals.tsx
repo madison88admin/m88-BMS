@@ -452,9 +452,6 @@ const Approvals = () => {
     try {
       const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
       const isTravelBooking = requestType === 'travel_booking';
-      if (request.within_budget === false && !isBudgetFlow && !isTravelBooking) {
-        throw new Error('Cannot approve request: outside approved budget.');
-      }
 
       const role = user?.role;
       const amount = toNumber(request.amount);
@@ -467,13 +464,11 @@ const Approvals = () => {
             { note }
           );
           if (isBudgetFlow) {
-            toast.success(
-              amount >= vpThreshold
-                ? 'Budget proposal forwarded to President for final approval.'
-                : 'Budget proposal forwarded to VP for viewing.'
-            );
-          } else {
+            toast.success('Budget proposal forwarded to VP for review.');
+          } else if (amount >= vpThreshold) {
             toast.success('Request forwarded to VP review.');
+          } else {
+            toast.success('Request approved and funds released.');
           }
         } else if (requestStatus === 'pending_accounting' && request.co_approved_by) {
           const draft = disbursementDrafts[requestId] || {};
@@ -3419,7 +3414,6 @@ const Approvals = () => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
                             // VP always marks budget proposals as viewed (President does final approval)
                             const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow;
-                            const isOutOfBudget = req.request_type !== 'travel_booking' && req.within_budget === false;
                             const canActAtStage =
                               (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
                               (user.role === 'accounting' && req.status === 'pending_accounting' && !req.co_approved_by) ||
@@ -3431,13 +3425,11 @@ const Approvals = () => {
                           <button 
                             onClick={() => void handleApprove(req)} 
                             className={`${vpMarkViewed ? 'btn-secondary' : 'btn-success'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                            disabled={req.status === 'on_hold' || isOutOfBudget}
+                            disabled={req.status === 'on_hold'}
                             title={
                               req.status === 'on_hold'
                                 ? 'Cannot approve - request is On Hold'
-                                : isOutOfBudget
-                                  ? 'Cannot approve - request is outside approved budget'
-                                  : undefined
+                                : undefined
                             }
                           >
                             {vpMarkViewed ? 'Mark as Viewed' : 'Approve'}

@@ -2629,15 +2629,61 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
   }
 
   if (request.co_approved_by) {
-    return res.status(400).json({ error: 'Request already cleared for fund release. Use the release action instead.' });
+    return res.status(400).json({ error: 'Request already co-approved. Use the Release Funds action to disburse.' });
   }
 
   // Determine next status — threshold-based routing for expense requests
   const budgetFlow = isBudgetWorkflow(request.request_type);
   const requestAmount = toNumber(request.amount);
 
-  // Budget proposals always go to VP; expense requests below VP_THRESHOLD skip VP/President
-  const nextStatus = (budgetFlow || requestAmount >= VP_THRESHOLD) ? 'pending_vp' : 'pending_accounting';
+  // Budget proposals and requests >= VP_THRESHOLD go to VP; below threshold: release directly
+  const needsVpApproval = budgetFlow || requestAmount >= VP_THRESHOLD;
+
+  if (!needsVpApproval) {
+    // Below threshold: accounting approval is final — release funds directly
+    try {
+      const released = await releaseRequest(request, req.user.id, req.body || {});
+      invalidateCache('/api/departments');
+      invalidateCache('/api/budget/categories');
+      await updateM88ManilaCostCenterBudget(request.fiscal_year);
+
+      await supabase.from('approval_logs').insert({
+        request_id: id,
+        actor_id: req.user.id,
+        action: 'approved',
+        stage: 'accounting',
+        note: req.body.note || 'Accounting approved and released (below VP threshold)'
+      });
+
+      await logAuditEvent({
+        user: req.user,
+        actionType: request.request_type === 'cash_advance'
+          ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
+          : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
+        recordType: 'request',
+        recordId: id,
+        recordLabel: request.request_code,
+        oldValue: { status: request.status },
+        newValue: { status: 'released' },
+        remarks: 'Accounting approved and released (below VP threshold)'
+      });
+
+      await notifyEmployee(
+        request.employee_id,
+        request.request_code,
+        'Request Approved & Released',
+        `Your request ${request.request_code} has been approved and funds released.`,
+        '/tracker'
+      );
+
+      return res.json(released);
+    } catch (releaseErr: any) {
+      return res.status(400).json({ error: releaseErr.message || 'Failed to release request' });
+    }
+  }
+
+  // Above threshold or budget flow: route to VP
+  const nextStatus = 'pending_vp';
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2694,26 +2740,20 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     });
   }
 
-  // Notify based on routing: VP if going to VP, otherwise accounting for release
-  if (nextStatus === 'pending_vp') {
-    await notifyVp(
-      budgetFlow
-        ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
-        : `Request ${request.request_code} requires VP review.`,
-      '/approvals'
-    );
-  } else {
-    await notifyAccounting(`Request ${request.request_code} approved by accounting — ready for fund release (below VP threshold).`, '/approvals');
-  }
+  // Notify VP
+  await notifyVp(
+    budgetFlow
+      ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
+      : `Request ${request.request_code} requires VP review.`,
+    '/approvals'
+  );
 
   if (!budgetFlow) {
     await notifyEmployee(
       request.employee_id,
       request.request_code,
       'Request Update',
-      nextStatus === 'pending_vp'
-        ? `Your request ${request.request_code} has moved to VP review.`
-        : `Your request ${request.request_code} has been approved by accounting and is ready for fund release.`,
+      `Your request ${request.request_code} has moved to VP review.`,
       '/tracker'
     );
   }
