@@ -451,7 +451,6 @@ const Approvals = () => {
 
     try {
       const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
-      const isTravelBooking = requestType === 'travel_booking';
 
       const role = user?.role;
       const amount = toNumber(request.amount);
@@ -499,11 +498,7 @@ const Approvals = () => {
             `/api/requests/${requestId}/approve-vp`,
             { note }
           );
-          toast.success(
-            amount > vpThreshold
-              ? 'Review recorded — forwarded to President.'
-              : 'Request approved — returned to accounting for fund release.'
-          );
+          toast.success('Review recorded — forwarded to President.');
         }
       } else if (role === 'president' && requestStatus === 'pending_president') {
         await api.patch(
@@ -3306,17 +3301,16 @@ const Approvals = () => {
                         {(() => {
                           const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
                           const vpThreshold = currencyThreshold.vp;
+                          if (requestAmount < vpThreshold) return null;
                           return (
                           <div className="mt-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                               <div>
                                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--role-text)]/50">
-                                  {requestAmount <= vpThreshold ? 'VP Approval Required' : 'President Approval Required'}
+                                  VP & President Approval Required
                                 </p>
                                 <p className="mt-1 text-sm text-[var(--role-text)]/70">
-                                  {requestAmount <= vpThreshold 
-                                    ? `Requests up to ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} require VP approval before release.`
-                                    : `Requests above ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} require President approval before release.`}
+                                  Requests of {formatMoney(vpThreshold, currentCurrency)} {currentCurrency} or above require VP and President approval before release.
                                 </p>
                               </div>
 
@@ -3326,22 +3320,18 @@ const Approvals = () => {
                                 </span>
                               ) : (
                                 (() => {
-                                  const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
-                                  const vpThreshold = currencyThreshold.vp;
                                   return (
-                                (user.role === 'vp' && requestAmount <= vpThreshold) || 
-                                user.role === 'president' ||
-                                user.role === 'admin' ? (
+                                (user.role === 'vp' || user.role === 'president' || user.role === 'admin') ? (
                                   <button
                                     type="button"
                                     onClick={() => void handleCoApprove(req)}
                                     className="btn-secondary"
                                   >
-                                    {requestAmount <= vpThreshold ? 'Approve as VP' : 'Approve as President'}
+                                    Co-Approve
                                   </button>
                                 ) : (
                                   <span className="text-xs text-[var(--role-text)]/50">
-                                    Waiting for {requestAmount <= vpThreshold ? 'VP' : 'President'} approval
+                                    Waiting for VP/President approval
                                   </span>
                                 ))})()
                               )}
@@ -3419,7 +3409,7 @@ const Approvals = () => {
                               (user.role === 'accounting' && req.status === 'pending_accounting' && !req.co_approved_by) ||
                               (user.role === 'vp' && req.status === 'pending_vp') ||
                               (user.role === 'president' && req.status === 'pending_president') ||
-                              (user.role === 'admin' && ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].includes(req.status));
+                              (user.role === 'admin' && ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].includes(req.status) && !req.co_approved_by);
                             if (!canActAtStage) return null;
                             return (
                           <button 
@@ -3520,12 +3510,12 @@ const Approvals = () => {
                       </>
                     )}
 
-                    {/* Accounting - Release Only (No Approval Power) */}
+                    {/* Accounting/Admin - Release Only (No Approval Power) */}
                     {/* Show release button if: co-approved OR amount is under threshold (no co-approval needed) */}
                     {(() => {
                       const canRelease = !!req.co_approved_by;
                       
-                      if (user.role === 'accounting' && canRelease) {
+                      if ((user.role === 'accounting' || user.role === 'admin') && canRelease) {
                         return (
                           <button 
                             onClick={() => void handleApprove(req)} 
