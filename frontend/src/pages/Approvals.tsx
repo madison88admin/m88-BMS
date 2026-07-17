@@ -76,9 +76,9 @@ const Approvals = () => {
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
 
   const [thresholds, setThresholds] = useState<Record<string, { vp: number; president: number }>>({
-    PHP: { vp: 500, president: 500 },
-    USD: { vp: 500, president: 500 },
-    IDR: { vp: 500, president: 500 }
+    PHP: { vp: 30000, president: 500000 },
+    USD: { vp: 500, president: 10000 },
+    IDR: { vp: 500, president: 10000 }
   });
   const [currentCurrency, setCurrentCurrency] = useState<'PHP' | 'USD' | 'IDR'>('PHP');
   const { rates: fxRates } = useExchangeRates();
@@ -841,6 +841,13 @@ const Approvals = () => {
     }
 
     
+
+    // Sort by submitted_at ascending (oldest first)
+    result = [...result].sort((a, b) => {
+      const dateA = new Date(a.submitted_at || a.created_at || a.updated_at || 0).getTime();
+      const dateB = new Date(b.submitted_at || b.created_at || b.updated_at || 0).getTime();
+      return dateA - dateB;
+    });
 
     return result;
 

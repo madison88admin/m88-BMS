@@ -1,11 +1,12 @@
 import { supabase } from './supabase';
 import { sendEmail } from './email';
 
-export const createInAppNotification = async (userId: string, message: string) => {
+export const createInAppNotification = async (userId: string, message: string, link?: string) => {
   try {
     await supabase.from('notifications').insert({
       user_id: userId,
       message,
+      link: link || null,
       is_read: false,
       created_at: new Date().toISOString(),
     });
@@ -14,16 +15,16 @@ export const createInAppNotification = async (userId: string, message: string) =
   }
 };
 
-export const notifyUser = async (userId: string, subject: string, message: string) => {
+export const notifyUser = async (userId: string, subject: string, message: string, link?: string) => {
   if (!userId) return;
-  await createInAppNotification(userId, message);
+  await createInAppNotification(userId, message, link);
   const { data: user } = await supabase.from('users').select('email, name').eq('id', userId).maybeSingle();
   if (user?.email) {
     sendEmail(user.email, subject, message).catch((err) => console.error('Email failed:', err?.message));
   }
 };
 
-export const notifyUsersByRole = async (roles: string[], message: string, departmentId?: string | null) => {
+export const notifyUsersByRole = async (roles: string[], message: string, departmentId?: string | null, link?: string) => {
   let query = supabase.from('users').select('id, email, name, role, department_id').in('role', roles);
   if (departmentId) {
     query = query.eq('department_id', departmentId);
@@ -31,7 +32,7 @@ export const notifyUsersByRole = async (roles: string[], message: string, depart
   const { data: users } = await query;
   await Promise.all(
     (users || []).map(async (u) => {
-      await createInAppNotification(u.id, message);
+      await createInAppNotification(u.id, message, link);
       if (u.email) {
         sendEmail(u.email, 'BMS Notification', message).catch(() => undefined);
       }
@@ -39,12 +40,12 @@ export const notifyUsersByRole = async (roles: string[], message: string, depart
   );
 };
 
-export const notifyAccounting = async (message: string) => notifyUsersByRole(['accounting', 'admin'], message);
-export const notifyVp = async (message: string) => notifyUsersByRole(['vp', 'admin'], message);
-export const notifyPresident = async (message: string) => notifyUsersByRole(['president', 'admin'], message);
+export const notifyAccounting = async (message: string, link?: string) => notifyUsersByRole(['accounting', 'admin'], message, undefined, link);
+export const notifyVp = async (message: string, link?: string) => notifyUsersByRole(['vp', 'admin'], message, undefined, link);
+export const notifyPresident = async (message: string, link?: string) => notifyUsersByRole(['president', 'admin'], message, undefined, link);
 
-export const notifyDepartmentSupervisor = async (departmentId: string, message: string) => {
-  await notifyUsersByRole(['supervisor'], message, departmentId);
+export const notifyDepartmentSupervisor = async (departmentId: string, message: string, link?: string) => {
+  await notifyUsersByRole(['supervisor'], message, departmentId, link);
 };
 
 export const checkBudgetUtilizationWarning = async (categoryId: string) => {

@@ -5,6 +5,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import PageSkeleton from './Skeleton';
 import { supabase } from '../lib/supabase';
 import { normalizeDisplayName, formatDateTime } from '../utils/format';
+import { useIdleTimeout } from '../hooks/useIdleTimeout';
 
 // Pre-fetch context for budget and expense categories
 const PREFETCH_KEY_BUDGET_CATEGORIES = 'prefetch_budget_categories';
@@ -25,6 +26,23 @@ const Layout = ({ children }: LayoutProps) => {
   const location = useLocation();
   const notificationRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
+
+  // Idle session timeout — auto-logout after 15 minutes of inactivity
+  const handleIdleTimeout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    toast.success('Session expired due to inactivity. Please log in again.');
+    navigate('/login');
+  }, [navigate]);
+
+  const handleIdleWarning = useCallback(() => {
+    toast('Your session will expire in 1 minute due to inactivity. Click anywhere to stay logged in.', {
+      duration: 60000,
+      icon: '⚠️',
+    });
+  }, []);
+
+  useIdleTimeout(handleIdleTimeout, handleIdleWarning);
 
   // Close notification dropdown on outside click
   useEffect(() => {
@@ -103,6 +121,14 @@ const Layout = ({ children }: LayoutProps) => {
     } catch {
       // Revert on failure
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: false } : n));
+    }
+  };
+
+  const handleNotificationClick = (notification: any) => {
+    if (!notification.is_read) markOneRead(notification.id);
+    setShowNotifications(false);
+    if (notification.link) {
+      navigate(notification.link);
     }
   };
 
@@ -398,11 +424,12 @@ const Layout = ({ children }: LayoutProps) => {
                         notifications.slice(0, 15).map((notification: any) => (
                           <div
                             key={notification.id}
-                            onClick={() => { if (!notification.is_read) markOneRead(notification.id); }}
+                            onClick={() => handleNotificationClick(notification)}
                             className={`p-4 transition hover:bg-black/5 cursor-pointer ${!notification.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}
                           >
                             <p className="text-sm text-[var(--role-text)]">{notification.message}</p>
                             <p className="mt-1 text-xs text-[var(--bms-muted)]">{notification.created_at ? formatDateTime(notification.created_at) : 'Just now'}</p>
+                            {notification.link && <p className="mt-1 text-[10px] text-[var(--role-primary)] font-medium">Click to view →</p>}
                           </div>
                         ))
                       )}
@@ -446,9 +473,10 @@ const Layout = ({ children }: LayoutProps) => {
                       <p className="p-4 text-center text-sm text-[var(--bms-muted)]">No notifications</p>
                     ) : (
                       notifications.slice(0, 10).map((n: any) => (
-                        <div key={n.id} onClick={() => { if (!n.is_read) markOneRead(n.id); }} className={`p-3 text-xs cursor-pointer hover:bg-black/5 transition ${!n.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}>
+                        <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 text-xs cursor-pointer hover:bg-black/5 transition ${!n.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}>
                           <p className="text-[var(--role-text)]">{n.message}</p>
                           <p className="mt-0.5 text-[var(--bms-muted)]">{n.created_at ? formatDateTime(n.created_at) : 'Just now'}</p>
+                          {n.link && <p className="mt-1 text-[10px] text-[var(--role-primary)] font-medium">Click to view →</p>}
                         </div>
                       ))
                     )}

@@ -6,7 +6,7 @@ import { restoreAllBudgetCategoriesForFiscalYear } from '../utils/restoreBudgetC
 import { filterBudgetCategoriesForUser } from '../utils/budgetCategoryVisibility';
 import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
 import { AUDIT_ACTIONS, logAuditEvent } from '../utils/auditLog';
-import { checkBudgetUtilizationWarning } from '../utils/workflowNotify';
+import { checkBudgetUtilizationWarning, notifyUser, notifyUsersByRole } from '../utils/workflowNotify';
 import { ensureDepartmentCostCenterCode } from '../utils/costCenters';
 import { isMainCategoryCode } from '../utils/budgetCategoryHierarchy';
 import { updateM88ManilaCostCenterBudget } from '../utils/generalBudget';
@@ -447,6 +447,162 @@ router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admi
     invalidateCache('/api/departments');
 
     res.json(data);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/budget/categories/:id/request-unlock - Supervisor/Manager requests unlock (sends to accounting)
+router.post('/categories/:id/request-unlock', authenticate, authorize('supervisor', 'manager', 'admin'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+
+    const { data: category, error: catError } = await supabase
+      .from('budget_categories')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (catError || !category) return res.status(404).json({ error: 'Category not found' });
+    if (!category.is_locked) return res.status(400).json({ error: 'Category is not locked' });
+
+    // Check for existing pending unlock request
+    const { data: existing } = await supabase
+      .from('budget_unlock_requests')
+      .select('id')
+      .eq('category_id', id)
+      .eq('status', 'pending')
+      .maybeSingle();
+    if (existing) return res.status(400).json({ error: 'An unlock request is already pending for this category' });
+
+    const { data, error } = await supabase
+      .from('budget_unlock_requests')
+      .insert({
+        category_id: id,
+        department_id: category.department_id,
+        requested_by: req.user.id,
+        reason,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Notify accounting
+    await notifyUsersByRole(['accounting', 'admin'], `Budget unlock request for "${category.category_name}" (${category.category_code}) by ${req.user.name || req.user.role}.`);
+
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.BUDGET_UNLOCKED,
+      recordType: 'budget',
+      recordId: id,
+      recordLabel: category.category_name,
+      newValue: { unlock_requested: true },
+      remarks: `Unlock requested by ${req.user.role}: ${reason}`,
+    });
+
+    res.json({ message: 'Unlock request submitted to Accounting for approval', request: data });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /api/budget/unlock-requests - List unlock requests (accounting/admin see all, supervisors see their own)
+router.get('/unlock-requests', authenticate, async (req: any, res) => {
+  try {
+    let query = supabase
+      .from('budget_unlock_requests')
+      .select('*, budget_categories!inner(category_code, category_name, department_id), users!budget_unlock_requests_requested_by_fkey(name, email, role)')
+      .order('created_at', { ascending: true });
+
+    if (req.user.role === 'supervisor' || req.user.role === 'manager') {
+      query = query.eq('requested_by', req.user.id);
+    }
+
+    const { data, error } = await query;
+    if (error) return res.status(400).json({ error: error.message });
+    res.json(data || []);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /api/budget/unlock-requests/:id/approve - Accounting approves unlock request
+router.patch('/unlock-requests/:id/approve', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: unlockReq, error: reqError } = await supabase
+      .from('budget_unlock_requests')
+      .select('*, budget_categories!inner(id, category_code, category_name, department_id, fiscal_year)')
+      .eq('id', id)
+      .single();
+    if (reqError || !unlockReq) return res.status(404).json({ error: 'Unlock request not found' });
+    if (unlockReq.status !== 'pending') return res.status(400).json({ error: 'Unlock request is no longer pending' });
+
+    // Update unlock request status
+    await supabase
+      .from('budget_unlock_requests')
+      .update({ status: 'approved', reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), review_note: String(req.body?.note || '') })
+      .eq('id', id);
+
+    // Actually unlock the category
+    const { data: category, error: unlockError } = await supabase
+      .from('budget_categories')
+      .update({ is_locked: false, locked_at: null, unlocked_at: new Date() })
+      .eq('id', unlockReq.category_id)
+      .select()
+      .single();
+    if (unlockError) return res.status(400).json({ error: unlockError.message });
+
+    await logAuditEvent({
+      user: req.user,
+      actionType: AUDIT_ACTIONS.BUDGET_UNLOCKED,
+      recordType: 'budget',
+      recordId: unlockReq.category_id,
+      recordLabel: unlockReq.budget_categories.category_name,
+      oldValue: { is_locked: true },
+      newValue: { is_locked: false },
+      remarks: `Unlock approved by accounting: ${req.body?.note || ''}`,
+    });
+
+    await syncDepartmentBudget(unlockReq.budget_categories.department_id, unlockReq.budget_categories.fiscal_year);
+    invalidateCache('/api/budget/categories');
+    invalidateCache('/api/departments');
+
+    // Notify requester
+    await notifyUser(unlockReq.requested_by, 'Budget Unlock Approved', `Your unlock request for "${unlockReq.budget_categories.category_name}" has been approved by Accounting.`);
+
+    res.json({ message: 'Category unlocked successfully', category });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /api/budget/unlock-requests/:id/deny - Accounting denies unlock request
+router.patch('/unlock-requests/:id/deny', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const note = String(req.body?.note || '').trim();
+
+    const { data: unlockReq, error: reqError } = await supabase
+      .from('budget_unlock_requests')
+      .select('*, budget_categories!inner(category_name)')
+      .eq('id', id)
+      .single();
+    if (reqError || !unlockReq) return res.status(404).json({ error: 'Unlock request not found' });
+    if (unlockReq.status !== 'pending') return res.status(400).json({ error: 'Unlock request is no longer pending' });
+
+    await supabase
+      .from('budget_unlock_requests')
+      .update({ status: 'denied', reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), review_note: note })
+      .eq('id', id);
+
+    // Notify requester
+    await notifyUser(unlockReq.requested_by, 'Budget Unlock Denied', `Your unlock request for "${unlockReq.budget_categories.category_name}" was denied by Accounting.${note ? ` Reason: ${note}` : ''}`);
+
+    res.json({ message: 'Unlock request denied' });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

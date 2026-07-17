@@ -23,7 +23,7 @@ import {
   resolveOfficialExpenseList,
   departmentMatchesExpenseItem,
 } from '../utils/expenseCategories';
-import { PRESIDENT_THRESHOLD, getPresidentThreshold, BUDGET_PRESIDENT_THRESHOLD } from '../constants/approval';
+import { PRESIDENT_THRESHOLD, getPresidentThreshold, BUDGET_PRESIDENT_THRESHOLD, VP_THRESHOLD } from '../constants/approval';
 import { AUDIT_ACTIONS, logAuditEvent, logFailedApprovalAttempt } from '../utils/auditLog';
 import {
   notifyAccounting,
@@ -198,19 +198,9 @@ const validateCategoryBudgetsForSubmission = async (
 
       if (error) return error.message;
       if (!category) {
-        // Fallback: try matching by category_code in case the name is a group name (e.g. 'Asset')
-        const { data: categoryByCode, error: codeError } = await supabase
-          .from('budget_categories')
-          .select('id, category_name, department_id, fiscal_year, remaining_amount, parent_category_id')
-          .eq('department_id', targetDepartmentId)
-          .eq('fiscal_year', fiscalYear)
-          .eq('category_code', name)
-          .maybeSingle();
-
-        if (codeError) return codeError.message;
-        if (!categoryByCode) {
-          return `Requested category "${name}" was not found for the selected department and fiscal year.`;
-        }
+        // Category not found in budget — allow submission as unbudgeted expense
+        // Supervisors/accounting will see no budget allocation on the ticket to decide.
+        continue;
       }
 
       // Note: allow submission even when remaining budget is insufficient.
@@ -267,7 +257,8 @@ const validateCategoryBudgetsForSubmission = async (
 
     if (codeError) return codeError.message;
     if (!categoryByCode) {
-      return `Category "${normalizedCategoryName || normalizedCategoryId}" was not found for the selected department and fiscal year.`;
+      // Category not found in budget — allow submission as unbudgeted expense
+      return null;
     }
   }
 
@@ -745,26 +736,27 @@ const applyApprovedBudgetProposal = async (request: any) => {
 
 const notifyPreviousActor = async (request: any, message: string) => {
   const status = request.status;
+  const approvalsLink = '/approvals';
   if (isBudgetWorkflow(request.request_type)) {
     if (status === 'pending_accounting') {
-      await notifyDepartmentSupervisor(request.department_id, message);
+      await notifyDepartmentSupervisor(request.department_id, message, approvalsLink);
     } else if (status === 'pending_vp') {
-      await notifyAccounting(message);
+      await notifyAccounting(message, approvalsLink);
     } else if (status === 'pending_president') {
-      await notifyVp(message);
+      await notifyVp(message, approvalsLink);
     }
     return;
   }
   if (status === 'pending_accounting') {
-    await notifyDepartmentSupervisor(request.department_id, message);
+    await notifyDepartmentSupervisor(request.department_id, message, approvalsLink);
     return;
   }
   if (status === 'pending_vp') {
-    await notifyAccounting(message);
+    await notifyAccounting(message, approvalsLink);
     return;
   }
   if (status === 'pending_president') {
-    await notifyVp(message);
+    await notifyVp(message, approvalsLink);
     return;
   }
   await notifyEmployee(
@@ -1254,11 +1246,12 @@ const releaseRequest = async (
   return data;
 };
 
-const createInAppNotification = async (userId: string, message: string) => {
+const createInAppNotification = async (userId: string, message: string, link?: string) => {
   try {
     await supabase.from('notifications').insert({
       user_id: userId,
       message: message,
+      link: link || null,
       is_read: false,
       created_at: new Date().toISOString()
     });
@@ -1267,10 +1260,10 @@ const createInAppNotification = async (userId: string, message: string) => {
   }
 };
 
-const notifyEmployee = async (employeeId: string, requestCode: string, subject: string, message: string) => {
+const notifyEmployee = async (employeeId: string, requestCode: string, subject: string, message: string, link?: string) => {
   try {
     // Create in-app notification
-    await createInAppNotification(employeeId, message);
+    await createInAppNotification(employeeId, message, link);
     
     // Send email
     const { data: employee } = await supabase.from('users').select('email, name').eq('id', employeeId).maybeSingle();
@@ -1489,7 +1482,7 @@ router.get('/', authenticate, async (req: any, res) => {
     query = query.eq('status', requestedStatus);
   }
 
-  const { data, error } = await query.order('request_code', { ascending: true });
+  const { data, error } = await query.order('submitted_at', { ascending: true });
   if (error) return res.status(400).json({ error });
 
   try {
@@ -1802,11 +1795,11 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   });
 
   if (isBudgetFlow) {
-    await notifyAccounting(`Supervisor submitted budget ${isBudgetRevision ? 'revision' : 'proposal'} ${request_code} for review.`);
+    await notifyAccounting(`Supervisor submitted budget ${isBudgetRevision ? 'revision' : 'proposal'} ${request_code} for review.`, '/approvals');
   } else if (request_type === 'cash_advance') {
-    await notifyAccounting(`New cash advance ${request_code} submitted for review.`);
+    await notifyAccounting(`New cash advance ${request_code} submitted for review.`, '/approvals');
   } else {
-    await notifyAccounting(`New reimbursement ${request_code} submitted for review.`);
+    await notifyAccounting(`New reimbursement ${request_code} submitted for review.`, '/approvals');
   }
 
   // Recalculate M88 Manila cost center pending/used amounts
@@ -2478,8 +2471,8 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
   const isBudgetFlow = request.request_type === 'budget_request' || request.request_type === 'budget_revision';
   const isTravelBooking = request.request_type === 'travel_booking';
 
-  // Travel bookings: supervisor approval is final — no accounting/VP/president chain
-  const nextStatus = isTravelBooking ? 'approved' : 'pending_accounting';
+  // Travel bookings: supervisor approval routes to VP (as Country Administrator) for final approval
+  const nextStatus = isTravelBooking ? 'pending_vp' : 'pending_accounting';
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2493,7 +2486,7 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
   if (isTravelBooking && request.metadata?.travel_booking_id) {
     await supabase
       .from('travel_bookings')
-      .update({ status: 'approved', approved_by: req.user.id, approved_at: new Date(), updated_at: new Date() })
+      .update({ status: 'pending_vp', approved_by: req.user.id, approved_at: new Date(), updated_at: new Date() })
       .eq('id', request.metadata.travel_booking_id);
   }
 
@@ -2531,19 +2524,25 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     remarks: isBudgetFlow ? 'Supervisor approved budget proposal' : 'Supervisor approved request'
   });
 
-  // Notify: travel bookings go directly to employee; others go to accounting
+  // Notify: travel bookings go to VP (as CA) for approval; others go to accounting
   if (isTravelBooking) {
+    await notifyVp(
+      `Travel booking ${request.request_code} requires VP (Country Administrator) approval.`,
+      '/approvals'
+    );
     await notifyEmployee(
       request.employee_id,
       request.request_code,
-      'Travel Booking Approved',
-      `Your travel booking ${request.request_code} has been approved by your supervisor.`
+      'Travel Booking Update',
+      `Your travel booking ${request.request_code} has been approved by your supervisor and is now pending VP (Country Administrator) approval.`,
+      '/tracker'
     );
   } else {
     await notifyAccounting(
       isBudgetFlow
         ? `Budget proposal ${request.request_code} approved by supervisor — pending accounting review.`
-        : `Request ${request.request_code} approved by supervisor — pending accounting review.`
+        : `Request ${request.request_code} approved by supervisor — pending accounting review.`,
+      '/approvals'
     );
   }
 
@@ -2633,10 +2632,12 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     return res.status(400).json({ error: 'Request already cleared for fund release. Use the release action instead.' });
   }
 
-  // Determine next status — sequential flow: Accounting → VP (always)
+  // Determine next status — threshold-based routing for expense requests
   const budgetFlow = isBudgetWorkflow(request.request_type);
+  const requestAmount = toNumber(request.amount);
 
-  const nextStatus = 'pending_vp';
+  // Budget proposals always go to VP; expense requests below VP_THRESHOLD skip VP/President
+  const nextStatus = (budgetFlow || requestAmount >= VP_THRESHOLD) ? 'pending_vp' : 'pending_accounting';
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2693,19 +2694,27 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     });
   }
 
-  // Notify VP (sequential flow: Accounting → VP always)
-  await notifyVp(
-    budgetFlow
-      ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
-      : `Request ${request.request_code} requires VP review.`
-  );
+  // Notify based on routing: VP if going to VP, otherwise accounting for release
+  if (nextStatus === 'pending_vp') {
+    await notifyVp(
+      budgetFlow
+        ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
+        : `Request ${request.request_code} requires VP review.`,
+      '/approvals'
+    );
+  } else {
+    await notifyAccounting(`Request ${request.request_code} approved by accounting — ready for fund release (below VP threshold).`, '/approvals');
+  }
 
   if (!budgetFlow) {
     await notifyEmployee(
       request.employee_id,
       request.request_code,
       'Request Update',
-      `Your request ${request.request_code} has moved to VP review.`
+      nextStatus === 'pending_vp'
+        ? `Your request ${request.request_code} has moved to VP review.`
+        : `Your request ${request.request_code} has been approved by accounting and is ready for fund release.`,
+      '/tracker'
     );
   }
 
@@ -2739,8 +2748,9 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
     });
   }
 
-  // Sequential flow: VP → President (always)
-  const nextStatus = 'pending_president';
+  // Travel bookings: VP approval is final (VP acts as Country Administrator)
+  const isTravelBooking = request.request_type === 'travel_booking';
+  const nextStatus = isTravelBooking ? 'approved' : 'pending_president';
   const updatePayload: Record<string, unknown> = { status: nextStatus, updated_at: new Date() };
 
   const { data, error } = await supabase
@@ -2783,16 +2793,33 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
     remarks: 'VP reviewed — forwarded to President',
   });
 
-  // Sequential flow: VP → President (always). Only notify President.
-  // Do NOT send 'Approved' to employee/supervisor — President is the final approver.
-  await notifyPresident(`Request ${request.request_code} requires President approval.`);
+  // Travel bookings: VP approval is final — sync travel booking and notify employee
+  if (isTravelBooking) {
+    if (request.metadata?.travel_booking_id) {
+      await supabase
+        .from('travel_bookings')
+        .update({ status: 'approved', approved_by: req.user.id, approved_at: new Date(), updated_at: new Date() })
+        .eq('id', request.metadata.travel_booking_id);
+    }
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Travel Booking Approved',
+      `Your travel booking ${request.request_code} has been approved by the VP (Country Administrator).`,
+      '/tracker'
+    );
+  } else {
+    // Sequential flow: VP → President. Only notify President.
+    await notifyPresident(`Request ${request.request_code} requires President approval.`, '/approvals');
 
-  await notifyEmployee(
-    request.employee_id,
-    request.request_code,
-    'Request Update',
-    `Your request ${request.request_code} has moved to President review.`
-  );
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Request Update',
+      `Your request ${request.request_code} has moved to President review.`,
+      '/tracker'
+    );
+  }
 
   // Recalculate M88 Manila cost center pending/used amounts
   await updateM88ManilaCostCenterBudget(request.fiscal_year);
@@ -2944,9 +2971,10 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
     });
     await notifyDepartmentSupervisor(
       request.department_id,
-      `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved by the President.`
+      `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved by the President.`,
+      '/budget-management'
     );
-    await notifyAccounting(`Budget ${request.request_code} approved and matrix locked.`);
+    await notifyAccounting(`Budget ${request.request_code} approved and matrix locked.`, '/budget-management');
     await notifyEmployee(
       request.employee_id,
       request.request_code,
@@ -2974,7 +3002,7 @@ router.patch('/:id/approve-president', authenticate, authorize('president', 'adm
     } else {
       await notifyEmployee(request.employee_id, request.request_code, 'Request Approved', notifyMessage);
     }
-    await notifyAccounting(`Request ${request.request_code} approved by President — ready for fund release.`);
+    await notifyAccounting(`Request ${request.request_code} approved by President — ready for fund release.`, '/approvals');
   }
 
   // Recalculate M88 Manila cost center pending/used amounts
@@ -3077,11 +3105,13 @@ router.patch('/:id/release', authenticate, authorize('accounting', 'accounting_l
     return res.status(400).json({ error: 'Only requests waiting for accounting approval can be released here.' });
   }
 
-  // All requests require VP/President co-approval before accounting can release.
-  // VP handles amounts up to the threshold; President handles amounts above it.
-  if (!request.co_approved_by) {
+  // Requests at or above VP_THRESHOLD require VP/President co-approval before release.
+  // Below threshold: accounting can release directly without co-approval.
+  const requestAmount = toNumber(request.amount);
+  const needsCoApproval = requestAmount >= VP_THRESHOLD || isBudgetWorkflow(request.request_type);
+  if (needsCoApproval && !request.co_approved_by) {
     return res.status(403).json({
-      error: 'All requests require VP or President co-approval before accounting can release.'
+      error: 'This request requires VP or President co-approval before accounting can release.'
     });
   }
 

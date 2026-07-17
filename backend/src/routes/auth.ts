@@ -248,7 +248,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { id: user.id, name: user.name, role: user.role, department_id: user.department_id }, 
       process.env.JWT_SECRET!, 
-      { expiresIn: '1h' }
+      { expiresIn: '8h' }
     );
 
     console.log('Login successful for email:', email);

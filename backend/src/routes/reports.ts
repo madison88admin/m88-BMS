@@ -430,19 +430,18 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     // Direct expenses
     let directQuery = supabase
       .from('direct_expenses')
-      .select('category_id, amount, expense_date, department_id, fiscal_year')
+      .select('category_id, category, amount, expense_date, department_id, fiscal_year')
       .eq('fiscal_year', fiscalYear);
     if (departmentId) directQuery = directQuery.eq('department_id', departmentId);
     const { data: directRows, error: directError } = await directQuery;
     if (directError) throw directError;
 
-    // Released expense requests
+    // Released expense requests (include those without category_id — use 'category' text as fallback)
     let requestQuery = supabase
       .from('expense_requests')
-      .select('id, category_id, amount, status, released_at, updated_at, department_id, fiscal_year')
+      .select('id, category_id, category, amount, status, released_at, updated_at, department_id, fiscal_year')
       .eq('fiscal_year', fiscalYear)
-      .eq('status', 'released')
-      .not('category_id', 'is', null);
+      .eq('status', 'released');
     if (departmentId) requestQuery = requestQuery.eq('department_id', departmentId);
     const { data: requestRows, error: requestError } = await requestQuery;
     if (requestError) throw requestError;
@@ -465,31 +464,47 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     if (liquidationIds.length) {
       const { data: liqRows, error: liquidationError } = await supabase
         .from('liquidation_items')
-        .select('category_id, amount, expense_date, cash_advance_id, liquidation_id')
+        .select('category_id, category, amount, expense_date, cash_advance_id, liquidation_id')
         .in('liquidation_id', liquidationIds);
       if (liquidationError) throw liquidationError;
       liquidationRows = liqRows || [];
     }
 
-    // Build code lookup for actual spend (category_id -> code)
+    // Build code lookup for actual spend (category_id -> code, or category text -> code)
     const codeByCategoryId = new Map<string, string>();
-    const addCodeByCategoryId = (categoryId: string, codeFallback?: string) => {
+    const codeByCategoryName = new Map<string, string>();
+    categories.forEach((cat: any) => {
+      const name = String(cat.category_name || '').trim().toUpperCase();
+      const code = String(cat.category_code || '').trim().toUpperCase();
+      if (name && code) codeByCategoryName.set(name, code);
+    });
+    const addCodeByCategoryId = (categoryId: string, codeFallback?: string, categoryText?: string) => {
       if (!categoryId || codeByCategoryId.has(categoryId)) return;
       const cat = categoryById.get(categoryId);
       if (cat) {
         codeByCategoryId.set(categoryId, String(cat.category_code || '').trim().toUpperCase());
       } else if (codeFallback) {
         codeByCategoryId.set(categoryId, codeFallback);
+      } else if (categoryText) {
+        // Try to match by category name
+        const upper = String(categoryText).trim().toUpperCase();
+        const matched = codeByCategoryName.get(upper);
+        if (matched) codeByCategoryId.set(categoryId, matched);
       }
     };
 
-    (directRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id));
-    (requestRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id));
-    (liquidationRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id));
+    (directRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id, undefined, row.category));
+    (requestRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id, undefined, row.category));
+    (liquidationRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id, undefined, row.category));
 
     const actualsByCategoryMonth = new Map<string, Map<string, { amountSpent: number; transactionCount: number }>>();
-    const addActual = (categoryId: string, dateStr: string, amount: number) => {
-      const code = codeByCategoryId.get(categoryId);
+    const addActual = (categoryId: string, dateStr: string, amount: number, categoryText?: string) => {
+      let code = categoryId ? codeByCategoryId.get(categoryId) : undefined;
+      if (!code && categoryText) {
+        // Fallback: match by category name
+        const upper = String(categoryText).trim().toUpperCase();
+        code = codeByCategoryName.get(upper);
+      }
       if (!code) return;
       const month = getMonthLabel(dateStr);
       if (!month || !months.includes(month)) return;
@@ -504,11 +519,11 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
 
     (directRows || []).forEach((row: any) => {
       if (allowedDepartmentIds && !allowedDepartmentIds.includes(String(row.department_id))) return;
-      addActual(row.category_id, row.expense_date, row.amount);
+      addActual(row.category_id, row.expense_date, row.amount, row.category);
     });
 
     (liquidationRows || []).forEach((row: any) => {
-      addActual(row.category_id, row.expense_date, row.amount);
+      addActual(row.category_id, row.expense_date, row.amount, row.category);
     });
 
     // For requests without liquidation items, use released_at as fallback
@@ -517,7 +532,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
       if (requestIdsWithLiquidation.has(String(row.id))) return;
       const dateStr = row.released_at || row.updated_at;
       if (!dateStr) return;
-      addActual(row.category_id, dateStr, row.amount);
+      addActual(row.category_id, dateStr, row.amount, row.category);
     });
 
     // Build category breakdown from the master list

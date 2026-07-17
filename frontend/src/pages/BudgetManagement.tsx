@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
 import PageSkeleton from '../components/Skeleton';
@@ -247,8 +247,6 @@ const BudgetManagement = () => {
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
   const [allMainCategories, setAllMainCategories] = useState<any[]>([]);
   const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
-  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
-  const [selectedNodeId, setSelectedNodeId] = useState<string>('');
   const [pettyCashOpen, setPettyCashOpen] = useState(false);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
   const [showInactive, setShowInactive] = useState(true);
@@ -268,6 +266,8 @@ const BudgetManagement = () => {
   // Only accounting and admin may lock/unlock/override budget matrix
   const canEditMatrix = ['accounting', 'admin'].includes(String(user?.role || '').toLowerCase());
   const isViewOnlyMatrix = !canEditMatrix;
+  // Supervisors and managers can request unlock (sends to accounting for approval)
+  const canRequestUnlock = ['supervisor', 'manager'].includes(String(user?.role || '').toLowerCase());
 
   const visibleDepartments = useMemo(() => {
     const map = new Map<string, any>();
@@ -452,6 +452,7 @@ const BudgetManagement = () => {
     fetchDepartments();
     fetchExchangeRate(false);
     fetchM88ManilaCostCenter();
+    fetchUnlockRequests();
     const id = window.setInterval(() => fetchExchangeRate(false), 60000);
     const costCenterId = window.setInterval(() => fetchM88ManilaCostCenter(), 30000);
     let ch: any;
@@ -683,6 +684,40 @@ const BudgetManagement = () => {
       toast.success('Category unlocked');
       if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
     } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to unlock category')); }
+  };
+
+  const [unlockRequests, setUnlockRequests] = useState<any[]>([]);
+
+  const fetchUnlockRequests = useCallback(async () => {
+    try {
+      const res = await api.get('/api/budget/unlock-requests');
+      setUnlockRequests(Array.isArray(res.data) ? res.data : []);
+    } catch { setUnlockRequests([]); }
+  }, []);
+
+  const requestUnlockCategory = async (catId: string, reason?: string) => {
+    try {
+      await api.post(`/api/budget/categories/${catId}/request-unlock`, { reason: reason || '' });
+      toast.success('Unlock request sent to Accounting for approval');
+      await fetchUnlockRequests();
+    } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to send unlock request')); }
+  };
+
+  const approveUnlockRequest = async (reqId: string) => {
+    try {
+      await api.patch(`/api/budget/unlock-requests/${reqId}/approve`, {});
+      toast.success('Category unlocked successfully');
+      await fetchUnlockRequests();
+      if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
+    } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to approve unlock request')); }
+  };
+
+  const denyUnlockRequest = async (reqId: string, note?: string) => {
+    try {
+      await api.patch(`/api/budget/unlock-requests/${reqId}/deny`, { note: note || '' });
+      toast.success('Unlock request denied');
+      await fetchUnlockRequests();
+    } catch (err: any) { toast.error(getErrorMessage(err, 'Failed to deny unlock request')); }
   };
 
   const lockAllCategories = async () => {
@@ -1553,7 +1588,7 @@ const BudgetManagement = () => {
           <div className="mb-2">
             <div
               className="flex items-center gap-2 rounded-2xl border border-[var(--role-primary)]/30 bg-[var(--role-primary)]/8 px-3 py-2.5 cursor-pointer"
-              onClick={() => { setSelectedDepartmentId(''); setSelectedNodeId('root'); }}
+              onClick={() => { setSelectedDepartmentId(''); }}
             >
               <svg className="h-4 w-4 text-[var(--role-primary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -1609,10 +1644,6 @@ const BudgetManagement = () => {
               const utilization = annual > 0 ? (used / annual) * 100 : 0;
               const health = getBudgetHealth(dept);
               const isSelected = dept.id === selectedDepartmentId;
-              const isExpanded = expandedDepts.has(dept.id);
-              const deptCategories = dept.id === selectedDepartmentId && selectedBreakdown?.categories
-                ? enrichCategories(selectedBreakdown.categories)
-                : [];
 
               return (
                 <div key={dept.id}>
@@ -1621,7 +1652,6 @@ const BudgetManagement = () => {
                     className={`group flex items-start gap-2 rounded-xl px-2.5 py-2 cursor-pointer transition ${isSelected ? 'bg-[var(--role-accent)] border border-[var(--role-secondary)]/30' : 'hover:bg-[var(--role-accent)]/60 border border-transparent'}`}
                     onClick={() => {
                       setSelectedDepartmentId(dept.id);
-                      setSelectedNodeId(dept.id);
                     }}
                   >
                     <div className="min-w-0 flex-1">
@@ -1690,8 +1720,8 @@ const BudgetManagement = () => {
             </div>
           ) : (
             <div className="mt-4 space-y-6">
-              {/* Unlock Budget Matrix — accounting/admin/supervisor can manage locks */}
-              {canEditMatrix && lockedCategories.length > 0 && (
+              {/* Unlock Budget Matrix — accounting/admin direct unlock; supervisor/manager request unlock */}
+              {((canEditMatrix || canRequestUnlock) && lockedCategories.length > 0) && (
                 <div className="rounded-[24px] border border-amber-400/50 bg-amber-50/60 overflow-hidden">
                   {/* Accordion header — always visible */}
                   <button
@@ -1710,29 +1740,31 @@ const BudgetManagement = () => {
                     <span className="rounded-full bg-amber-500/20 border border-amber-400/30 px-2 py-0.5 text-[10px] font-bold text-amber-800">
                       {lockedCategories.length}
                     </span>
-                    <div className="ml-auto flex items-center gap-3" onClick={e => e.stopPropagation()}>
-                      <button
-                        onClick={async () => {
-                          let ok = 0;
-                          await Promise.all(
-                            lockedCategories.map(async (cat) => {
-                              try {
-                                await api.patch(`/api/budget/categories/${cat.id}/unlock`, {});
-                                ok++;
-                              } catch { /* skip */ }
-                            })
-                          );
-                          if (ok > 0) toast.success(`Unlocked ${ok} categor${ok !== 1 ? 'ies' : 'y'}`);
-                          if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 transition"
-                      >
-                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                        </svg>
-                        Unlock All
-                      </button>
-                    </div>
+                    {canEditMatrix && (
+                      <div className="ml-auto flex items-center gap-3" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={async () => {
+                            let ok = 0;
+                            await Promise.all(
+                              lockedCategories.map(async (cat) => {
+                                try {
+                                  await api.patch(`/api/budget/categories/${cat.id}/unlock`, {});
+                                  ok++;
+                                } catch { /* skip */ }
+                              })
+                            );
+                            if (ok > 0) toast.success(`Unlocked ${ok} categor${ok !== 1 ? 'ies' : 'y'}`);
+                            if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 transition"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                          </svg>
+                          Unlock All
+                        </button>
+                      </div>
+                    )}
                     <svg
                       className={`h-4 w-4 text-amber-700/50 transition-transform ${showAllLockedCategories ? 'rotate-180' : ''}`}
                       fill="none" viewBox="0 0 24 24" stroke="currentColor"
@@ -1745,29 +1777,98 @@ const BudgetManagement = () => {
                   {showAllLockedCategories && (
                     <div className="border-t border-amber-300/40 px-5 py-4">
                       <p className="mb-3 text-xs text-amber-700/80">
-                        The budget matrix is locked after approval. Unlock categories to allow new proposals, edits, and mid-period revisions.
+                        {canEditMatrix
+                          ? 'The budget matrix is locked after approval. Unlock categories to allow new proposals, edits, and mid-period revisions.'
+                          : 'The budget matrix is locked after approval. Request unlock to allow new proposals, edits, and mid-period revisions. Accounting must approve your request.'}
                       </p>
                       <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                        {lockedCategories.map((cat) => (
-                          <div key={cat.id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-300/50 bg-white/80 px-3 py-2">
-                            <div className="min-w-0 flex items-center gap-2">
-                              <span className="font-mono text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded shrink-0">{cat.category_code}</span>
-                              <p className="text-xs font-medium text-[var(--role-text)] truncate">{cat.category_name}</p>
+                        {lockedCategories.map((cat) => {
+                          const pendingRequest = unlockRequests.find(r => r.category_id === cat.id && r.status === 'pending');
+                          return (
+                            <div key={cat.id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-300/50 bg-white/80 px-3 py-2">
+                              <div className="min-w-0 flex items-center gap-2">
+                                <span className="font-mono text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded shrink-0">{cat.category_code}</span>
+                                <p className="text-xs font-medium text-[var(--role-text)] truncate">{cat.category_name}</p>
+                                {pendingRequest && (
+                                  <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded shrink-0">Pending Approval</span>
+                                )}
+                              </div>
+                              {canEditMatrix ? (
+                                <button
+                                  onClick={() => unlockCategory(cat.id)}
+                                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
+                                  aria-label={`Unlock ${cat.category_name}`}
+                                >
+                                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                                  </svg>
+                                </button>
+                              ) : canRequestUnlock ? (
+                                <button
+                                  onClick={() => {
+                                    const reason = prompt(`Why do you need to unlock "${cat.category_name}"?`);
+                                    if (reason !== null) requestUnlockCategory(cat.id, reason);
+                                  }}
+                                  disabled={!!pendingRequest}
+                                  className="text-xs font-semibold text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg hover:bg-amber-200 transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                                >
+                                  {pendingRequest ? 'Requested' : 'Request Unlock'}
+                                </button>
+                              ) : null}
                             </div>
-                            <button
-                              onClick={() => unlockCategory(cat.id)}
-                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
-                              aria-label={`Unlock ${cat.category_name}`}
-                            >
-                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                              </svg>
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Pending Unlock Requests — accounting/admin only */}
+              {canEditMatrix && unlockRequests.filter(r => r.status === 'pending').length > 0 && (
+                <div className="rounded-[24px] border border-blue-400/50 bg-blue-50/60 overflow-hidden">
+                  <div className="flex items-center gap-3 px-5 py-3.5 border-b border-blue-300/40">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-500/20 border border-blue-400/30">
+                      <svg className="h-4 w-4 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    </div>
+                    <span className="font-semibold text-blue-900 text-sm">
+                      {unlockRequests.filter(r => r.status === 'pending').length} Unlock Request{unlockRequests.filter(r => r.status === 'pending').length !== 1 ? 's' : ''} Pending
+                    </span>
+                  </div>
+                  <div className="px-5 py-4 space-y-2">
+                    {unlockRequests.filter(r => r.status === 'pending').map((req) => (
+                      <div key={req.id} className="flex items-center justify-between gap-3 rounded-xl border border-blue-300/50 bg-white/80 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded shrink-0">{req.budget_categories?.category_code}</span>
+                            <p className="text-xs font-medium text-[var(--role-text)] truncate">{req.budget_categories?.category_name}</p>
+                          </div>
+                          <p className="text-[10px] text-[var(--role-text)]/50 mt-0.5">
+                            Requested by {req.users?.name || 'Unknown'} · {req.reason ? req.reason : 'No reason provided'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => approveUnlockRequest(req.id)}
+                            className="text-xs font-semibold text-white bg-emerald-500 px-2.5 py-1 rounded-lg hover:bg-emerald-600 transition"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => {
+                              const note = prompt('Reason for denial (optional):');
+                              denyUnlockRequest(req.id, note || '');
+                            }}
+                            className="text-xs font-semibold text-white bg-red-500 px-2.5 py-1 rounded-lg hover:bg-red-600 transition"
+                          >
+                            Deny
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
