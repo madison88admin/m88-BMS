@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import toast from 'react-hot-toast';
 import { formatMoney, toNumber, getErrorMessage } from '../utils/format';
@@ -215,10 +215,46 @@ const BudgetExpenseUpload = () => {
   };
 
   const matchedPresets = useMemo(() => {
-    return RECURRING_EXPENSE_PRESETS.map((preset) => {
+    const presetEntries = RECURRING_EXPENSE_PRESETS.map((preset) => {
       const category = categories.find((c: any) => String(c.category_code || '').trim() === preset.category_code);
       return { ...preset, category };
     });
+
+    // Add budget categories from DB that are not in the preset list
+    const presetCodes = new Set(RECURRING_EXPENSE_PRESETS.map(p => p.category_code));
+    const extraCategories = categories
+      .filter((c: any) => {
+        const code = String(c.category_code || '').trim();
+        return code && !presetCodes.has(code) && !c.parent_category_id;
+      })
+      .map((c: any) => ({
+        parent_code: c.category_code,
+        parent_name: c.category_name,
+        category_code: c.category_code,
+        category_name: c.category_name,
+        default_dept: 'All',
+        category: c,
+      }));
+
+    // Also add sub-categories (child categories) not in presets
+    const subCategories = categories
+      .filter((c: any) => {
+        const code = String(c.category_code || '').trim();
+        return code && !presetCodes.has(code) && c.parent_category_id;
+      })
+      .map((c: any) => {
+        const parent = categories.find((p: any) => p.id === c.parent_category_id);
+        return {
+          parent_code: parent?.category_code || c.category_code,
+          parent_name: parent?.category_name || c.category_name,
+          category_code: c.category_code,
+          category_name: c.category_name,
+          default_dept: 'All',
+          category: c,
+        };
+      });
+
+    return [...presetEntries, ...extraCategories, ...subCategories];
   }, [categories]);
 
   const batchEntries = useMemo(() => {
@@ -233,7 +269,7 @@ const BudgetExpenseUpload = () => {
     return matchedPresets.filter((p) => p.category).length;
   }, [matchedPresets]);
 
-  const totalPresetCount = RECURRING_EXPENSE_PRESETS.length;
+  const totalPresetCount = matchedPresets.length;
 
   const groupTotals = useMemo(() => {
     const totals: Record<string, { budgetSum: number; enteredSum: number; count: number }> = {};
@@ -698,8 +734,8 @@ const BudgetExpenseUpload = () => {
                     </thead>
                     <tbody>
                       {filteredReportSections.map((section: any) => (
-                        <>
-                          <tr key={section.department} className="bg-purple-50">
+                        <Fragment key={section.department}>
+                          <tr className="bg-purple-50">
                             <td colSpan={8 + (section.categories?.[0]?.monthly?.length || 12)} className="px-2 py-2 font-semibold text-purple-800">
                               {section.department === 'All Department' ? 'All Department (Shared/Company-wide)' : `Department: ${section.department}`}
                             </td>
@@ -718,7 +754,7 @@ const BudgetExpenseUpload = () => {
                               <td className="px-2 py-2 text-right font-mono">{typeof row.percentOfBudgetUsed === 'number' ? `${row.percentOfBudgetUsed}%` : row.percentOfBudgetUsed}</td>
                             </tr>
                           ))}
-                        </>
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>

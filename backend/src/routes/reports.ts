@@ -565,9 +565,59 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
       };
     });
 
+    // Add budget categories from DB that are not in the master list
+    const masterCodes = new Set(masterCategories.map((m) => m.code.toUpperCase()));
+    const extraBreakdown = categories
+      .filter((cat: any) => {
+        const code = String(cat.category_code || '').trim().toUpperCase();
+        return code && !masterCodes.has(code);
+      })
+      .map((cat: any) => {
+        const code = String(cat.category_code || '').trim().toUpperCase();
+        const budgetInfo = budgetByCode.get(code);
+        const fy2026Budget = budgetInfo?.budgetAmount || toNumber(cat.budget_amount);
+        const deptName = departmentNameById.get(String(cat.department_id)) || cat.departments?.name || 'Unknown';
+        const monthMap = actualsByCategoryMonth.get(code) || new Map<string, { amountSpent: number; transactionCount: number }>();
+        let runningTotal = 0;
+        const monthly = months.map((month) => {
+          const spent = monthMap.get(month)?.amountSpent || 0;
+          runningTotal += spent;
+          return { month, amountSpent: spent, runningTotal };
+        });
+        const totalSpentToDate = runningTotal;
+        const percentOfBudgetUsed = fy2026Budget > 0 ? (totalSpentToDate / fy2026Budget) * 100 : null;
+        const monthlyPace = fy2026Budget > 0 ? (fy2026Budget / 12) * monthsElapsed : 0;
+        let paceStatus: 'On track' | 'Ahead of pace' | 'Over budget' | 'No spend' | 'Unbudgeted spend' = 'No spend';
+        if (totalSpentToDate > 0) {
+          if (fy2026Budget === 0) {
+            paceStatus = 'Unbudgeted spend';
+          } else if (totalSpentToDate > fy2026Budget) {
+            paceStatus = 'Over budget';
+          } else if (totalSpentToDate > monthlyPace) {
+            paceStatus = 'Ahead of pace';
+          } else {
+            paceStatus = 'On track';
+          }
+        }
+        return {
+          code,
+          expenseGroup: String(cat.category_name || '').trim(),
+          department: deptName,
+          scope: deptName === 'All Department' ? 'Shared' : 'Department-specific',
+          validDepartment: true,
+          monthly,
+          fy2026Budget,
+          totalSpentToDate,
+          percentOfBudgetUsed: percentOfBudgetUsed === null ? 'N/A (no budget)' : Math.round(percentOfBudgetUsed * 10) / 10,
+          paceStatus
+        };
+      });
+
+    const allCategoryBreakdown = [...categoryBreakdown, ...extraBreakdown];
+
     // Group by department
     const sectionsMap = new Map<string, { department: string; scope: string; categories: any[] }>();
-    categoryBreakdown.forEach((cat) => {
+    allCategoryBreakdown.forEach((cat) => {
       const section = sectionsMap.get(cat.department) || { department: cat.department, scope: cat.scope, categories: [] };
       section.categories.push(cat);
       sectionsMap.set(cat.department, section);
@@ -587,14 +637,14 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
       section.categories.sort((a: any, b: any) => a.code.localeCompare(b.code));
     });
 
-    const topCategories = categoryBreakdown
+    const topCategories = allCategoryBreakdown
       .filter((c) => c.totalSpentToDate > 0)
       .sort((a, b) => b.totalSpentToDate - a.totalSpentToDate)
       .slice(0, 5)
       .map((c) => ({ code: c.code, expenseGroup: c.expenseGroup, totalSpent: c.totalSpentToDate }));
 
     const dataGaps: string[] = [];
-    const missingBudgetCodes = categoryBreakdown.filter((c) => c.fy2026Budget === 0 && c.totalSpentToDate > 0);
+    const missingBudgetCodes = allCategoryBreakdown.filter((c) => c.fy2026Budget === 0 && c.totalSpentToDate > 0);
     if (missingBudgetCodes.length > 0) {
       dataGaps.push(`${missingBudgetCodes.length} category code(s) with spend but no FY${fiscalYear} budget: ${missingBudgetCodes.slice(0, 10).map((c) => c.code).join(', ')}${missingBudgetCodes.length > 10 ? '...' : ''}.`);
     }
