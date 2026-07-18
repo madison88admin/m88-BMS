@@ -2,14 +2,9 @@ const http = require('http');
 const https = require('https');
 
 exports.handler = async (event, context) => {
-  const backendBaseUrl = process.env.BACKEND_API_URL;
-  if (!backendBaseUrl) {
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'BACKEND_API_URL is not configured.' }),
-    };
-  }
+  const configuredBackendUrl = process.env.BACKEND_API_URL;
+  const backendBaseUrl = configuredBackendUrl || 'https://5.223.78.194';
+  const usingLegacyBackend = !configuredBackendUrl;
 
   let backendUrl;
   try {
@@ -81,6 +76,9 @@ exports.handler = async (event, context) => {
       path: `${backendUrl.pathname.replace(/\/$/, '')}${targetPath}`,
       method: httpMethod,
       headers: fwdHeaders,
+      // Compatibility fallback for the existing self-signed IP endpoint.
+      // A configured BACKEND_API_URL always uses normal strict TLS validation.
+      rejectUnauthorized: !usingLegacyBackend,
     };
 
     const transport = backendUrl.protocol === 'https:' ? https : http;
