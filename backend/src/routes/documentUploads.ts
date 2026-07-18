@@ -226,6 +226,23 @@ router.post('/', authenticate, async (req: any, res) => {
     const uploadAttachments = Array.isArray(attachments) ? attachments : [];
     // No attachment requirement for budget override
 
+    let attachmentPayload: any[] = [];
+    if (uploadAttachments.length) {
+      try {
+        attachmentPayload = uploadAttachments.map((file: any) => ({
+          file_name: String(file.file_name || '').trim(),
+          file_url: String(file.file_url || '').trim(),
+          file_type: assertAllowedFileType(String(file.file_type || file.attachment_type || '')),
+          file_size: file.file_size !== undefined && file.file_size !== null ? Number(file.file_size) : null,
+        }));
+      } catch (error: any) {
+        return res.status(400).json({ error: error.message || 'Invalid attachment payload' });
+      }
+      if (attachmentPayload.some((entry: any) => !entry.file_name || !entry.file_url)) {
+        return res.status(400).json({ error: 'Invalid attachment payload' });
+      }
+    }
+
     const { data: categoryRow, error: categoryError } = await supabase
       .from('expense_categories')
       .select('code, description, main_category_code, main_category_name, department, manner_of_submission, cash_advance_allowed, reimbursement_allowed')
@@ -278,23 +295,16 @@ router.post('/', authenticate, async (req: any, res) => {
       .single();
     if (insertError) throw insertError;
 
-    if (uploadAttachments.length) {
-      const attachmentPayload = uploadAttachments.map((file: any) => ({
+    if (attachmentPayload.length) {
+      const attachmentsToInsert = attachmentPayload.map((file: any) => ({
         document_upload_id: inserted.id,
-        file_name: String(file.file_name || '').trim(),
-        file_url: String(file.file_url || '').trim(),
-        file_type: assertAllowedFileType(String(file.file_type || file.attachment_type || '')),
-        file_size: file.file_size !== undefined && file.file_size !== null ? Number(file.file_size) : null,
+        ...file,
         created_at: new Date().toISOString(),
       }));
 
-      if (attachmentPayload.some((entry: any) => !entry.file_name || !entry.file_url)) {
-        return res.status(400).json({ error: 'Invalid attachment payload' });
-      }
-
       const { error: attachmentInsertError } = await supabase
         .from('document_upload_attachments')
-        .insert(attachmentPayload);
+        .insert(attachmentsToInsert);
       if (attachmentInsertError) throw attachmentInsertError;
     }
 

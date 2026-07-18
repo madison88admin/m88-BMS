@@ -7,6 +7,19 @@ import { notifyUser, notifyDepartmentSupervisor } from '../utils/workflowNotify'
 
 const router = Router();
 const toNumber = (value: any) => Number.parseFloat(value ?? 0) || 0;
+const FINANCE_ROLES = new Set(['accounting', 'admin', 'super_admin']);
+
+const canAccessBooking = async (user: any, booking: any) => {
+  const role = String(user?.role || '').toLowerCase();
+  if (FINANCE_ROLES.has(role) || role === 'vp' || role === 'president' || role === 'management') return true;
+  if (role === 'employee' || role === 'manager') return booking.user_id === user.id;
+  if (role === 'supervisor') {
+    const fiscalYear = Number(booking.fiscal_year) || await getLatestConfiguredFiscalYear(supabase);
+    const departments = await getAccessibleDepartmentIdsForUser(supabase, user, fiscalYear);
+    return departments.includes(booking.department_id);
+  }
+  return false;
+};
 
 // Generate a readable booking code
 const generateBookingCode = async (supabaseClient: any) => {
@@ -43,31 +56,50 @@ router.post('/', authenticate, async (req: any, res) => {
       notes,
     } = req.body;
 
-    if (!department_id || !booking_type || !purpose) {
+    if (!department_id || !booking_type || !String(purpose).trim()) {
       return res.status(400).json({ error: 'Department, booking type, and purpose are required' });
+    }
+
+    if (!['flight', 'hotel', 'both'].includes(String(booking_type))) {
+      return res.status(400).json({ error: 'Booking type must be flight, hotel, or both' });
+    }
+
+    const estimatedAmount = toNumber(total_estimated_amount);
+    if (estimatedAmount <= 0) {
+      return res.status(400).json({ error: 'Total estimated amount must be greater than zero' });
+    }
+
+    const userRole = String(req.user.role || '').toLowerCase();
+    if (!FINANCE_ROLES.has(userRole) && String(department_id) !== String(req.user.department_id)) {
+      return res.status(403).json({ error: 'Forbidden — travel bookings must use your assigned department' });
     }
 
     const userId = req.user.id;
     const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
-    const bookingCode = await generateBookingCode(supabase);
+    let bookingCode = await generateBookingCode(supabase);
 
     // Insert travel booking record
-    const { data: booking, error: bookingError } = await supabase
-      .from('travel_bookings')
-      .insert({
+    let booking: any = null;
+    let bookingError: any = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (attempt > 0) bookingCode = await generateBookingCode(supabase);
+      const result = await supabase.from('travel_bookings').insert({
         user_id: userId,
         department_id,
         booking_code: bookingCode,
         booking_type,
         purpose,
-        total_estimated_amount: toNumber(total_estimated_amount),
+        total_estimated_amount: estimatedAmount,
         fiscal_year: activeFiscalYear,
         flight_details: flight_details || {},
         notes: notes || '',
         status: 'pending_supervisor',
-      })
-      .select()
-      .single();
+      }).select().single();
+      booking = result.data;
+      bookingError = result.error;
+      if (!bookingError || bookingError.code !== '23505') break;
+      await new Promise(resolve => setTimeout(resolve, 10 + attempt * 15));
+    }
 
     if (bookingError) throw bookingError;
 
@@ -115,7 +147,7 @@ router.post('/', authenticate, async (req: any, res) => {
         item_name: `${booking_type === 'flight' ? 'Flight' : booking_type === 'hotel' ? 'Hotel' : 'Flight + Hotel'} Booking`,
         category: 'Travel',
         category_id: null,
-        amount: toNumber(total_estimated_amount),
+        amount: estimatedAmount,
         purpose: `Travel booking: ${purpose}`,
         status: 'pending_supervisor',
         fiscal_year: activeFiscalYear,
@@ -146,7 +178,7 @@ router.post('/', authenticate, async (req: any, res) => {
       recordType: 'travel_booking',
       recordId: booking.id,
       recordLabel: bookingCode,
-      newValue: { amount: toNumber(total_estimated_amount), booking_type, status: 'pending_supervisor' },
+      newValue: { amount: estimatedAmount, booking_type, status: 'pending_supervisor' },
       remarks: purpose,
     });
 
@@ -248,6 +280,10 @@ router.get('/:id', authenticate, async (req: any, res) => {
     if (error) throw error;
     if (!booking) return res.status(404).json({ error: 'Travel booking not found' });
 
+    if (!(await canAccessBooking(req.user, booking))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     // Fetch flights and hotels separately
     const [flightsRes, hotelsRes] = await Promise.all([
       supabase.from('travel_booking_flights').select('*').eq('booking_id', id).order('sequence', { ascending: true }),
@@ -293,7 +329,7 @@ router.patch('/:id/approve', authenticate, authorize('supervisor', 'admin'), asy
     // Update booking status
     const { data: updatedBooking, error: updateError } = await supabase
       .from('travel_bookings')
-      .update({ status: 'approved', approved_by: req.user.id, approved_at: new Date(), updated_at: new Date() })
+      .update({ status: 'approved', updated_at: new Date() })
       .eq('id', id)
       .select()
       .single();
@@ -366,7 +402,7 @@ router.patch('/:id/reject', authenticate, authorize('supervisor', 'admin'), asyn
     // Update booking status
     const { data: updatedBooking, error: updateError } = await supabase
       .from('travel_bookings')
-      .update({ status: 'rejected', rejected_by: req.user.id, rejected_at: new Date(), rejection_reason: reason.trim(), updated_at: new Date() })
+      .update({ status: 'rejected', updated_at: new Date() })
       .eq('id', id)
       .select()
       .single();

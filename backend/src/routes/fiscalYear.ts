@@ -37,11 +37,12 @@ router.post('/rollover', authenticate, authorize('accounting', 'admin', 'super_a
 
     if (inserts.length) {
       const { error: upsertErr } = await supabase.from('budget_categories').upsert(inserts, { onConflict: 'department_id,fiscal_year,category_code' });
-      if (upsertErr) console.error('Budget category rollover upsert error:', upsertErr);
+      if (upsertErr) throw upsertErr;
     }
 
     // Record rollover event
-    await supabase.from('fiscal_rollovers').insert({ actor_id: req.user.id, from_year: activeYear, to_year: targetYear, note: req.body.note || null });
+    const { error: rolloverError } = await supabase.from('fiscal_rollovers').insert({ actor_id: req.user.id, from_year: activeYear, to_year: targetYear, note: req.body.note || null });
+    if (rolloverError) throw rolloverError;
 
     // Notify accounting and admin
     await notifyAccounting(`Fiscal year rollover performed to ${targetYear} by ${req.user.name || req.user.id}`);

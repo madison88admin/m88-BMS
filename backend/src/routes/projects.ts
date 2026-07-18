@@ -49,17 +49,24 @@ router.get('/:id', authenticate, async (req, res) => {
 
     const { data, error } = await supabase
       .from('projects')
-      .select(`
-        *,
-        departments:departments!fk_projects_department_id(id, name, fiscal_year)
-      `)
+      .select('*')
       .eq('id', id)
       .single();
 
     if (error) throw error;
     if (!data) return res.status(404).json({ error: 'Project not found' });
 
-    res.json(data);
+    let department = null;
+    if (data.department_id) {
+      const { data: departmentRow } = await supabase
+        .from('departments')
+        .select('id, name, fiscal_year')
+        .eq('id', data.department_id)
+        .maybeSingle();
+      department = departmentRow || null;
+    }
+
+    res.json({ ...data, departments: department });
   } catch (error: any) {
     console.error('Error fetching project:', error);
     res.status(500).json({ error: error.message });

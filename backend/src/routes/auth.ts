@@ -807,6 +807,19 @@ router.post('/delegations', authenticate, async (req: any, res) => {
     return res.status(400).json({ error: 'Approver, delegate, delegated role, and start date are required.' });
   }
 
+  if (approver_id === delegate_id) {
+    return res.status(400).json({ error: 'An approver cannot delegate to themselves.' });
+  }
+
+  const startsAt = new Date(starts_at);
+  const endsAt = ends_at ? new Date(ends_at) : null;
+  if (Number.isNaN(startsAt.getTime()) || (endsAt && Number.isNaN(endsAt.getTime()))) {
+    return res.status(400).json({ error: 'Delegation dates are invalid.' });
+  }
+  if (endsAt && endsAt <= startsAt) {
+    return res.status(400).json({ error: 'Delegation end date must be after the start date.' });
+  }
+
   if (req.user.role !== 'super_admin' && req.user.role !== 'admin' && req.user.id !== approver_id) {
     return res.status(403).json({ error: 'Forbidden' });
   }

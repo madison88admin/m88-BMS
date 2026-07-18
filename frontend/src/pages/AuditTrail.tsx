@@ -207,9 +207,8 @@ const AuditTrail = () => {
   const canExport = AUDIT_EXPORT_ROLES.includes(userRole);
 
   const downloadExport = async (format: 'csv' | 'pdf') => {
-    const token = localStorage.getItem('token');
     try {
-      const res = await api.get(`/api/requests/audit-logs/export.${format}`, {
+      const res = await api.get(`/api/audit-logs/export.${format}`, {
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(res.data);

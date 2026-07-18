@@ -134,7 +134,28 @@ router.post('/confirm', authenticate, authorize('accounting', 'admin', 'super_ad
     const budgetCategory = allocation.budget_categories;
     const request = allocation.expense_requests;
 
-    // Start transaction - deduct from cost center
+    // Claim the confirmation first so concurrent/double-click requests cannot
+    // perform the deduction more than once.
+    const confirmationTime = new Date().toISOString();
+    const { data: claimed, error: claimError } = await supabase
+      .from('request_cost_allocations')
+      .update({ confirmed_at: confirmationTime, confirmed_by: req.user.id })
+      .eq('id', allocation_id)
+      .is('confirmed_at', null)
+      .select('id')
+      .maybeSingle();
+
+    if (claimError) return res.status(400).json({ error: 'Failed to claim allocation: ' + claimError.message });
+    if (!claimed) return res.status(400).json({ error: 'Allocation already confirmed' });
+
+    const releaseClaim = async () => {
+      await supabase.from('request_cost_allocations')
+        .update({ confirmed_at: null, confirmed_by: null })
+        .eq('id', allocation_id)
+        .eq('confirmed_at', confirmationTime);
+    };
+
+    // Deduct from cost center
     const { error: costCenterError } = await supabase
       .from('cost_centers')
       .update({
@@ -144,6 +165,7 @@ router.post('/confirm', authenticate, authorize('accounting', 'admin', 'super_ad
       .eq('id', costCenter.id);
 
     if (costCenterError) {
+      await releaseClaim();
       return res.status(400).json({ error: 'Failed to deduct from cost center: ' + costCenterError.message });
     }
 
@@ -165,21 +187,9 @@ router.post('/confirm', authenticate, authorize('accounting', 'admin', 'super_ad
           remaining_amount: parseFloat(costCenter.remaining_amount)
         })
         .eq('id', costCenter.id);
+      await releaseClaim();
       
       return res.status(400).json({ error: 'Failed to deduct from budget category: ' + categoryError.message });
-    }
-
-    // Mark allocation as confirmed
-    const { error: confirmError } = await supabase
-      .from('request_cost_allocations')
-      .update({
-        confirmed_at: new Date().toISOString(),
-        confirmed_by: req.user.id
-      })
-      .eq('id', allocation_id);
-
-    if (confirmError) {
-      return res.status(400).json({ error: 'Failed to confirm allocation: ' + confirmError.message });
     }
 
     // Log audit event
