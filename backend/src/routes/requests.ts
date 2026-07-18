@@ -1455,7 +1455,7 @@ router.get('/', authenticate, async (req: any, res) => {
 
   if (req.user.role === 'employee' || req.user.role === 'manager') {
     query = query.eq('employee_id', req.user.id);
-  } else if (req.user.role === 'supervisor') {
+  } else if (req.user.role === 'supervisor' || req.user.role === 'accounting_limited') {
     const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
     if (requestedDepartmentId) {
       // Only allow viewing the requested department if the supervisor has access to it.
@@ -1945,6 +1945,10 @@ router.get('/:id', authenticate, async (req: any, res) => {
     .single();
   if (error) return res.status(400).json({ error });
   if ((req.user.role === 'employee' || req.user.role === 'manager') && data.employee_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+  if (req.user.role === 'accounting_limited') {
+    const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+    if (!accessibleDepartmentIds.includes(data.department_id)) return res.status(403).json({ error: 'Forbidden' });
+  }
   if (req.user.role === 'supervisor') {
     const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
     if (!accessibleDepartmentIds.includes(data.department_id)) return res.status(403).json({ error: 'Forbidden' });
@@ -1976,6 +1980,20 @@ router.get('/:id/items', authenticate, async (req: any, res) => {
     // Authorization check
     if ((req.user.role === 'employee' || req.user.role === 'manager') && request.employee_id !== req.user.id) {
       return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (req.user.role === 'accounting_limited') {
+      const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+      const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+      if (!accessibleDepartmentIds.includes(request.department_id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+    if (req.user.role === 'supervisor') {
+      const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+      const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+      if (!accessibleDepartmentIds.includes(request.department_id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
     
     // Fetch individual items

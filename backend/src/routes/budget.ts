@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../utils/supabase';
 import { authenticate, authorize } from '../middleware/auth';
-import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
+import { getAccessibleDepartmentIdsForUser, getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { restoreAllBudgetCategoriesForFiscalYear } from '../utils/restoreBudgetCategories';
 import { filterBudgetCategoriesForUser } from '../utils/budgetCategoryVisibility';
 import { cacheResponse, CACHE_TTL, invalidateCache } from '../middleware/cache';
@@ -405,7 +405,7 @@ router.patch('/categories/:id/unlock', authenticate, authorize('accounting', 'ad
 });
 
 // PATCH /api/budget/categories/:id/lock - Lock budget category (accounting/admin only)
-router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admin', 'supervisor'), async (req: any, res) => {
   try {
     const { id } = req.params;
 
@@ -417,6 +417,17 @@ router.patch('/categories/:id/lock', authenticate, authorize('accounting', 'admi
 
     if (!current) {
       return res.status(404).json({ error: 'Category not found' });
+    }
+
+    if (req.user.role === 'supervisor') {
+      const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(
+        supabase,
+        req.user,
+        Number(current.fiscal_year) || await getLatestConfiguredFiscalYear(supabase)
+      );
+      if (!accessibleDepartmentIds.includes(current.department_id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     const { data, error } = await supabase

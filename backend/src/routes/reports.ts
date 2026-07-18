@@ -61,7 +61,7 @@ const appendReportRelations = async (rows: any[]) => {
 };
 
 // GET /api/reports/filter-options
-router.get('/filter-options', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+router.get('/filter-options', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   let requestQuery = supabase
     .from('expense_requests')
@@ -139,7 +139,7 @@ router.get('/summary', authenticate, async (req: any, res) => {
   const { dept, from, to, status, category, fiscal_year, archived = 'false', format } = req.query;
   let query = supabase.from('expense_requests').select('*');
   if (req.user.role === 'employee' || req.user.role === 'manager') query = query.eq('employee_id', req.user.id);
-  else if (req.user.role === 'supervisor') {
+  else if (req.user.role === 'supervisor' || req.user.role === 'accounting_limited') {
     const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
     query = accessibleDepartmentIds.length
       ? query.in('department_id', accessibleDepartmentIds)
@@ -205,7 +205,7 @@ router.get('/summary', authenticate, async (req: any, res) => {
 });
 
 // GET /api/reports/requests?dept=&from=&to=&archived=false&status=&category=&format=json|pdf|excel
-router.get('/requests', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+router.get('/requests', authenticate, authorize('accounting', 'admin', 'super_admin'), async (req: any, res) => {
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   const { dept, from, to, status, category, fiscal_year, archived = 'false', format } = req.query;
   let query = supabase.from('expense_requests').select('*');
@@ -345,7 +345,7 @@ const getAccessibleDepartmentIds = async (reqUser: any, fiscalYear: number) => {
     const ids = await getAccessibleDepartmentIdsForUser(supabase, reqUser, fiscalYear);
     return ids.length ? ids : [reqUser.department_id];
   }
-  if (reqUser.role === 'employee' || reqUser.role === 'manager') {
+  if (reqUser.role === 'employee' || reqUser.role === 'manager' || reqUser.role === 'accounting_limited') {
     return [reqUser.department_id];
   }
   return null;

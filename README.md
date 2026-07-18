@@ -56,6 +56,7 @@ SMTP_USER=your_brevo_smtp_login
 SMTP_PASS=your_brevo_smtp_key
 EMAIL_FROM=no-reply@yourdomain.com
 APP_URL=https://your-site.netlify.app
+BACKEND_API_URL=https://your-valid-tls-backend.example.com
 ```
 
 > For seeding the database locally, also set the Supabase service role key in `backend/.env` or root `.env`:

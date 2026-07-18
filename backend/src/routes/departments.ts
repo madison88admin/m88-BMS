@@ -365,6 +365,13 @@ router.get('/:id/budget-breakdown', authenticate, async (req: any, res) => {
 });
 
 router.get('/:id/budget', authenticate, async (req: any, res) => {
+  if (['employee', 'manager', 'supervisor', 'accounting_limited'].includes(req.user.role)) {
+    const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+    const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+    if (!accessibleDepartmentIds.includes(req.params.id)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
   const { data, error } = await supabase
     .from('departments')
     .select('id, name, annual_budget, used_budget, petty_cash_balance')

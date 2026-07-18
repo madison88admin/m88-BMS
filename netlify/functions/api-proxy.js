@@ -1,6 +1,26 @@
+const http = require('http');
 const https = require('https');
 
 exports.handler = async (event, context) => {
+  const backendBaseUrl = process.env.BACKEND_API_URL;
+  if (!backendBaseUrl) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'BACKEND_API_URL is not configured.' }),
+    };
+  }
+
+  let backendUrl;
+  try {
+    backendUrl = new URL(backendBaseUrl);
+  } catch {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'BACKEND_API_URL is invalid.' }),
+    };
+  }
   // event.path contains the original request path when using rewrite
   // Try multiple sources to find the original /api/* path
   let path = event.path || '';
@@ -56,21 +76,24 @@ exports.handler = async (event, context) => {
   
   return new Promise((resolve) => {
     const options = {
-      hostname: '5.223.78.194',
-      port: 443,
-      path: targetPath,
+      hostname: backendUrl.hostname,
+      port: backendUrl.port || (backendUrl.protocol === 'https:' ? 443 : 80),
+      path: `${backendUrl.pathname.replace(/\/$/, '')}${targetPath}`,
       method: httpMethod,
       headers: fwdHeaders,
-      rejectUnauthorized: false, // Skip self-signed cert validation
     };
-    
-    const req = https.request(options, (res) => {
+
+    const transport = backendUrl.protocol === 'https:' ? https : http;
+    const req = transport.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
         resolve({
           statusCode: res.statusCode,
-          headers: { 'Content-Type': res.headers['content-type'] || 'application/json' },
+          headers: {
+            'Content-Type': res.headers['content-type'] || 'application/json',
+            ...(res.headers['content-disposition'] ? { 'Content-Disposition': res.headers['content-disposition'] } : {}),
+          },
           body: data,
         });
       });

@@ -16,6 +16,22 @@ interface LayoutProps {
   children: ReactNode;
 }
 
+const ROLE_ROUTES: Record<string, string[]> = {
+  employee: ['/', '/employee', '/requests/new', '/travel-booking', '/tracker', '/request/edit/', '/reimbursement', '/profile'],
+  manager: ['/', '/employee', '/requests/new', '/travel-booking', '/tracker', '/request/edit/', '/reimbursement', '/profile'],
+  supervisor: ['/', '/requests/new', '/travel-booking', '/tracker', '/request/edit/', '/approvals', '/budget-management', '/profile', '/audit-trail'],
+  accounting: ['/', '/accounting', '/requests/new', '/document-uploads', '/tracker', '/request/edit/', '/approvals', '/budget-management', '/budget-expense-upload', '/ticket-audit-log', '/reports', '/cash-advance-aging', '/audit-trail'],
+  accounting_limited: ['/', '/budget-management', '/tracker', '/request/edit/', '/profile'],
+  vp: ['/', '/requests/new', '/tracker', '/request/edit/', '/approvals', '/budget-management', '/delegations', '/profile', '/audit-trail'],
+  president: ['/', '/requests/new', '/tracker', '/request/edit/', '/approvals', '/budget-management', '/delegations', '/profile', '/audit-trail'],
+  management: ['/', '/management', '/cash-advance-aging'],
+  admin: ['*'],
+  super_admin: ['*'],
+};
+
+const isRouteAllowedForRole = (role: string, pathname: string) =>
+  (ROLE_ROUTES[role] || ['/']).some((route) => route === '*' || (route === '/' ? pathname === '/' : pathname === route || pathname.startsWith(route)));
+
 const Layout = ({ children }: LayoutProps) => {
   const [user, setUser] = useState<any>(null);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
@@ -269,6 +285,7 @@ const Layout = ({ children }: LayoutProps) => {
       case 'manager': return 'Manager Workspace';
       case 'supervisor': return 'Supervisor Portal';
       case 'accounting': return 'Finance Control';
+      case 'accounting_limited': return 'Limited Finance Access';
       case 'admin':
       case 'super_admin': return 'System Admin';
       case 'vp': return 'Vice President';
@@ -287,6 +304,18 @@ const Layout = ({ children }: LayoutProps) => {
     );
   }
 
+  if (!isRouteAllowedForRole(user.role, location.pathname)) {
+    return (
+      <div className="app-shell flex min-h-screen items-center justify-center px-6">
+        <div className="panel max-w-lg text-center">
+          <h1 className="page-title">Access restricted</h1>
+          <p className="page-subtitle mt-3">Your role does not have permission to open this page.</p>
+          <button className="btn-primary mt-6" onClick={() => navigate('/')}>Return to dashboard</button>
+        </div>
+      </div>
+    );
+  }
+
   const navLinks = (
     <>
       {(user.role === 'employee' || user.role === 'manager') ? (
@@ -295,6 +324,12 @@ const Layout = ({ children }: LayoutProps) => {
           <Link to="/requests/new" className={`${getNavClassName('/requests/new')} whitespace-nowrap`}>Create Ticket</Link>
           <Link to="/travel-booking" className={getNavClassName('/travel-booking')}>Travel Booking</Link>
           <Link to="/tracker" className={getNavClassName('/tracker')}>My Requests</Link>
+        </>
+      ) : user.role === 'accounting_limited' ? (
+        <>
+          <Link to="/budget-management" className={getNavClassName('/budget-management')}>Budget Overview</Link>
+          <Link to="/tracker" className={getNavClassName('/tracker')}>My Requests</Link>
+          <Link to="/profile" className={getNavClassName('/profile')}>Settings</Link>
         </>
       ) : (
         <>
@@ -353,7 +388,7 @@ const Layout = ({ children }: LayoutProps) => {
       {(user.role === 'vp' || user.role === 'president' || user.role === 'admin' || user.role === 'super_admin') && (
         <Link to="/delegations" className={getNavClassName('/delegations')}>Delegations</Link>
       )}
-      {user.role === 'admin' && (
+      {(user.role === 'admin' || user.role === 'super_admin') && (
         <Link to="/reports" className={getNavClassName('/reports')}>Reports</Link>
       )}
       {(user.role === 'employee' || user.role === 'manager' || user.role === 'supervisor' || user.role === 'vp' || user.role === 'president') && (

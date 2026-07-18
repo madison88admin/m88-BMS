@@ -725,7 +725,7 @@ router.patch('/users/:id', authenticate, async (req: any, res) => {
     return res.status(400).json({ error: 'Name and role are required.' });
   }
 
-  if (!['employee', 'manager', 'supervisor', 'accounting', 'management', 'admin', 'super_admin', 'vp', 'president'].includes(normalizedRole)) {
+  if (!['employee', 'manager', 'supervisor', 'accounting', 'accounting_limited', 'management', 'admin', 'super_admin', 'vp', 'president'].includes(normalizedRole)) {
     console.log('Role validation failed for:', normalizedRole);
     return res.status(400).json({ error: 'Invalid role.' });
   }

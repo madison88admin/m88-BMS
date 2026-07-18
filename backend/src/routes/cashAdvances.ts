@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { supabase } from '../utils/supabase';
 import { authenticate, authorize } from '../middleware/auth';
-import { getLatestConfiguredFiscalYear } from '../utils/fiscal';
+import { getAccessibleDepartmentIdsForUser, getLatestConfiguredFiscalYear } from '../utils/fiscal';
 import { getCashAdvanceAgingConfig } from '../utils/config';
 import { notifyUser } from '../utils/workflowNotify';
 import { validateExpense } from '../utils/expenseValidator';
@@ -68,6 +68,12 @@ router.get('/', authenticate, async (req: any, res) => {
     // Filter by employee (for non-finance users, only show own)
     if (req.user.role === 'employee' || req.user.role === 'manager') {
       query = query.eq('employee_id', req.user.id);
+    } else if (req.user.role === 'supervisor' || req.user.role === 'accounting_limited') {
+      const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+      const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+      query = accessibleDepartmentIds.length
+        ? query.in('department_id', accessibleDepartmentIds)
+        : query.eq('department_id', req.user.department_id);
     } else if (employee_id) {
       query = query.eq('employee_id', employee_id);
     }
@@ -262,6 +268,20 @@ router.get('/:id', authenticate, async (req: any, res) => {
     // Check permission
     if ((req.user.role === 'employee' || req.user.role === 'manager') && cashAdvance.employee_id !== req.user.id) {
       return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (req.user.role === 'supervisor') {
+      const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+      const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+      if (!accessibleDepartmentIds.includes(cashAdvance.department_id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+    if (req.user.role === 'accounting_limited') {
+      const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
+      const accessibleDepartmentIds = await getAccessibleDepartmentIdsForUser(supabase, req.user, activeFiscalYear);
+      if (!accessibleDepartmentIds.includes(cashAdvance.department_id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     // Get liquidation items

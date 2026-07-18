@@ -1,4 +1,11 @@
 export default async (req, context) => {
+  const backendBaseUrl = Netlify.env.get('BACKEND_API_URL');
+  if (!backendBaseUrl) {
+    return new Response(JSON.stringify({ error: 'BACKEND_API_URL is not configured.' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
   const url = new URL(req.url);
   
   // Extract the path after /api/ — handle different Netlify function URL formats
@@ -10,7 +17,7 @@ export default async (req, context) => {
   // Ensure path starts with /
   if (!path.startsWith('/')) path = '/' + path;
   
-  const targetUrl = `http://5.223.78.194:3001/api${path}${url.search}`;
+  const targetUrl = `${backendBaseUrl.replace(/\/$/, '')}/api${path}${url.search}`;
   
   // Forward auth and content-type headers
   const headers = {};

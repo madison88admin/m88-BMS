@@ -1,6 +1,6 @@
 import express from 'express';
 import { supabase } from '../utils/supabase';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -34,7 +34,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-router.put('/:id', authenticate, async (req, res) => {
+router.put('/:id', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { deadline_days, escalation_action, is_active } = req.body;
@@ -61,7 +61,7 @@ router.put('/:id', authenticate, async (req, res) => {
   }
 });
 
-router.post('/', authenticate, async (req, res) => {
+router.post('/', authenticate, authorize('admin', 'super_admin'), async (req, res) => {
   try {
     const { policy_name, policy_type, trigger_condition, deadline_days, escalation_action } = req.body;
 

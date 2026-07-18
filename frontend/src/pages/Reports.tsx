@@ -126,9 +126,7 @@ const Reports = () => {
         fiscal_year: filters.fiscal_year || String(new Date().getFullYear()),
         ...(filters.dept ? { department_id: filters.dept } : {})
       });
-      const res = await api.get(`/api/budget/monitoring?${params.toString()}`, {
-        headers: getAuthHeaders()
-      });
+      const res = await api.get(`/api/budget/monitoring?${params.toString()}`);
       setBudgetMonitoring(res.data || []);
       setBudgetMonitoringLoaded(true);
     } catch {

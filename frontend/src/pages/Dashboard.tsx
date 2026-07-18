@@ -1280,7 +1280,7 @@ const Dashboard = () => {
             <div className="mt-5 grid grid-cols-1 gap-3">
               {(user.role === 'employee' || user.role === 'manager') && (
                 <>
-                  <button onClick={() => navigate('/request')} className="btn-primary w-full !justify-start items-center gap-4 min-h-[72px]">
+                  <button onClick={() => navigate('/requests/new')} className="btn-primary w-full !justify-start items-center gap-4 min-h-[72px]">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--role-text-inverse)]/20">
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

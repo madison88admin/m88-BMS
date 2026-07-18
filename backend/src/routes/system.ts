@@ -1,12 +1,12 @@
 import express from 'express';
 import { supabase } from '../utils/supabase';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 import { sendEmail } from '../utils/email';
 
 const router = express.Router();
 
 // Test email endpoint
-router.post('/test-email', authenticate, async (req: any, res) => {
+router.post('/test-email', authenticate, authorize('admin', 'super_admin'), async (req: any, res) => {
   const { to } = req.body;
   if (!to) {
     return res.status(400).json({ error: 'Recipient email is required.' });
@@ -46,8 +46,8 @@ router.get('/health', authenticate, async (req, res) => {
     ] = await Promise.all([
       supabase.from('departments').select('*', { count: 'exact', head: true }),
       supabase.from('users').select('*', { count: 'exact', head: true }),
-      supabase.from('requests').select('*', { count: 'exact', head: true }),
-      supabase.from('expenses').select('*', { count: 'exact', head: true })
+      supabase.from('expense_requests').select('*', { count: 'exact', head: true }),
+      supabase.from('direct_expenses').select('*', { count: 'exact', head: true })
     ]);
 
     const stats = {

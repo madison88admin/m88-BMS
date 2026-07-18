@@ -25,6 +25,7 @@ import documentUploadRoutes from './routes/documentUploads';
 import fiscalYearRoutes from './routes/fiscalYear';
 import costCenterRoutes from './routes/costCenters';
 import costAllocationRoutes from './routes/costAllocations';
+import systemRoutes from './routes/system';
 
 dotenv.config();
 
@@ -85,9 +86,10 @@ app.use('/api/document-uploads', documentUploadRoutes);
 app.use('/api/fiscal-year', fiscalYearRoutes);
 app.use('/api/cost-centers', costCenterRoutes);
 app.use('/api/cost-allocations', costAllocationRoutes);
+app.use('/api/system', systemRoutes);
 
 // Health check endpoint
-app.get('/api/system/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({
     backend: {
       status: 'healthy',
