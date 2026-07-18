@@ -166,6 +166,7 @@ const Layout = ({ children }: LayoutProps) => {
         if (cancelled) return;
         const currentUser = meRes.data;
         setUser(currentUser);
+        localStorage.setItem('user', JSON.stringify(currentUser));
         userIdRef.current = currentUser.id;
 
         if (currentUser.role === 'supervisor' || currentUser.role === 'accounting' || currentUser.role === 'admin' || currentUser.role === 'vp' || currentUser.role === 'president') {

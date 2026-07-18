@@ -149,6 +149,7 @@ const Login = () => {
       const normalizedEmail = email.trim().toLowerCase();
       const res = await api.post('/api/auth/login', { email: normalizedEmail, password });
       localStorage.setItem('token', res.data.token);
+      localStorage.setItem('user', JSON.stringify(res.data.user));
       toast.success('Login successful!');
       await new Promise((resolve) => setTimeout(resolve, 450));
       navigate('/');
@@ -210,6 +211,7 @@ const Login = () => {
       });
 
       localStorage.setItem('token', res.data.token);
+      localStorage.setItem('user', JSON.stringify(res.data.user));
       toast.success('Account created successfully!');
       await new Promise((resolve) => setTimeout(resolve, 450));
       navigate('/');

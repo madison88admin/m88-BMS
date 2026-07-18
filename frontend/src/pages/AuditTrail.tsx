@@ -57,23 +57,23 @@ const AuditTrail = () => {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
     if (!token) {
       navigate('/login');
       return;
     }
 
-    const role = storedUser ? JSON.parse(storedUser).role : '';
-    setUserRole(role);
-
-    if (!requestId && role === 'supervisor') {
-      toast.error('Audit trail access is restricted to Accounting, VP, and President.');
-      navigate('/dashboard');
-      return;
-    }
-
     const loadAuditTrail = async () => {
       try {
+        const meRes = await api.get('/api/auth/me');
+        const role = String(meRes.data?.role || '').toLowerCase();
+        setUserRole(role);
+
+        if (!requestId && !AUDIT_VIEW_ROLES.includes(role)) {
+          toast.error('You do not have permission to view the audit trail.');
+          navigate('/');
+          return;
+        }
+
         if (requestId) {
           const [requestRes, logsRes] = await Promise.all([
             api.get(`/api/requests/${requestId}`),
