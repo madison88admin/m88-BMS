@@ -1521,6 +1521,11 @@ router.get('/my', authenticate, async (req: any, res) => {
 router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'accounting'), async (req: any, res) => {
   const { item_name, category, category_id, amount, purpose, priority, department_id, request_type = 'reimbursement', attachments = [], metadata = {}, items = [] } = req.body;
   const userRole = req.user.role;
+  const normalizedPriority = toText(priority).toLowerCase() || 'normal';
+
+  if (!['low', 'normal', 'urgent'].includes(normalizedPriority)) {
+    return res.status(400).json({ error: 'Priority must be low, normal, or urgent.' });
+  }
 
   // Separate budget approval from expense approval
   const isBudgetRequest = request_type === 'budget_request';
@@ -1661,7 +1666,7 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
       category_id: category_id || null,
       amount: totalAmount,
       purpose,
-      priority,
+      priority: normalizedPriority,
       status: initialStatus,
       submitted_at: new Date(),
       metadata: { ...metadata, items, main_category: requestMainCategory },
@@ -2032,22 +2037,26 @@ const recomputeCashAdvanceBalance = async (cashAdvanceId: string) => {
 
   const { data: liquidationRows, error: liquidationSumError } = await supabase
     .from('request_liquidations')
-    .select('amount_spent')
+    .select('amount_spent, cash_return_amount, cash_return_status')
     .eq('cash_advance_id', cashAdvanceId)
     .in('status', ['submitted', 'verified']);
 
   if (liquidationSumError) return { error: liquidationSumError };
 
   const totalSpent = (liquidationRows || []).reduce((sum: number, row: any) => sum + toNumber(row.amount_spent), 0);
+  const totalReturned = (liquidationRows || [])
+    .filter((row: any) => row.cash_return_status === 'returned')
+    .reduce((sum: number, row: any) => sum + toNumber(row.cash_return_amount), 0);
   const amountIssued = toNumber(cashAdvance.amount_issued);
-  const newBalance = Math.max(amountIssued - totalSpent, 0);
+  const totalSettled = Math.min(amountIssued, totalSpent + totalReturned);
+  const newBalance = Math.max(amountIssued - totalSettled, 0);
 
-  const newStatus = newBalance <= 0 ? 'fully_liquidated' : totalSpent > 0 ? 'partially_liquidated' : 'outstanding';
+  const newStatus = newBalance <= 0 ? 'fully_liquidated' : totalSettled > 0 ? 'partially_liquidated' : 'outstanding';
 
   const { error: updateError } = await supabase
     .from('cash_advances')
     .update({
-      amount_liquidated: totalSpent,
+      amount_liquidated: totalSettled,
       balance: newBalance,
       status: newStatus,
       fully_liquidated_at: newBalance <= 0 ? new Date() : null,
@@ -3907,6 +3916,14 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
         'Cash Return Confirmed',
         `Your cash return of ₱${liquidation.cash_return_amount?.toFixed(2) ?? '0.00'} for ${parentRequest.request_code} has been confirmed by Accounting.`
       );
+    }
+
+    if (liquidation.cash_advance_id) {
+      const { error: recomputeError } = await recomputeCashAdvanceBalance(String(liquidation.cash_advance_id));
+      if (recomputeError) {
+        console.error('Unable to recompute cash advance after cash return:', recomputeError);
+        throw recomputeError;
+      }
     }
 
     res.json(data);
