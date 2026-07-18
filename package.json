@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Madison88 Budget Management System - Netlify Deployment",
   "scripts": {
-    "build": "cd frontend && npm run build",
+    "build": "npm --prefix frontend ci && npm --prefix frontend run build",
     "dev": "cd frontend && npm run dev",
     "seed:supabase": "node scripts/seed-supabase.js",
     "verify:smtp": "node scripts/verify-smtp.js"
