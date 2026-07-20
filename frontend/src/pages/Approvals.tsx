@@ -485,22 +485,22 @@ const Approvals = () => {
       } else if (role === 'vp' && requestStatus === 'pending_vp') {
         const isBudgetFlow = requestType === 'budget_request' || requestType === 'budget_revision';
         if (isBudgetFlow) {
-          // Budget <30K: VP approves directly; >=30K: VP marks viewed, forwards to President
+          // Budget: VP marks viewed, always forwards to President
           await api.patch(
             `/api/requests/${requestId}/mark-viewed`,
             { note }
           );
-          if (amount >= vpThreshold) {
-            toast.success('Budget marked as viewed — forwarded to President.');
-          } else {
-            toast.success('Budget approved by VP — matrix locked.');
-          }
+          toast.success('Budget marked as viewed — forwarded to President.');
         } else {
           await api.patch(
             `/api/requests/${requestId}/approve-vp`,
             { note }
           );
-          toast.success('VP approved — forwarded to President for final approval.');
+          if (amount >= vpThreshold) {
+            toast.success('VP approved — forwarded to President for final approval.');
+          } else {
+            toast.success('VP approved — returned to accounting for fund release.');
+          }
         }
       } else if (role === 'president' && requestStatus === 'pending_president') {
         await api.patch(
@@ -3303,6 +3303,9 @@ const Approvals = () => {
                         {(() => {
                           const isBudget = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
                           if (isBudget) return null;
+                          const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
+                          const vpThreshold = currencyThreshold.vp;
+                          const needsPresident = requestAmount >= vpThreshold;
                           const atVp = req.status === 'pending_vp';
                           const atPresident = req.status === 'pending_president';
                           return (
@@ -3310,16 +3313,18 @@ const Approvals = () => {
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                               <div>
                                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--role-text)]/50">
-                                  VP & President Approval
+                                  {needsPresident ? 'VP & President Approval' : 'VP Approval'}
                                 </p>
                                 <p className="mt-1 text-sm text-[var(--role-text)]/70">
-                                  All expense requests require VP and President approval before fund release.
+                                  {needsPresident
+                                    ? `Requests of ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} or above require VP and President approval before release.`
+                                    : `Requests below ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} require VP approval before release.`}
                                 </p>
                               </div>
 
                               {req.co_approved_by ? (
                                 <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-600">
-                                  Approved by {req.co_approver_role?.toUpperCase() || 'President'}
+                                  Approved by {req.co_approver_role?.toUpperCase() || 'VP/President'}
                                 </span>
                               ) : atVp ? (
                                 (user.role === 'vp' || user.role === 'admin') ? (
@@ -3351,7 +3356,7 @@ const Approvals = () => {
                                 )
                               ) : (
                                 <span className="text-xs text-[var(--role-text)]/50">
-                                  Awaiting VP/President approval
+                                  Awaiting {needsPresident ? 'VP/President' : 'VP'} approval
                                 </span>
                               )}
                             </div>

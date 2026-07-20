@@ -2783,10 +2783,19 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
   }
 
   // Travel bookings: VP approval is final (VP acts as Country Administrator)
-  // Expense requests: VP approval forwards to President for final approval
+  // Expense <30K: VP is final approver — set co_approved_by, return to accounting for release
+  // Expense >=30K: VP is approver — forward to President for final approval
   const isTravelBooking = request.request_type === 'travel_booking';
-  const nextStatus = isTravelBooking ? 'approved' : 'pending_president';
+  const requestAmount = toNumber(request.amount);
+  const vpIsFinal = !isTravelBooking && requestAmount < VP_THRESHOLD;
+  const nextStatus = isTravelBooking ? 'approved' : vpIsFinal ? 'pending_accounting' : 'pending_president';
   const updatePayload: Record<string, unknown> = { status: nextStatus, updated_at: new Date() };
+
+  if (vpIsFinal) {
+    updatePayload.co_approved_by = req.user.id;
+    updatePayload.co_approved_at = new Date();
+    updatePayload.co_approver_role = 'vp';
+  }
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2813,7 +2822,9 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
       new_value: nextStatus,
       note: isTravelBooking
         ? 'VP approved travel booking (Country Administrator)'
-        : 'VP approved request — forwarded to President for final approval'
+        : vpIsFinal
+          ? 'VP approved request (below threshold) — returned to accounting for fund release'
+          : 'VP approved request — forwarded to President for final approval'
     }
   ]);
 
@@ -2829,7 +2840,9 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
     newValue: { status: nextStatus },
     remarks: isTravelBooking
       ? 'VP approved travel booking'
-      : 'VP approved — forwarded to President',
+      : vpIsFinal
+        ? 'VP approved (below threshold) — returned to accounting for release'
+        : 'VP approved — forwarded to President',
   });
 
   // Travel bookings: VP approval is final — sync travel booking and notify employee
@@ -2847,8 +2860,19 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
       `Your travel booking ${request.request_code} has been approved by the VP (Country Administrator).`,
       '/tracker'
     );
+  } else if (vpIsFinal) {
+    // Expense <30K: VP final approval — notify accounting for release
+    await notifyAccounting(`Request ${request.request_code} VP-approved — ready for fund release.`, '/approvals');
+
+    await notifyEmployee(
+      request.employee_id,
+      request.request_code,
+      'Request Update',
+      `Your request ${request.request_code} has VP approval and is awaiting fund release.`,
+      '/tracker'
+    );
   } else {
-    // Expense request: VP approved — notify President for final approval
+    // Expense >=30K: VP approved — notify President for final approval
     await notifyPresident(`Request ${request.request_code} requires President approval.`, '/approvals');
 
     await notifyEmployee(
@@ -2886,11 +2910,8 @@ router.patch('/:id/mark-viewed', authenticate, authorize('vp', 'admin'), async (
     return res.status(400).json({ error: 'Only requests waiting for VP review can be marked as viewed.' });
   }
 
-  // Budget <30K: VP approval is final (approve and lock matrix)
-  // Budget >=30K: VP marks viewed, forwards to President for final approval
-  const budgetAmount = toNumber(request.amount);
-  const vpFinalApproval = budgetAmount < VP_THRESHOLD;
-  const nextStatus = vpFinalApproval ? 'approved' : 'pending_president';
+  // All budget requests: VP marks viewed, forwards to President for final approval
+  const nextStatus = 'pending_president';
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2900,20 +2921,12 @@ router.patch('/:id/mark-viewed', authenticate, authorize('vp', 'admin'), async (
     .single();
   if (error) return res.status(400).json({ error });
 
-  if (vpFinalApproval) {
-    await applyApprovedBudgetProposal(request);
-    invalidateCache('/api/departments');
-    invalidateCache('/api/budget/categories');
-    invalidateCache('/api/budget/summary');
-    invalidateCache('/api/budget/monitoring');
-  }
-
   await supabase.from('approval_logs').insert({
     request_id: id,
     actor_id: req.user.id,
-    action: vpFinalApproval ? 'approved' : 'viewed',
+    action: 'viewed',
     stage: 'vp',
-    note: req.body.note || (vpFinalApproval ? 'VP approved budget (below threshold)' : 'VP marked budget proposal as viewed'),
+    note: req.body.note || 'VP marked budget proposal as viewed',
   });
 
   await logAuditEvent({
@@ -2924,20 +2937,10 @@ router.patch('/:id/mark-viewed', authenticate, authorize('vp', 'admin'), async (
     recordLabel: request.request_code,
     oldValue: { status: 'pending_vp' },
     newValue: { status: nextStatus },
-    remarks: req.body.note || (vpFinalApproval ? 'VP approved budget (below threshold)' : 'VP marked as viewed'),
+    remarks: req.body.note || 'VP marked as viewed',
   });
 
-  if (vpFinalApproval) {
-    await notifyEmployee(
-      request.employee_id,
-      request.request_code,
-      'Budget Approved',
-      `Your budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} has been approved by VP.`,
-      '/tracker'
-    );
-  } else {
-    await notifyPresident(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} is ready for final approval.`);
-  }
+  await notifyPresident(`Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} is ready for final approval.`);
 
   res.json(data);
 });
