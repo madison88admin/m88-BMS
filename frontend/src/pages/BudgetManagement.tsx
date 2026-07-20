@@ -771,7 +771,7 @@ const BudgetManagement = () => {
 
   const submitBudgetProposals = async () => {
     if (!selectedDepartmentId) { toast.error('Select a department first'); return; }
-    const proposals = allMainCategories
+    const proposals = parentCategoryOptions
       .map((cat) => ({
         category: cat,
         amount: toNumber(proposalDrafts[cat.id] ?? cat.budget_amount)
@@ -2000,8 +2000,8 @@ const BudgetManagement = () => {
                       </div>
                     )}
 
-                    {/* Budget Proposal — only shows when no pending proposals and there are unlocked categories */}
-                    {user?.role === 'supervisor' && allMainCategories.length > 0 && allMainCategories.some((c) => !c.is_locked) && pendingBudgetProposals.length === 0 && (
+                    {/* Budget Proposal — only shows when no pending proposals and there are unlocked categories in the current department */}
+                    {user?.role === 'supervisor' && parentCategoryOptions.length > 0 && parentCategoryOptions.some((c) => !c.is_locked) && pendingBudgetProposals.length === 0 && (
                       <div className="mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
@@ -2013,7 +2013,7 @@ const BudgetManagement = () => {
                           </button>
                         </div>
                         <div className="space-y-2 max-h-64 overflow-y-auto">
-                          {allMainCategories.map((cat) => (
+                          {parentCategoryOptions.map((cat) => (
                             <div key={cat.id} className="flex items-center gap-2 text-sm">
                               <span className="flex-1 truncate font-medium">{cat.category_name}</span>
                               <span className="text-xs text-[var(--role-text)]/50 whitespace-nowrap">Current: {displayMoney(toNumber(cat.budget_amount))}</span>
