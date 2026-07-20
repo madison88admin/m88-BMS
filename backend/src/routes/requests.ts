@@ -1479,7 +1479,23 @@ router.get('/', authenticate, async (req: any, res) => {
   // Apply status filter if provided (e.g. ?status=pending_vp)
   const requestedStatus = req.query.status ? String(req.query.status) : null;
   if (requestedStatus) {
-    query = query.eq('status', requestedStatus);
+    const statuses = requestedStatus.split(',').map(s => s.trim()).filter(Boolean);
+    if (statuses.length === 1) {
+      query = query.eq('status', statuses[0]);
+    } else if (statuses.length > 1) {
+      query = query.in('status', statuses);
+    }
+  }
+
+  // Apply request_type filter if provided
+  const requestedRequestType = req.query.request_type ? String(req.query.request_type) : null;
+  if (requestedRequestType) {
+    const types = requestedRequestType.split(',').map(t => t.trim()).filter(Boolean);
+    if (types.length === 1) {
+      query = query.eq('request_type', types[0]);
+    } else if (types.length > 1) {
+      query = query.in('request_type', types);
+    }
   }
 
   const { data, error } = await query.order('submitted_at', { ascending: true });

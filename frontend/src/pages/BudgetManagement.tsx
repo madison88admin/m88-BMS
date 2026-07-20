@@ -244,6 +244,7 @@ const BudgetManagement = () => {
   const [revisionDrafts, setRevisionDrafts] = useState<Record<string, string>>({});
   const [revisionHistory, setRevisionHistory] = useState<Record<string, any[]>>({});
   const [submittingProposal, setSubmittingProposal] = useState(false);
+  const [pendingBudgetProposals, setPendingBudgetProposals] = useState<any[]>([]);
   const [showAllLockedCategories, setShowAllLockedCategories] = useState(false);
   const [allMainCategories, setAllMainCategories] = useState<any[]>([]);
   const [m88ManilaCostCenter, setM88ManilaCostCenter] = useState<any>(null);
@@ -540,6 +541,12 @@ const BudgetManagement = () => {
     try {
       const res = await api.get(`/api/departments/${deptId}/budget-breakdown`);
       setSelectedBreakdown(res.data);
+      // Check for pending budget proposals/requests for this department
+      try {
+        const pendingRes = await api.get(`/api/requests?department_id=${deptId}&request_type=budget_request&status=pending_supervisor,pending_accounting,pending_vp,pending_president`);
+        const pending = Array.isArray(pendingRes.data) ? pendingRes.data : (pendingRes.data?.data || []);
+        setPendingBudgetProposals(pending);
+      } catch { setPendingBudgetProposals([]); }
     } catch (err: any) {
       setSelectedBreakdown(null);
       const msg = err.response?.data?.error?.message || err.response?.data?.error || 'Detailed breakdown unavailable.';
@@ -792,6 +799,7 @@ const BudgetManagement = () => {
       }
       toast.success(`Submitted ${proposals.length} budget proposal(s) for approval`);
       setProposalDrafts({});
+      if (selectedDepartmentId) await fetchBreakdown(selectedDepartmentId, false, false);
     } catch (err: any) {
       toast.error(getErrorMessage(err, 'Failed to submit budget proposal'));
     } finally {
@@ -1992,8 +2000,8 @@ const BudgetManagement = () => {
                       </div>
                     )}
 
-                    {/* Budget Proposal — shows ALL main categories across all departments */}
-                    {user?.role === 'supervisor' && allMainCategories.length > 0 && allMainCategories.some((c) => !c.is_locked) && (
+                    {/* Budget Proposal — only shows when no pending proposals and there are unlocked categories */}
+                    {user?.role === 'supervisor' && allMainCategories.length > 0 && allMainCategories.some((c) => !c.is_locked) && pendingBudgetProposals.length === 0 && (
                       <div className="mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
@@ -2020,6 +2028,30 @@ const BudgetManagement = () => {
                                 className="w-28 px-2 py-1 text-xs rounded border border-[var(--role-border)] bg-[var(--role-surface)] disabled:bg-gray-100"
                               />
                               {cat.is_locked && <span className="text-[10px] text-amber-700 font-semibold">LOCKED</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pending Budget Proposal Notice — shows when there are pending proposals */}
+                    {user?.role === 'supervisor' && pendingBudgetProposals.length > 0 && (
+                      <div className="mb-4 p-4 rounded-xl border border-amber-200 bg-amber-50/50 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <h4 className="text-sm font-semibold text-[var(--role-text)]">Budget Proposal Pending Approval</h4>
+                        </div>
+                        <p className="text-xs text-[var(--role-text)]/60">
+                          You have {pendingBudgetProposals.length} budget proposal(s) awaiting approval. New proposals are locked until the current ones are processed.
+                        </p>
+                        <div className="space-y-1.5">
+                          {pendingBudgetProposals.slice(0, 5).map((req) => (
+                            <div key={req.id} className="flex items-center justify-between rounded-lg border border-amber-200/60 bg-white/70 px-3 py-1.5 text-xs">
+                              <span className="font-medium">{req.request_code}</span>
+                              <span className="text-[var(--role-text)]/60">{req.category}</span>
+                              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold capitalize">{req.status?.replace('_', ' ')}</span>
                             </div>
                           ))}
                         </div>
