@@ -2000,8 +2000,8 @@ const BudgetManagement = () => {
                       </div>
                     )}
 
-                    {/* Budget Proposal — only shows when no pending proposals and there are unlocked categories in the current department */}
-                    {user?.role === 'supervisor' && parentCategoryOptions.length > 0 && parentCategoryOptions.some((c) => !c.is_locked) && pendingBudgetProposals.length === 0 && (
+                    {/* Budget Proposal — only shows when no pending proposals and NO categories are locked (fresh fiscal year) */}
+                    {user?.role === 'supervisor' && parentCategoryOptions.length > 0 && parentCategoryOptions.every((c) => !c.is_locked) && pendingBudgetProposals.length === 0 && (
                       <div className="mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
