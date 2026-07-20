@@ -465,9 +465,9 @@ const Approvals = () => {
           if (isBudgetFlow) {
             toast.success('Budget proposal forwarded to VP for review.');
           } else if (amount >= vpThreshold) {
-            toast.success('Request forwarded to VP review.');
+            toast.success('Request forwarded to President approval.');
           } else {
-            toast.success('Request approved and funds released.');
+            toast.success('Request forwarded to VP approval.');
           }
         } else if (requestStatus === 'pending_accounting' && request.co_approved_by) {
           const draft = disbursementDrafts[requestId] || {};
@@ -498,7 +498,7 @@ const Approvals = () => {
             `/api/requests/${requestId}/approve-vp`,
             { note }
           );
-          toast.success('Review recorded — forwarded to President.');
+          toast.success('VP approved — returned to accounting for fund release.');
         }
       } else if (role === 'president' && requestStatus === 'pending_president') {
         await api.patch(
@@ -3301,16 +3301,18 @@ const Approvals = () => {
                         {(() => {
                           const currencyThreshold = thresholds[currentCurrency] || thresholds.PHP;
                           const vpThreshold = currencyThreshold.vp;
-                          if (requestAmount < vpThreshold) return null;
+                          const needsPresident = requestAmount >= vpThreshold;
                           return (
                           <div className="mt-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                               <div>
                                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--role-text)]/50">
-                                  VP & President Approval Required
+                                  {needsPresident ? 'President Approval Required' : 'VP Approval Required'}
                                 </p>
                                 <p className="mt-1 text-sm text-[var(--role-text)]/70">
-                                  Requests of {formatMoney(vpThreshold, currentCurrency)} {currentCurrency} or above require VP and President approval before release.
+                                  {needsPresident
+                                    ? `Requests of ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} or above require President approval before release.`
+                                    : `Requests below ${formatMoney(vpThreshold, currentCurrency)} ${currentCurrency} require VP approval before release.`}
                                 </p>
                               </div>
 
@@ -3321,17 +3323,17 @@ const Approvals = () => {
                               ) : (
                                 (() => {
                                   return (
-                                (user.role === 'vp' || user.role === 'president' || user.role === 'admin') ? (
+                                ((needsPresident && (user.role === 'president' || user.role === 'admin')) || (!needsPresident && (user.role === 'vp' || user.role === 'admin'))) ? (
                                   <button
                                     type="button"
                                     onClick={() => void handleCoApprove(req)}
                                     className="btn-secondary"
                                   >
-                                    Co-Approve
+                                    {needsPresident ? 'Approve as President' : 'Approve as VP'}
                                   </button>
                                 ) : (
                                   <span className="text-xs text-[var(--role-text)]/50">
-                                    Waiting for VP/President approval
+                                    Waiting for {needsPresident ? 'President' : 'VP'} approval
                                   </span>
                                 ))})()
                               )}

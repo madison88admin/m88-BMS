@@ -2679,54 +2679,12 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
   const budgetFlow = isBudgetWorkflow(request.request_type);
   const requestAmount = toNumber(request.amount);
 
-  // Budget proposals and requests >= VP_THRESHOLD go to VP; below threshold: release directly
-  const needsVpApproval = budgetFlow || requestAmount >= VP_THRESHOLD;
-
-  if (!needsVpApproval) {
-    // Below threshold: accounting approval is final — release funds directly
-    try {
-      const released = await releaseRequest(request, req.user.id, req.body || {});
-      invalidateCache('/api/departments');
-      invalidateCache('/api/budget/categories');
-      await updateM88ManilaCostCenterBudget(request.fiscal_year);
-
-      await supabase.from('approval_logs').insert({
-        request_id: id,
-        actor_id: req.user.id,
-        action: 'approved',
-        stage: 'accounting',
-        note: req.body.note || 'Accounting approved and released (below VP threshold)'
-      });
-
-      await logAuditEvent({
-        user: req.user,
-        actionType: request.request_type === 'cash_advance'
-          ? AUDIT_ACTIONS.CASH_ADVANCE_APPROVED
-          : AUDIT_ACTIONS.REIMBURSEMENT_APPROVED,
-        recordType: 'request',
-        recordId: id,
-        recordLabel: request.request_code,
-        oldValue: { status: request.status },
-        newValue: { status: 'released' },
-        remarks: 'Accounting approved and released (below VP threshold)'
-      });
-
-      await notifyEmployee(
-        request.employee_id,
-        request.request_code,
-        'Request Approved & Released',
-        `Your request ${request.request_code} has been approved and funds released.`,
-        '/tracker'
-      );
-
-      return res.json(released);
-    } catch (releaseErr: any) {
-      return res.status(400).json({ error: releaseErr.message || 'Failed to release request' });
-    }
-  }
-
-  // Above threshold or budget flow: route to VP
-  const nextStatus = 'pending_vp';
+  // Budget proposals go to VP; expense requests <30K → VP, >=30K → President
+  const nextStatus = budgetFlow
+    ? 'pending_vp'
+    : requestAmount >= VP_THRESHOLD
+      ? 'pending_president'
+      : 'pending_vp';
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2753,7 +2711,9 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
       new_value: nextStatus,
       note: budgetFlow
         ? 'Accounting approved budget proposal — forwarded to VP for review'
-        : 'Accounting approved request — forwarded to VP review'
+        : nextStatus === 'pending_vp'
+          ? 'Accounting approved request — forwarded to VP review'
+          : 'Accounting approved request — forwarded to President review'
     }
   ]);
 
@@ -2783,20 +2743,29 @@ router.patch('/:id/approve-accounting', authenticate, authorize('accounting', 'a
     });
   }
 
-  // Notify VP
-  await notifyVp(
-    budgetFlow
-      ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
-      : `Request ${request.request_code} requires VP review.`,
-    '/approvals'
-  );
+  // Notify VP or President depending on routing
+  if (nextStatus === 'pending_president') {
+    await notifyPresident(
+      `Request ${request.request_code} requires President approval.`,
+      '/approvals'
+    );
+  } else {
+    await notifyVp(
+      budgetFlow
+        ? `Budget ${request.request_type === 'budget_revision' ? 'revision' : 'proposal'} ${request.request_code} requires VP review.`
+        : `Request ${request.request_code} requires VP review.`,
+      '/approvals'
+    );
+  }
 
   if (!budgetFlow) {
     await notifyEmployee(
       request.employee_id,
       request.request_code,
       'Request Update',
-      `Your request ${request.request_code} has moved to VP review.`,
+      nextStatus === 'pending_president'
+        ? `Your request ${request.request_code} has moved to President review.`
+        : `Your request ${request.request_code} has moved to VP review.`,
       '/tracker'
     );
   }
@@ -2832,9 +2801,16 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
   }
 
   // Travel bookings: VP approval is final (VP acts as Country Administrator)
+  // Expense requests: VP approval is final co-approval — return to accounting for release
   const isTravelBooking = request.request_type === 'travel_booking';
-  const nextStatus = isTravelBooking ? 'approved' : 'pending_president';
+  const nextStatus = isTravelBooking ? 'approved' : 'pending_accounting';
   const updatePayload: Record<string, unknown> = { status: nextStatus, updated_at: new Date() };
+
+  if (!isTravelBooking) {
+    updatePayload.co_approved_by = req.user.id;
+    updatePayload.co_approved_at = new Date();
+    updatePayload.co_approver_role = 'vp';
+  }
 
   const { data, error } = await supabase
     .from('expense_requests')
@@ -2859,7 +2835,9 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
       field_name: 'status',
       old_value: request.status,
       new_value: nextStatus,
-      note: 'VP reviewed request — forwarded to President'
+      note: isTravelBooking
+        ? 'VP approved travel booking (Country Administrator)'
+        : 'VP approved request — returned to accounting for fund release'
     }
   ]);
 
@@ -2873,7 +2851,9 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
     recordLabel: request.request_code,
     oldValue: { status: request.status },
     newValue: { status: nextStatus },
-    remarks: 'VP reviewed — forwarded to President',
+    remarks: isTravelBooking
+      ? 'VP approved travel booking'
+      : 'VP approved — returned to accounting for fund release',
   });
 
   // Travel bookings: VP approval is final — sync travel booking and notify employee
@@ -2892,14 +2872,14 @@ router.patch('/:id/approve-vp', authenticate, authorize('vp', 'admin'), async (r
       '/tracker'
     );
   } else {
-    // Sequential flow: VP → President. Only notify President.
-    await notifyPresident(`Request ${request.request_code} requires President approval.`, '/approvals');
+    // Expense request: VP co-approved — notify accounting for release
+    await notifyAccounting(`Request ${request.request_code} VP-approved — ready for fund release.`, '/approvals');
 
     await notifyEmployee(
       request.employee_id,
       request.request_code,
       'Request Update',
-      `Your request ${request.request_code} has moved to President review.`,
+      `Your request ${request.request_code} has VP approval and is awaiting fund release.`,
       '/tracker'
     );
   }
@@ -3188,10 +3168,8 @@ router.patch('/:id/release', authenticate, authorize('accounting', 'accounting_l
     return res.status(400).json({ error: 'Only requests waiting for accounting approval can be released here.' });
   }
 
-  // Requests at or above VP_THRESHOLD require VP/President co-approval before release.
-  // Below threshold: accounting can release directly without co-approval.
-  const requestAmount = toNumber(request.amount);
-  const needsCoApproval = requestAmount >= VP_THRESHOLD || isBudgetWorkflow(request.request_type);
+  // All non-budget expense requests require VP or President co-approval before release.
+  const needsCoApproval = !isBudgetWorkflow(request.request_type);
   if (needsCoApproval && !request.co_approved_by) {
     return res.status(403).json({
       error: 'This request requires VP or President co-approval before accounting can release.'
