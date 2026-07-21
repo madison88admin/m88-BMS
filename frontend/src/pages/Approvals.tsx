@@ -577,10 +577,10 @@ const Approvals = () => {
         if (effectiveView === 'liquidations') {
           const roleStageMap: Record<string, string[]> = {
             supervisor: ['pending_supervisor', 'submitted'],
-            accounting: ['pending_accounting'],
+            accounting: ['pending_accounting', 'pending_cash_return'],
             vp: ['pending_vp'],
             president: ['pending_president'],
-            admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'submitted']
+            admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return', 'submitted']
           };
           const allowedStages = roleStageMap[role] || [];
           
@@ -647,10 +647,10 @@ const Approvals = () => {
           if (effectiveView === 'liquidations') {
             const roleStageMap: Record<string, string[]> = {
               supervisor: ['pending_supervisor', 'submitted'],
-              accounting: ['pending_accounting'],
+              accounting: ['pending_accounting', 'pending_cash_return'],
               vp: ['pending_vp'],
               president: ['pending_president'],
-              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'submitted']
+              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return', 'submitted']
             };
             const allowedStages = roleStageMap[user?.role] || [];
             const liq = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
@@ -2597,23 +2597,29 @@ const Approvals = () => {
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
-                            {['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].map((stage, idx) => {
-                              const stages = ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'];
-                              const currentIdx = stages.indexOf(req.latest_liquidation.liquidation_status || 'pending_supervisor');
-                              const isDone = idx < currentIdx;
-                              const isCurrent = idx === currentIdx;
-                              return (
-                                <div key={stage} className="flex items-center gap-2">
-                                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${isDone ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-blue-500 text-white animate-pulse' : 'bg-gray-200 text-gray-400'}`}>
-                                    {isDone ? '✓' : idx + 1}
+                            {(() => {
+                              const liqAmount = Number(req.latest_liquidation.amount_spent || 0);
+                              const stages = liqAmount >= 30000
+                                ? ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return']
+                                : ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_cash_return'];
+                              const currentStatus = req.latest_liquidation.liquidation_status || 'pending_supervisor';
+                              const currentIdx = stages.indexOf(currentStatus === 'submitted' ? 'pending_supervisor' : currentStatus);
+                              return stages.map((stage, idx) => {
+                                const isDone = idx < currentIdx;
+                                const isCurrent = idx === currentIdx;
+                                return (
+                                  <div key={stage} className="flex items-center gap-2">
+                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${isDone ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-blue-500 text-white animate-pulse' : 'bg-gray-200 text-gray-400'}`}>
+                                      {isDone ? '✓' : idx + 1}
+                                    </div>
+                                    <span className={`text-[10px] capitalize ${isCurrent ? 'text-blue-600 font-bold' : isDone ? 'text-emerald-600' : 'text-gray-400'}`}>
+                                      {stage.replace('pending_', '').replace('cash_return', 'cash return')}
+                                    </span>
+                                    {idx < stages.length - 1 && <div className={`w-4 h-0.5 ${isDone ? 'bg-emerald-400' : 'bg-gray-200'}`} />}
                                   </div>
-                                  <span className={`text-[10px] capitalize ${isCurrent ? 'text-blue-600 font-bold' : isDone ? 'text-emerald-600' : 'text-gray-400'}`}>
-                                    {stage.replace('pending_', '')}
-                                  </span>
-                                  {idx < 3 && <div className={`w-4 h-0.5 ${isDone ? 'bg-emerald-400' : 'bg-gray-200'}`} />}
-                                </div>
-                              );
-                            })}
+                                );
+                              });
+                            })()}
                           </div>
                         </div>
 

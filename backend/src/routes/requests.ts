@@ -2233,9 +2233,9 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       const itemsToInsert = items.map((item: any) => ({
         liquidation_id: result.data.id,
         cash_advance_id: cashAdvanceId,
-        description: item.description,
+        description: item.description || 'Item',
         amount: toNumber(item.amount),
-        expense_date: item.expense_date || null,
+        expense_date: item.expense_date || new Date().toISOString().split('T')[0],
         category_id: item.category_id || null,
         receipt_attached: item.receipt_attached || false,
         created_at: new Date()
@@ -3816,7 +3816,8 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
     pending_supervisor: ['supervisor', 'admin'],
     pending_accounting: ['accounting', 'admin'],
     pending_vp: ['vp', 'admin'],
-    pending_president: ['president', 'admin']
+    pending_president: ['president', 'admin'],
+    pending_cash_return: ['accounting', 'admin']
   };
 
   const allowedRoles = stageRoleMap[currentStatus] || [];
@@ -3852,10 +3853,27 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
     return res.json(data);
   }
 
-  // Approve — advance to next stage
-  const flowOrder = ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'];
-  const currentIdx = flowOrder.indexOf(currentStatus);
-  const nextStatus = currentIdx >= 0 && currentIdx < flowOrder.length - 1 ? flowOrder[currentIdx + 1] : 'verified';
+  // Approve — advance to next stage with threshold logic
+  // Flow: Supervisor → Accounting → VP → (if >=30k) President → Accounting (cash return) → Verified
+  const liqAmount = toNumber(liquidation.amount_spent);
+  let nextStatus: string;
+
+  if (currentStatus === 'pending_supervisor') {
+    nextStatus = 'pending_accounting';
+  } else if (currentStatus === 'pending_accounting') {
+    nextStatus = 'pending_vp';
+  } else if (currentStatus === 'pending_vp') {
+    // VP: if amount >= 30k → President, else → Accounting for cash return
+    nextStatus = liqAmount >= 30000 ? 'pending_president' : 'pending_cash_return';
+  } else if (currentStatus === 'pending_president') {
+    // President → Accounting for cash return
+    nextStatus = 'pending_cash_return';
+  } else if (currentStatus === 'pending_cash_return') {
+    // Accounting finalizes → verified
+    nextStatus = 'verified';
+  } else {
+    nextStatus = 'verified';
+  }
 
   const updatePayload: Record<string, any> = {
     liquidation_status: nextStatus,
@@ -3868,6 +3886,12 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
     updatePayload.reviewed_at = new Date();
     updatePayload.reviewed_by = req.user.id;
 
+    const cashReturn = toNumber(liquidation.cash_return_amount);
+    if (cashReturn > 0) {
+      updatePayload.cash_return_status = 'pending_return';
+    }
+  } else if (nextStatus === 'pending_cash_return') {
+    // Set cash_return_status when entering cash return stage
     const cashReturn = toNumber(liquidation.cash_return_amount);
     if (cashReturn > 0) {
       updatePayload.cash_return_status = 'pending_return';
@@ -3962,7 +3986,7 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
     }
   } else {
     // Notify next approver
-    const nextRoleMap: Record<string, string> = { pending_accounting: 'accounting', pending_vp: 'vp', pending_president: 'president' };
+    const nextRoleMap: Record<string, string> = { pending_accounting: 'accounting', pending_vp: 'vp', pending_president: 'president', pending_cash_return: 'accounting' };
     const nextRole = nextRoleMap[nextStatus];
     if (nextRole && parentRequest) {
       // Notify the next role group

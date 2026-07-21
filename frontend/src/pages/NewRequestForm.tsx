@@ -244,6 +244,7 @@ const NewRequestForm = () => {
   const [liquidationForm, setLiquidationForm] = useState({
     advance_id: initialAdvanceId || '',
     remarks: '',
+    cash_return_method: 'cash' as 'cash' | 'bank',
     categoryItems: [] as LiquidationCategoryItem[]
   });
   const [liquidationCategory, setLiquidationCategory] = useState<{ category_id: string; category_name: string }>({ category_id: '', category_name: '' });
@@ -274,6 +275,7 @@ const NewRequestForm = () => {
           ...prev,
           advance_id: parsed.advance_id || '',
           remarks: parsed.remarks || '',
+          cash_return_method: parsed.cash_return_method || 'cash',
           categoryItems: []
         }));
       } catch (e) { /* invalid draft, skip */ }
@@ -668,6 +670,7 @@ const NewRequestForm = () => {
             }
           }
           return {
+            item_label: item.item_label || item.category_name || 'Item',
             category_id: item.category_id,
             category_name: item.category_name,
             amount_spent: parseFloat(item.amount_spent || '0'),
@@ -681,6 +684,7 @@ const NewRequestForm = () => {
         amount_spent: totalSpent,
         category_items: categoryItems,
         total_amount_spent: totalSpent,
+        cash_return_method: liquidationForm.cash_return_method || 'cash',
         remarks: liquidationForm.remarks
       }, {
         suppressErrorToast: true
@@ -1753,6 +1757,47 @@ const NewRequestForm = () => {
                         </div>
                       </div>
                     )}
+
+                    {/* Cash Return Method Selection */}
+                    {selectedAdvance && (() => {
+                      const totalSpent = liquidationForm.categoryItems.reduce((sum, item) => {
+                        return sum + (parseFloat(item.amount_spent || '0') || 0);
+                      }, 0);
+                      const cashReturn = Math.max(Number(selectedAdvance.amount_issued) - totalSpent, 0);
+                      if (cashReturn <= 0) return null;
+                      return (
+                        <div className="rounded-xl border border-amber-300 bg-amber-50/50 p-4">
+                          <p className="text-sm font-semibold text-amber-700">
+                            Cash Return Required: {formatMoney(cashReturn)}
+                          </p>
+                          <p className="text-xs text-amber-600/70 mt-1 mb-3">
+                            You spent less than the cash advance. Select how you will return the excess.
+                          </p>
+                          <div className="flex gap-3">
+                            <label className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer transition ${liquidationForm.cash_return_method === 'bank' ? 'border-amber-500 bg-amber-100' : 'border-[var(--role-border)] bg-[var(--role-accent)]'}`}>
+                              <input
+                                type="radio"
+                                name="liq_cash_return_method"
+                                value="bank"
+                                checked={liquidationForm.cash_return_method === 'bank'}
+                                onChange={(e) => setLiquidationForm(prev => ({ ...prev, cash_return_method: e.target.value as 'bank' }))}
+                              />
+                              <span className="text-sm font-medium">Bank Transfer</span>
+                            </label>
+                            <label className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer transition ${liquidationForm.cash_return_method === 'cash' ? 'border-amber-500 bg-amber-100' : 'border-[var(--role-border)] bg-[var(--role-accent)]'}`}>
+                              <input
+                                type="radio"
+                                name="liq_cash_return_method"
+                                value="cash"
+                                checked={liquidationForm.cash_return_method === 'cash'}
+                                onChange={(e) => setLiquidationForm(prev => ({ ...prev, cash_return_method: e.target.value as 'cash' }))}
+                              />
+                              <span className="text-sm font-medium">Cash</span>
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
