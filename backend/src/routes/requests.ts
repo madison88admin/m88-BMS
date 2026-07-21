@@ -2090,7 +2090,20 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
     const cashAdvanceId = req.body?.cash_advance_id;
     const remarks = toText(req.body?.remarks);
     const attachments = req.body?.attachments || [];
-    const items = req.body?.items || []; // Multiple expense items: [{ description, amount, expense_date, category_id, receipt_attached }]
+    const rawItems = req.body?.items || [];
+    // Also accept category_items from NewRequestForm
+    const rawCategoryItems = req.body?.category_items || [];
+    const items = [
+      ...rawItems,
+      ...rawCategoryItems.map((ci: any) => ({
+        description: ci.item_label || ci.category_name || 'Item',
+        amount: ci.amount_spent,
+        expense_date: ci.expense_date || null,
+        category_id: ci.category_id || null,
+        receipt_attached: (ci.attachments || []).length > 0,
+        attachments: ci.attachments || []
+      }))
+    ];
     const cashReturnMethod = toText(req.body?.cash_return_method); // 'bank' or 'cash'
 
     // Support both new multi-item and legacy single amount_spent
@@ -3795,7 +3808,8 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
 
   if (liquidationError || !liquidation) return res.status(400).json({ error: liquidationError || 'Liquidation not found.' });
 
-  const currentStatus = liquidation.liquidation_status || 'pending_supervisor';
+  const rawStatus = liquidation.liquidation_status || 'pending_supervisor';
+  const currentStatus = rawStatus === 'submitted' ? 'pending_supervisor' : rawStatus;
 
   // Validate approver can act at current stage
   const stageRoleMap: Record<string, string[]> = {

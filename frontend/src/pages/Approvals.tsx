@@ -576,17 +576,18 @@ const Approvals = () => {
         
         if (effectiveView === 'liquidations') {
           const roleStageMap: Record<string, string[]> = {
-            supervisor: ['pending_supervisor'],
+            supervisor: ['pending_supervisor', 'submitted'],
             accounting: ['pending_accounting'],
             vp: ['pending_vp'],
             president: ['pending_president'],
-            admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']
+            admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'submitted']
           };
           const allowedStages = roleStageMap[role] || [];
           
           filtered = (res.data || []).filter((request: any) => {
             const liq = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
-            return liq && liq.status === 'submitted' && allowedStages.includes(liq.liquidation_status || 'pending_supervisor');
+            const effectiveStatus = liq?.liquidation_status === 'submitted' ? 'pending_supervisor' : liq?.liquidation_status;
+            return liq && liq.status === 'submitted' && allowedStages.includes(effectiveStatus || 'pending_supervisor');
           }).map((request: any) => {
             const liquidation = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
             return {
@@ -645,15 +646,16 @@ const Approvals = () => {
 
           if (effectiveView === 'liquidations') {
             const roleStageMap: Record<string, string[]> = {
-              supervisor: ['pending_supervisor'],
+              supervisor: ['pending_supervisor', 'submitted'],
               accounting: ['pending_accounting'],
               vp: ['pending_vp'],
               president: ['pending_president'],
-              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']
+              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'submitted']
             };
             const allowedStages = roleStageMap[user?.role] || [];
             const liq = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
-            return liq && liq.status === 'submitted' && allowedStages.includes(liq.liquidation_status || 'pending_supervisor');
+            const effectiveStatus = liq?.liquidation_status === 'submitted' ? 'pending_supervisor' : liq?.liquidation_status;
+            return liq && liq.status === 'submitted' && allowedStages.includes(effectiveStatus || 'pending_supervisor');
           }
 
           if (effectiveView === 'cash_returns') {
@@ -1555,13 +1557,13 @@ const Approvals = () => {
               {(user?.role === 'vp' || user?.role === 'president' || user?.role === 'admin') && (
                 <>
                   <button 
-                    onClick={() => setView('vp_approval')} 
+                    onClick={() => { setView('vp_approval'); setSelectedRequests(new Set()); fetchRequests(); }} 
                     className={`btn-secondary !rounded-full !px-6 ${view === 'vp_approval' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                   >
                     VP/President Approval
                   </button>
                   <button 
-                    onClick={() => setView('approved')} 
+                    onClick={() => { setView('approved'); setSelectedRequests(new Set()); fetchRequests(); }} 
                     className={`btn-secondary !rounded-full !px-6 ${view === 'approved' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                   >
                     Approved for Release
@@ -1573,13 +1575,13 @@ const Approvals = () => {
               {(user?.role === 'accounting' || user?.role === 'admin') && (
                 <>
                   <button 
-                    onClick={() => { setView('pending'); setSelectedRequests(new Set()); }}
+                    onClick={() => { setView('pending'); setSelectedRequests(new Set()); fetchRequests(); }}
                     className={`btn-secondary !rounded-full !px-6 ${view === 'pending' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                   >
                     Pending Disbursements
                   </button>
                   <button
-                    onClick={() => { setView('released'); setSelectedRequests(new Set()); }}
+                    onClick={() => { setView('released'); setSelectedRequests(new Set()); fetchRequests(); }}
                     className={`btn-secondary !rounded-full !px-6 ${view === 'released' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                   >
                     Disbursement Records
@@ -1589,7 +1591,7 @@ const Approvals = () => {
               {/* All approvers see Liquidations tab */}
               {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'vp' || user?.role === 'president' || user?.role === 'admin') && (
                 <button
-                  onClick={() => { setView('liquidations'); setSelectedRequests(new Set()); }}
+                  onClick={() => { setView('liquidations'); setSelectedRequests(new Set()); fetchRequests(); }}
                   className={`btn-secondary !rounded-full !px-6 ${view === 'liquidations' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                 >
                   Liquidations
@@ -1597,7 +1599,7 @@ const Approvals = () => {
               )}
               {(user?.role === 'accounting' || user?.role === 'admin') && (
                 <button
-                  onClick={() => { setView('cash_returns'); setSelectedRequests(new Set()); }}
+                  onClick={() => { setView('cash_returns'); setSelectedRequests(new Set()); fetchRequests(); }}
                   className={`btn-secondary !rounded-full !px-6 ${view === 'cash_returns' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                 >
                   Cash Returns
