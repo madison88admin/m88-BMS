@@ -635,23 +635,13 @@ const NewRequestForm = () => {
       return;
     }
 
-    // Validate per-item amounts don't exceed original amounts
-    const overBudgetItems = liquidationForm.categoryItems.filter(item => {
-      const spent = parseFloat(item.amount_spent || '0');
-      return spent > item.original_amount;
-    });
-    if (overBudgetItems.length > 0) {
-      toast.error(`Amount spent cannot exceed the original amount for: ${overBudgetItems.map(i => i.item_label).join(', ')}`);
-      return;
-    }
-
     // Calculate total
     const totalSpent = liquidationForm.categoryItems.reduce((sum, item) => {
       return sum + (parseFloat(item.amount_spent || '0') || 0);
     }, 0);
 
     if (totalSpent > Number(selectedAdvance.balance || 0)) {
-      toast.error(`Total amount cannot exceed the cash advance balance of ${formatMoney(Number(selectedAdvance.balance || 0))}`);
+      toast.error(`Total amount cannot exceed the cash advance remaining balance of ${formatMoney(Number(selectedAdvance.balance || 0))}`);
       return;
     }
 
@@ -1681,7 +1671,6 @@ const NewRequestForm = () => {
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                max={catItem.original_amount > 0 ? catItem.original_amount : undefined}
                                 value={catItem.amount_spent}
                                 onChange={(e) => {
                                   const newItems = [...liquidationForm.categoryItems];
