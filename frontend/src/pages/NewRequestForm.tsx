@@ -172,9 +172,14 @@ const NewRequestForm = () => {
           ? request.metadata.items
           : [];
 
+      // Store the cash advance's category for new items
+      const caCategoryId = request.category_id || request.metadata?.category_id || '';
+      const caCategoryName = request.category || request.metadata?.category || request.metadata?.main_category || '';
+      setLiquidationCategory({ category_id: caCategoryId, category_name: caCategoryName });
+
       const breakdown = requestItems.map((item: any) => ({
-        category_id: item.category_id || '',
-        category_name: item.category_name || item.category || item.main_category || 'Uncategorized',
+        category_id: item.category_id || caCategoryId,
+        category_name: item.category_name || item.category || item.main_category || caCategoryName || 'Uncategorized',
         original_amount: parseFloat(item.amount || 0) || 0,
         item_label: item.item_name || item.item || item.description || 'Item'
       }));
@@ -241,6 +246,7 @@ const NewRequestForm = () => {
     remarks: '',
     categoryItems: [] as LiquidationCategoryItem[]
   });
+  const [liquidationCategory, setLiquidationCategory] = useState<{ category_id: string; category_name: string }>({ category_id: '', category_name: '' });
 
   // Load drafts on mount
   useEffect(() => {
@@ -1589,8 +1595,8 @@ const NewRequestForm = () => {
                       setLiquidationForm(prev => ({
                         ...prev,
                         categoryItems: [...prev.categoryItems, {
-                          category_id: '',
-                          category_name: '',
+                          category_id: liquidationCategory.category_id,
+                          category_name: liquidationCategory.category_name,
                           original_amount: 0,
                           item_label: '',
                           amount_spent: '',
