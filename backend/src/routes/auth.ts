@@ -522,9 +522,15 @@ router.patch('/profile', authenticate, async (req: any, res) => {
     return res.status(400).json({ error: 'Department is required.' });
   }
 
+  // Only super_admin can change department assignments
+  const canChangeDepartment = req.user.role === 'super_admin';
+  if (requiresDepartment && !canChangeDepartment && normalizedDepartmentId && normalizedDepartmentId !== String(req.user.department_id || '')) {
+    return res.status(403).json({ error: 'You cannot change your assigned department. Please contact an administrator.' });
+  }
+
   let resolvedDepartmentId: string | null = req.user.department_id || null;
 
-  if (requiresDepartment) {
+  if (requiresDepartment && canChangeDepartment) {
     const { data: department, error: departmentError } = await resolveSignupDepartment(normalizedDepartmentId);
     if (departmentError || !department) {
       return res.status(400).json({ error: departmentError || 'Selected department was not found.' });

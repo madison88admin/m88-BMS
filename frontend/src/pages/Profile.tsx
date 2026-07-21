@@ -154,26 +154,18 @@ const Profile = () => {
           </div>
 
           {/* Only show department field for roles that have departments */}
-          {user.role !== 'vp' && user.role !== 'president' && user.role !== 'super_admin' && (
+          {user.role !== 'vp' && user.role !== 'president' && (
             <div>
               <label className="field-label">Department</label>
-              <select 
-                className="field-input" 
-                value={departmentId} 
-                onChange={(event) => setDepartmentId(event.target.value)}
-                disabled={isLoadingDepartments}
-              >
-                <option value="">{isLoadingDepartments ? 'Loading departments...' : 'Select your department'}</option>
-                {departments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                ))}
-              </select>
+              <input
+                className="field-input bg-gray-100"
+                value={departments.find((d) => d.id === departmentId)?.name || '—'}
+                disabled
+              />
               {user?.department?.name && (
                 <p className="mt-2 text-xs text-[var(--role-text)]/60">
                   Current department: <span className="font-medium">{user.department.name}</span>. 
-                  You can only view and create requests for your assigned department.
+                  Only a System Admin can change department assignments.
                 </p>
               )}
             </div>

@@ -3944,6 +3944,38 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
         .from('expense_requests')
         .update({ liquidated_amount: liquidatedAmount, updated_at: new Date() })
         .eq('id', id);
+
+      // Return unused CA balance back to budget category
+      // E.g. CA issued 33222, liquidated 33000 → refund 222 to budget
+      if (parentRequest && cashReturn > 0) {
+        const categoryId = parentRequest.category_id;
+        if (categoryId) {
+          const { data: catBudget } = await supabase
+            .from('budget_categories')
+            .select('id, used_amount, remaining_amount, budget_amount')
+            .eq('id', categoryId)
+            .maybeSingle();
+
+          if (catBudget) {
+            const newUsed = Math.max(0, toNumber(catBudget.used_amount) - cashReturn);
+            const newRemaining = Math.min(toNumber(catBudget.budget_amount), toNumber(catBudget.remaining_amount) + cashReturn);
+            await supabase
+              .from('budget_categories')
+              .update({ used_amount: newUsed, remaining_amount: newRemaining, updated_at: new Date() })
+              .eq('id', catBudget.id);
+
+            // Sync parent category remaining if applicable
+            const { data: parentCat } = await supabase
+              .from('budget_categories')
+              .select('id, remaining_amount, budget_amount')
+              .eq('id', categoryId)
+              .maybeSingle();
+            if (parentCat) {
+              await syncParentCategoryRemaining(categoryId);
+            }
+          }
+        }
+      }
     }
 
     await logAuditEvent({
@@ -4033,11 +4065,14 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
     const { data, error } = await supabase
       .from('request_liquidations')
       .update({
+        status: 'verified',
+        liquidation_status: 'verified',
         cash_return_status: 'returned',
         cash_returned_at: new Date(),
         cash_return_acknowledged_at: new Date(),
         cash_returned_confirmed_by: req.user.id,
         cash_return_reference: cashReturnReference || null,
+        reviewed_at: new Date(),
         updated_at: new Date()
       })
       .eq('id', liquidation.id)
@@ -4071,6 +4106,26 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
         'Cash Return Confirmed',
         `Your cash return of ₱${liquidation.cash_return_amount?.toFixed(2) ?? '0.00'} ${methodLabel} for ${parentRequest.request_code} has been confirmed by Accounting${cashReturnReference ? ' (Ref: ' + cashReturnReference + ')' : ''}.`
       );
+    }
+
+    // Refund unused CA balance back to budget category on cash return confirmation
+    const cashReturnAmount = toNumber(liquidation.cash_return_amount);
+    if (parentRequest && cashReturnAmount > 0 && parentRequest.category_id) {
+      const { data: catBudget } = await supabase
+        .from('budget_categories')
+        .select('id, used_amount, remaining_amount, budget_amount')
+        .eq('id', parentRequest.category_id)
+        .maybeSingle();
+
+      if (catBudget) {
+        const newUsed = Math.max(0, toNumber(catBudget.used_amount) - cashReturnAmount);
+        const newRemaining = Math.min(toNumber(catBudget.budget_amount), toNumber(catBudget.remaining_amount) + cashReturnAmount);
+        await supabase
+          .from('budget_categories')
+          .update({ used_amount: newUsed, remaining_amount: newRemaining, updated_at: new Date() })
+          .eq('id', catBudget.id);
+        await syncParentCategoryRemaining(parentRequest.category_id);
+      }
     }
 
     if (liquidation.cash_advance_id) {

@@ -96,7 +96,7 @@ const NewRequestForm = () => {
     return Array.from(categories).sort();
   };
 
-  const isStaffUser = !user?.role || user.role === 'employee' || user.role === 'manager' || user.role === 'supervisor';
+  const isStaffUser = !user?.role || user.role !== 'super_admin';
 
   const departmentNameForFilter = () =>
     departments.find((d) => d.id === (activeTab === 'reimbursement' ? reimbursementForm.department_id : cashAdvanceForm.department_id))?.name || '';
