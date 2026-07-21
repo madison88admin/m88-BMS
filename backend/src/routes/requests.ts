@@ -1557,8 +1557,8 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
   const request_code = await generateRequestCode(supabase, requestType);
   const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
   
-  // Use provided department_id if user is admin/accounting, otherwise use user's own department
-  const targetDepartmentId = (userRole === 'admin' || userRole === 'accounting') && department_id 
+  // Only super_admin can submit for a different department; everyone else uses their own
+  const targetDepartmentId = userRole === 'super_admin' && department_id 
     ? department_id 
     : req.user.department_id;
 
@@ -1833,10 +1833,10 @@ router.post('/', authenticate, authorize('employee', 'manager', 'supervisor', 'a
 router.get('/audit-logs', authenticate, authorize('accounting', 'vp', 'president', 'admin', 'super_admin'), async (req: any, res) => {
   // Always fetch from all three log sources and merge them
   const [dedicatedResult, approvalLogsResult, allocationLogsResult, auditLogsResult] = await Promise.all([
-    supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(500),
-    supabase.from('approval_logs').select('*').order('timestamp', { ascending: false }).limit(150),
-    supabase.from('allocation_logs').select('*').order('created_at', { ascending: false }).limit(150),
-    supabase.from('request_audit_logs').select('*').order('created_at', { ascending: false }).limit(150)
+    supabase.from('audit_logs').select('*').order('created_at', { ascending: true }).limit(500),
+    supabase.from('approval_logs').select('*').order('timestamp', { ascending: true }).limit(150),
+    supabase.from('allocation_logs').select('*').order('created_at', { ascending: true }).limit(150),
+    supabase.from('request_audit_logs').select('*').order('created_at', { ascending: true }).limit(150)
   ]);
 
   if (approvalLogsResult.error) return res.status(400).json({ error: approvalLogsResult.error });
@@ -1871,7 +1871,7 @@ router.get('/audit-logs', authenticate, authorize('accounting', 'vp', 'president
   }));
 
   const combinedLogs = [...dedicatedLogs, ...approvalLogs, ...allocationLogs, ...requestAuditLogs]
-    .sort((left: any, right: any) => new Date(right.event_time).getTime() - new Date(left.event_time).getTime())
+    .sort((left: any, right: any) => new Date(left.event_time).getTime() - new Date(right.event_time).getTime())
     .slice(0, 200);
 
   const actorIds = Array.from(new Set(combinedLogs.map((log: any) => log.actor_id || log.user_id).filter(Boolean)));
@@ -1916,9 +1916,9 @@ router.get('/:id/audit-logs', authenticate, async (req: any, res) => {
 
   // Fetch all types of logs
   const [approvalLogsResult, allocationLogsResult, auditLogsResult] = await Promise.all([
-    supabase.from('approval_logs').select('*').eq('request_id', id).order('timestamp', { ascending: false }),
-    supabase.from('allocation_logs').select('*').eq('request_id', id).order('created_at', { ascending: false }),
-    supabase.from('request_audit_logs').select('*').eq('request_id', id).order('created_at', { ascending: false })
+    supabase.from('approval_logs').select('*').eq('request_id', id).order('timestamp', { ascending: true }),
+    supabase.from('allocation_logs').select('*').eq('request_id', id).order('created_at', { ascending: true }),
+    supabase.from('request_audit_logs').select('*').eq('request_id', id).order('created_at', { ascending: true })
   ]);
 
   const approvalLogs = (approvalLogsResult.data || []).map((log: any) => ({
@@ -1939,7 +1939,7 @@ router.get('/:id/audit-logs', authenticate, async (req: any, res) => {
   }));
 
   const combinedLogs = [...approvalLogs, ...allocationLogs, ...auditLogs]
-    .sort((left: any, right: any) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+    .sort((left: any, right: any) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime());
 
   const actorIds = Array.from(new Set(combinedLogs.map((log: any) => log.actor_id).filter(Boolean)));
   const { data: actors } = actorIds.length
@@ -2163,11 +2163,7 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       ? toNumber(existingLiquidation.amount_spent)
       : 0;
 
-    const effectiveBalance = toNumber(cashAdvance.balance) + previousSpent;
-    if (amountSpent > effectiveBalance) {
-      return res.status(400).json({ error: `Amount spent cannot exceed cash advance balance of ${effectiveBalance}.` });
-    }
-
+    // Allow overspending — excess will be auto-filed as reimbursement on verification
     // Calculate cash return amount
     const cashReturnAmount = Math.max(Number(cashAdvance.amount_issued) - amountSpent, 0);
 
@@ -3419,7 +3415,7 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
   const newAmount = normalizedAmount || request.amount;
   
   // Validate budget before resubmit (skip only for budget proposals/revisions)
-  const targetDeptId = req.body?.department_id || request.department_id;
+  const targetDeptId = req.user.role === 'super_admin' ? (req.body?.department_id || request.department_id) : request.department_id;
   const requestType = request.request_type || 'reimbursement';
   const shouldBypassBudget = requestType === 'budget_request' || requestType === 'budget_revision';
 
@@ -3469,7 +3465,7 @@ router.patch('/:id/resubmit', authenticate, authorize('employee', 'manager', 'su
     .update({
       status: resubmitStatus,
       item_name: normalizedItemName || request.item_name,
-      department_id: req.body?.department_id || request.department_id,
+      department_id: req.user.role === 'super_admin' ? (req.body?.department_id || request.department_id) : request.department_id,
       amount: newAmount,
       category: normalizedCategory || request.category,
       priority: normalizedPriority || request.priority,
@@ -3984,9 +3980,13 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
       recordType: 'liquidation',
       recordId: liquidation.id,
       recordLabel: parentRequest?.request_code || id,
-      oldValue: { status: currentStatus },
-      newValue: { status: 'verified', cash_return: cashReturn, reimbursable },
-      remarks: remarks || (cashReturn > 0 ? `Refund due: ₱${cashReturn.toFixed(2)}` : reimbursable > 0 ? `Excess reimbursement: ₱${reimbursable.toFixed(2)}` : 'Liquidation verified'),
+      oldValue: { status: currentStatus, ca_amount: parentRequest ? toNumber(parentRequest.amount) : 0 },
+      newValue: { status: 'verified', amount_spent: toNumber(liquidation.amount_spent), cash_return: cashReturn, reimbursable, remaining_balance: parentRequest ? toNumber(parentRequest.amount) - toNumber(liquidation.amount_spent) + cashReturn : 0 },
+      remarks: remarks || (cashReturn > 0
+        ? `Liquidated ₱${toNumber(liquidation.amount_spent).toFixed(2)} of ₱${parentRequest ? toNumber(parentRequest.amount).toFixed(2) : '0.00'}, refund due: ₱${cashReturn.toFixed(2)}`
+        : reimbursable > 0
+          ? `Liquidated ₱${toNumber(liquidation.amount_spent).toFixed(2)} of ₱${parentRequest ? toNumber(parentRequest.amount).toFixed(2) : '0.00'}, excess reimbursement: ₱${reimbursable.toFixed(2)}`
+          : `Liquidated ₱${toNumber(liquidation.amount_spent).toFixed(2)} of ₱${parentRequest ? toNumber(parentRequest.amount).toFixed(2) : '0.00'}`),
     });
 
     // Auto-file reimbursement if excess spending
@@ -4088,7 +4088,7 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
         field_name: 'cash_return_status',
         old_value: liquidation.cash_return_status || 'pending_return',
         new_value: 'returned',
-        note: `Accounting confirmed the cash return${cashReturnReference ? ' (ref: ' + cashReturnReference + ')' : ''}.`
+        note: `Cash return confirmed: ₱${toNumber(liquidation.cash_return_amount).toFixed(2)} ${liquidation.cash_return_method === 'bank' ? 'via Bank Transfer' : 'in Cash'}${cashReturnReference ? ' (ref: ' + cashReturnReference + ')' : ''}`
       }
     ]);
 
@@ -4134,6 +4134,13 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
         console.error('Unable to recompute cash advance after cash return:', recomputeError);
         throw recomputeError;
       }
+    }
+
+    // Invalidate caches and sync department/cost center budgets
+    invalidateCache('/api/departments');
+    invalidateCache('/api/budget/categories');
+    if (parentRequest) {
+      await updateM88ManilaCostCenterBudget(parentRequest.fiscal_year);
     }
 
     res.json(data);

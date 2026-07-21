@@ -52,7 +52,9 @@ const TicketAuditLog = () => {
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
+  const [filterDept, setFilterDept] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [departments, setDepartments] = useState<any[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -76,7 +78,18 @@ const TicketAuditLog = () => {
     if (!user) return;
     fetchRequests();
     fetchAuditLogs();
+    fetchDepartments();
   }, [user]);
+
+  const fetchDepartments = async () => {
+    try {
+      const res = await api.get('/api/departments');
+      const depts = (res.data || []).filter((d: any) => !/^m88/i.test(d.name || ''));
+      setDepartments(depts);
+    } catch (err) {
+      console.error('Failed to fetch departments:', err);
+    }
+  };
 
   const fetchRequests = async () => {
     try {
@@ -108,11 +121,12 @@ const TicketAuditLog = () => {
   const filteredRequests = requests.filter(req => {
     const matchStatus = filterStatus === 'all' || req.status === filterStatus;
     const matchType = filterType === 'all' || req.request_type === filterType;
+    const matchDept = filterDept === 'all' || req.department_name === departments.find((d) => d.id === filterDept)?.name;
     const matchSearch = !searchQuery || 
       req.request_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.employee_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.department_name?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchStatus && matchType && matchSearch;
+    return matchStatus && matchType && matchDept && matchSearch;
   });
 
   const getStatusColor = (status: string) => {
@@ -160,7 +174,21 @@ const TicketAuditLog = () => {
         <p className="text-sm text-gray-600">Track all requests and their status changes</p>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">Filter by Department</label>
+          <select
+            value={filterDept}
+            onChange={(e) => setFilterDept(e.target.value)}
+            className="w-full px-4 py-2 rounded-lg border border-gray-300"
+          >
+            <option value="all">All Departments</option>
+            {departments.map((dept) => (
+              <option key={dept.id} value={dept.id}>{dept.name}</option>
+            ))}
+          </select>
+        </div>
+
         <div>
           <label className="block text-sm font-medium mb-2">Filter by Status</label>
           <select
@@ -213,6 +241,7 @@ const TicketAuditLog = () => {
             onClick={() => {
               setFilterStatus('all');
               setFilterType('all');
+              setFilterDept('all');
               setSearchQuery('');
               setSelectedRequest(null);
               fetchAuditLogs();

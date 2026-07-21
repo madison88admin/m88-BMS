@@ -381,13 +381,13 @@ const NewRequestForm = () => {
           }
         }
 
-        // Initialize department if user has one (as default, but user can change it)
+        // Always force the user's assigned department — no overrides from drafts
         if (userData.department_id) {
-          setReimbursementForm(prev => prev.department_id ? prev : ({ ...prev, department_id: userData.department_id }));
-          setCashAdvanceForm(prev => prev.department_id ? prev : ({ ...prev, department_id: userData.department_id }));
+          setReimbursementForm(prev => ({ ...prev, department_id: userData.department_id }));
+          setCashAdvanceForm(prev => ({ ...prev, department_id: userData.department_id }));
         } else if (departmentsRes.data?.length > 0) {
-          setReimbursementForm(prev => prev.department_id ? prev : ({ ...prev, department_id: departmentsRes.data[0].id }));
-          setCashAdvanceForm(prev => prev.department_id ? prev : ({ ...prev, department_id: departmentsRes.data[0].id }));
+          setReimbursementForm(prev => ({ ...prev, department_id: departmentsRes.data[0].id }));
+          setCashAdvanceForm(prev => ({ ...prev, department_id: departmentsRes.data[0].id }));
         }
 
         // Now that data is loaded and department is set correctly, notify about drafts if they were restored
@@ -641,11 +641,6 @@ const NewRequestForm = () => {
     const totalSpent = liquidationForm.categoryItems.reduce((sum, item) => {
       return sum + (parseFloat(item.amount_spent || '0') || 0);
     }, 0);
-
-    if (totalSpent > Number(selectedAdvance.balance || 0)) {
-      toast.error(`Total amount cannot exceed the cash advance remaining balance of ${formatMoney(Number(selectedAdvance.balance || 0))}`);
-      return;
-    }
 
     if (!selectedAdvance.request_id) {
       toast.error('Selected cash advance is missing request reference. Please contact admin.');

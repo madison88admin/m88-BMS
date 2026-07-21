@@ -164,15 +164,18 @@ const getRequestBudgetImpacts = (
 };
 
 export const buildDepartmentBudgetSummaryMap = async () => {
-  const [departmentsResult, requestsResult, directExpensesResult, pettyCashResult, assetCategoriesResult] = await Promise.all([
+  const [departmentsResult, requestsResult, directExpensesResult, pettyCashResult, assetCategoriesResult, liquidationsResult] = await Promise.all([
     supabase
       .from('departments')
       .select('id, name, fiscal_year, annual_budget, used_budget, petty_cash_balance, updated_at, created_at'),
     supabase.from('expense_requests').select('id, department_id, amount, status, request_type, released_at, updated_at, category_id'),
     supabase.from('direct_expenses').select('department_id, amount, expense_date'),
     supabase.from('petty_cash_transactions').select('department_id, amount, type, transaction_date'),
-    supabase.from('budget_categories').select('id, category_code').like('category_code', '17%')
+    supabase.from('budget_categories').select('id, category_code').like('category_code', '17%'),
+    supabase.from('request_liquidations').select('request_id, cash_return_amount, cash_return_status, status')
   ]);
+
+  if (liquidationsResult.error) throw liquidationsResult.error;
 
   if (departmentsResult.error) throw departmentsResult.error;
   if (requestsResult.error) throw requestsResult.error;
@@ -269,7 +272,11 @@ export const buildDepartmentBudgetSummaryMap = async () => {
     const pendingVpTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingVp || 0), 0);
     const pendingPresidentTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.pendingPresident || 0), 0);
     const onHoldTotal = ids.reduce((sum, id) => sum + (totalsByDepartmentId.get(id)?.onHold || 0), 0);
-    const usedBudget = releasedRequestsTotal + directExpensesTotal;
+    // Subtract cash returns from liquidations that have been returned/verified
+    const cashReturnsTotal = (liquidationsResult.data || [])
+      .filter((liq: any) => ids.includes(requests.find((r: any) => r.id === liq.request_id)?.department_id || '') && liq.cash_return_status === 'returned' && toNumber(liq.cash_return_amount) > 0)
+      .reduce((sum: number, liq: any) => sum + toNumber(liq.cash_return_amount), 0);
+    const usedBudget = releasedRequestsTotal + directExpensesTotal - cashReturnsTotal;
     const monthlySpent = releasedRequestsMonthly + directExpensesMonthly + pettyCashMonthly;
     const projectedCommittedTotal = usedBudget + pendingSupervisorTotal + pendingAccountingTotal + pendingVpTotal + pendingPresidentTotal;
     const currentDepartment =

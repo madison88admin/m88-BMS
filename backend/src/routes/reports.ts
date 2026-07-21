@@ -464,7 +464,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     if (liquidationIds.length) {
       const { data: liqRows, error: liquidationError } = await supabase
         .from('liquidation_items')
-        .select('category_id, category, amount, expense_date, cash_advance_id, liquidation_id')
+        .select('category_id, description, amount, expense_date, cash_advance_id, liquidation_id')
         .in('liquidation_id', liquidationIds);
       if (liquidationError) throw liquidationError;
       liquidationRows = liqRows || [];
@@ -495,7 +495,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
 
     (directRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id, undefined, row.category));
     (requestRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id, undefined, row.category));
-    (liquidationRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id, undefined, row.category));
+    (liquidationRows || []).forEach((row: any) => addCodeByCategoryId(row.category_id, undefined, row.description));
 
     const actualsByCategoryMonth = new Map<string, Map<string, { amountSpent: number; transactionCount: number }>>();
     const addActual = (categoryId: string, dateStr: string, amount: number, categoryText?: string) => {
@@ -523,7 +523,7 @@ router.get('/monthly-spend-by-category', authenticate, async (req: any, res) => 
     });
 
     (liquidationRows || []).forEach((row: any) => {
-      addActual(row.category_id, row.expense_date, row.amount, row.category);
+      addActual(row.category_id, row.expense_date, row.amount, row.description);
     });
 
     // For requests without liquidation items, use released_at as fallback
