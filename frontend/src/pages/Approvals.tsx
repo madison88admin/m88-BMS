@@ -35,7 +35,7 @@ const Approvals = () => {
 
   const [user, setUser] = useState<any>(null);
 
-  const [view, setView] = useState<'pending' | 'vp_approval' | 'approved' | 'liquidations' | 'cash_returns'>('vp_approval');
+  const [view, setView] = useState<'pending' | 'vp_approval' | 'approved' | 'liquidations' | 'cash_returns' | 'released'>('vp_approval');
 
   const [departments, setDepartments] = useState<any[]>([]);
 
@@ -193,7 +193,7 @@ const Approvals = () => {
         const requestedView = new URLSearchParams(location.search).get('view');
         let initialView: string = view;
 
-        if (requestedView && ['pending', 'vp_approval', 'approved', 'liquidations', 'cash_returns'].includes(requestedView)) {
+        if (requestedView && ['pending', 'vp_approval', 'approved', 'liquidations', 'cash_returns', 'released'].includes(requestedView)) {
           initialView = requestedView;
           setView(requestedView as any);
         } else if (res.data.role === 'accounting' || res.data.role === 'admin' || res.data.role === 'supervisor') {
@@ -570,29 +570,49 @@ const Approvals = () => {
 
 
 
-      if ((effectiveView === 'liquidations' || effectiveView === 'cash_returns') && (role === 'accounting' || role === 'admin')) {
+      if ((effectiveView === 'liquidations' || effectiveView === 'cash_returns') && (role === 'supervisor' || role === 'accounting' || role === 'vp' || role === 'president' || role === 'admin')) {
         // Fetch expense requests with pending liquidation or cash return workflow
         const res = await api.get('/api/requests');
         
-        filtered = (res.data || []).filter((request: any) => {
-          if (effectiveView === 'liquidations') {
-            return request.latest_liquidation?.status === 'submitted' ||
-                   request.liquidations?.some((l: any) => l.status === 'submitted');
-          }
-
-          const latest = request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
-          return latest?.cash_return_status === 'pending_return';
-        }).map((request: any) => {
-          const liquidation = effectiveView === 'liquidations'
-            ? request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted')
-            : request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
-
-          return {
-            ...request,
-            status: effectiveView === 'liquidations' ? 'pending_liquidation_review' : 'pending_cash_return',
-            latest_liquidation: liquidation
+        if (effectiveView === 'liquidations') {
+          const roleStageMap: Record<string, string[]> = {
+            supervisor: ['pending_supervisor'],
+            accounting: ['pending_accounting'],
+            vp: ['pending_vp'],
+            president: ['pending_president'],
+            admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']
           };
-        });
+          const allowedStages = roleStageMap[role] || [];
+          
+          filtered = (res.data || []).filter((request: any) => {
+            const liq = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
+            return liq && liq.status === 'submitted' && allowedStages.includes(liq.liquidation_status || 'pending_supervisor');
+          }).map((request: any) => {
+            const liquidation = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
+            return {
+              ...request,
+              status: 'pending_liquidation_review',
+              latest_liquidation: liquidation
+            };
+          });
+        } else {
+          // Cash returns — only accounting/admin
+          if (role !== 'accounting' && role !== 'admin') {
+            filtered = [];
+          } else {
+            filtered = (res.data || []).filter((request: any) => {
+              const latest = request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+              return latest?.cash_return_status === 'pending_return';
+            }).map((request: any) => {
+              const liquidation = request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+              return {
+                ...request,
+                status: 'pending_cash_return',
+                latest_liquidation: liquidation
+              };
+            });
+          }
+        }
       } else {
 
         const res = await api.get('/api/requests');
@@ -619,10 +639,21 @@ const Approvals = () => {
             return request.status === 'pending_accounting' && !!request.co_approved_by;
           }
 
+          if (effectiveView === 'released') {
+            return request.status === 'released';
+          }
+
           if (effectiveView === 'liquidations') {
-            // Show requests with submitted liquidations
-            return request.latest_liquidation?.status === 'submitted' ||
-                   request.liquidations?.some((l: any) => l.status === 'submitted');
+            const roleStageMap: Record<string, string[]> = {
+              supervisor: ['pending_supervisor'],
+              accounting: ['pending_accounting'],
+              vp: ['pending_vp'],
+              president: ['pending_president'],
+              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president']
+            };
+            const allowedStages = roleStageMap[user?.role] || [];
+            const liq = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
+            return liq && liq.status === 'submitted' && allowedStages.includes(liq.liquidation_status || 'pending_supervisor');
           }
 
           if (effectiveView === 'cash_returns') {
@@ -854,11 +885,11 @@ const Approvals = () => {
 
         `/api/requests/${requestId}/liquidation/review`,
 
-        { status: status === 'verified' ? 'verified' : 'returned', remarks: remarks || '' }
+        { action: status === 'verified' ? 'approve' : 'reject', remarks: remarks || '' }
 
       );
 
-      toast.success(`Liquidation ${status === 'verified' ? 'verified' : 'returned'}!`);
+      toast.success(`Liquidation ${status === 'verified' ? 'approved' : 'rejected'}!`);
 
       await fetchRequests();
 
@@ -1548,18 +1579,29 @@ const Approvals = () => {
                     Pending Disbursements
                   </button>
                   <button
-                    onClick={() => { setView('liquidations'); setSelectedRequests(new Set()); }}
-                    className={`btn-secondary !rounded-full !px-6 ${view === 'liquidations' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
+                    onClick={() => { setView('released'); setSelectedRequests(new Set()); }}
+                    className={`btn-secondary !rounded-full !px-6 ${view === 'released' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
                   >
-                    Liquidations
-                  </button>
-                  <button
-                    onClick={() => { setView('cash_returns'); setSelectedRequests(new Set()); }}
-                    className={`btn-secondary !rounded-full !px-6 ${view === 'cash_returns' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
-                  >
-                    Cash Returns
+                    Disbursement Records
                   </button>
                 </>
+              )}
+              {/* All approvers see Liquidations tab */}
+              {(user?.role === 'supervisor' || user?.role === 'accounting' || user?.role === 'vp' || user?.role === 'president' || user?.role === 'admin') && (
+                <button
+                  onClick={() => { setView('liquidations'); setSelectedRequests(new Set()); }}
+                  className={`btn-secondary !rounded-full !px-6 ${view === 'liquidations' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
+                >
+                  Liquidations
+                </button>
+              )}
+              {(user?.role === 'accounting' || user?.role === 'admin') && (
+                <button
+                  onClick={() => { setView('cash_returns'); setSelectedRequests(new Set()); }}
+                  className={`btn-secondary !rounded-full !px-6 ${view === 'cash_returns' ? 'bg-[var(--role-accent)] border-[var(--role-border)]' : 'opacity-50'}`}
+                >
+                  Cash Returns
+                </button>
               )}
             </div>
 
@@ -2518,7 +2560,11 @@ const Approvals = () => {
                           </div>
                           <div className="grid gap-1 text-sm text-[var(--role-text)]/80">
                             <div className="font-semibold">Amount to return: {displayMoney(toNumber(req.latest_liquidation.cash_return_amount), requestCurrency)}</div>
+                            <div>Method: <span className="font-semibold capitalize">{req.latest_liquidation.cash_return_method || 'cash'}</span></div>
                             <div>Status: {req.latest_liquidation.cash_return_status || 'pending_return'}</div>
+                            {req.latest_liquidation.cash_return_reference && (
+                              <div>Reference: {req.latest_liquidation.cash_return_reference}</div>
+                            )}
                           </div>
                         </div>
 
@@ -2538,7 +2584,38 @@ const Approvals = () => {
 
                     {view === 'liquidations' && req.latest_liquidation && (
 
-                      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                      <div className="mb-6 space-y-4">
+
+                        {/* Approval stage indicator */}
+                        <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-bold uppercase tracking-widest text-blue-600">Liquidation Approval</h3>
+                            <span className="rounded-full border border-blue-300 bg-blue-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-700">
+                              {(req.latest_liquidation.liquidation_status || 'pending_supervisor').replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].map((stage, idx) => {
+                              const stages = ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'];
+                              const currentIdx = stages.indexOf(req.latest_liquidation.liquidation_status || 'pending_supervisor');
+                              const isDone = idx < currentIdx;
+                              const isCurrent = idx === currentIdx;
+                              return (
+                                <div key={stage} className="flex items-center gap-2">
+                                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${isDone ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-blue-500 text-white animate-pulse' : 'bg-gray-200 text-gray-400'}`}>
+                                    {isDone ? '✓' : idx + 1}
+                                  </div>
+                                  <span className={`text-[10px] capitalize ${isCurrent ? 'text-blue-600 font-bold' : isDone ? 'text-emerald-600' : 'text-gray-400'}`}>
+                                    {stage.replace('pending_', '')}
+                                  </span>
+                                  {idx < 3 && <div className={`w-4 h-0.5 ${isDone ? 'bg-emerald-400' : 'bg-gray-200'}`} />}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
                         <div className="space-y-4">
 
@@ -2689,7 +2766,11 @@ const Approvals = () => {
                                       <div>
                                         <p className="font-semibold text-[var(--role-text)]">Cash Return Required</p>
                                         <p className="text-[var(--role-text)]/70">Amount to return: {displayMoney(toNumber(req.latest_liquidation.cash_return_amount), requestCurrency)}</p>
+                                        <p className="text-[var(--role-text)]/70">Method: <span className="font-semibold capitalize">{req.latest_liquidation.cash_return_method || 'cash'}</span></p>
                                         <p className="text-[var(--role-text)]/70">Status: {req.latest_liquidation.cash_return_status || 'pending_return'}</p>
+                                        {req.latest_liquidation.cash_return_reference && (
+                                          <p className="text-[var(--role-text)]/70">Reference: {req.latest_liquidation.cash_return_reference}</p>
+                                        )}
                                       </div>
                                       {req.latest_liquidation.cash_return_status === 'pending_return' && (
                                         <button
@@ -2708,6 +2789,8 @@ const Approvals = () => {
                           )}
 
                         </div>
+
+                      </div>
 
                       </div>
 
@@ -3416,6 +3499,47 @@ const Approvals = () => {
 
                     </div>
 
+                    )}
+
+                    {req.status === 'released' && (
+                      <div className="mb-5 rounded-[24px] border border-emerald-200 bg-emerald-50/30 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-lg font-semibold text-[var(--role-text)]">Disbursement Records</h3>
+                          <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-emerald-700">
+                            Released
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                          <div className="panel-muted !p-4">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Disbursement Method</p>
+                            <p className="mt-2 text-sm font-semibold text-[var(--role-text)] capitalize">{req.release_method || req.disbursement_method || '—'}</p>
+                          </div>
+                          <div className="panel-muted !p-4">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Reference No.</p>
+                            <p className="mt-2 text-sm font-semibold text-[var(--role-text)]">{req.release_reference_no || req.disbursement_reference_no || '—'}</p>
+                          </div>
+                          <div className="panel-muted !p-4">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Released At</p>
+                            <p className="mt-2 text-sm font-semibold text-[var(--role-text)]">{req.released_at ? formatDateTime(req.released_at) : '—'}</p>
+                          </div>
+                          <div className="panel-muted !p-4">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Amount Released</p>
+                            <p className="mt-2 text-sm font-semibold text-[var(--role-text)]">{displayMoney(requestAmount, requestCurrency)}</p>
+                          </div>
+                        </div>
+                        {req.release_note && (
+                          <div className="mt-3 panel-muted !p-4">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Disbursement Note</p>
+                            <p className="mt-1 text-sm text-[var(--role-text)]/70">{req.release_note}</p>
+                          </div>
+                        )}
+                        {req.liquidation_due_at && (
+                          <div className="mt-2 panel-muted !p-4">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">Liquidation Due</p>
+                            <p className="mt-1 text-sm font-semibold text-amber-600">{formatDateTime(req.liquidation_due_at)}</p>
+                          </div>
+                        )}
+                      </div>
                     )}
 
 

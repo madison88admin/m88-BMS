@@ -113,7 +113,9 @@ const RequestTracker = () => {
     cash_advance_id: '',
     amount_spent: '', 
     remarks: '', 
-    attachments: [] as { file_name: string, file_url: string }[] 
+    attachments: [] as { file_name: string, file_url: string }[],
+    items: [] as { description: string; amount: string; expense_date: string; category_id: string; receipt_attached: boolean }[],
+    cash_return_method: '' as '' | 'bank' | 'cash'
   });
   const [cashAdvances, setCashAdvances] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -326,8 +328,19 @@ const RequestTracker = () => {
     if (!liquidationDraft.cash_advance_id) {
       return toast.error('Please select a cash advance');
     }
-    if (!liquidationDraft.amount_spent || Number(liquidationDraft.amount_spent) <= 0) {
+    const hasItems = liquidationDraft.items.length > 0;
+    const totalSpent = hasItems
+      ? liquidationDraft.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+      : Number(liquidationDraft.amount_spent);
+    if (totalSpent <= 0) {
       return toast.error('Please enter a valid amount spent');
+    }
+    if (hasItems) {
+      for (const item of liquidationDraft.items) {
+        if (!item.description || Number(item.amount) <= 0) {
+          return toast.error('Each item must have a description and positive amount');
+        }
+      }
     }
     const loadingToast = toast.loading('Submitting liquidation...');
     try {
@@ -335,7 +348,15 @@ const RequestTracker = () => {
         `/api/requests/${selectedRequest.id}/liquidation`,
         {
           cash_advance_id: liquidationDraft.cash_advance_id,
-          amount_spent: Number(liquidationDraft.amount_spent),
+          amount_spent: hasItems ? undefined : Number(liquidationDraft.amount_spent),
+          items: hasItems ? liquidationDraft.items.map(i => ({
+            description: i.description,
+            amount: Number(i.amount),
+            expense_date: i.expense_date || undefined,
+            category_id: i.category_id || undefined,
+            receipt_attached: i.receipt_attached
+          })) : undefined,
+          cash_return_method: liquidationDraft.cash_return_method || undefined,
           remarks: liquidationDraft.remarks,
           attachments: liquidationDraft.attachments
         },
@@ -343,7 +364,7 @@ const RequestTracker = () => {
       );
       toast.dismiss(loadingToast);
       toast.success('Liquidation submitted!');
-      setLiquidationDraft({ cash_advance_id: '', amount_spent: '', remarks: '', attachments: [] });
+      setLiquidationDraft({ cash_advance_id: '', amount_spent: '', remarks: '', attachments: [], items: [], cash_return_method: '' });
       await fetchRequests(false);
       await fetchCashAdvances();
     } catch (err: any) {
@@ -1204,14 +1225,134 @@ const RequestTracker = () => {
                       </option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="field-input"
-                    placeholder="Amount spent"
-                    value={liquidationDraft.amount_spent}
-                    onChange={(event) => setLiquidationDraft((current) => ({ ...current, amount_spent: event.target.value }))}
-                  />
+
+                  {/* Liquidation Items Section */}
+                  <div className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-bold">Expense Items</label>
+                      <button
+                        type="button"
+                        className="btn-secondary !py-1 !px-3 text-xs"
+                        onClick={() => setLiquidationDraft(prev => ({
+                          ...prev,
+                          items: [...prev.items, { description: '', amount: '', expense_date: '', category_id: '', receipt_attached: false }]
+                        }))}
+                      >
+                        + Add Item
+                      </button>
+                    </div>
+
+                    {liquidationDraft.items.length === 0 ? (
+                      <div className="space-y-3">
+                        <p className="text-xs text-[var(--role-text)]/50 mb-2">No items added. You can add multiple expense items or use the simple total below.</p>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="field-input"
+                          placeholder="Total amount spent"
+                          value={liquidationDraft.amount_spent}
+                          onChange={(event) => setLiquidationDraft((current) => ({ ...current, amount_spent: event.target.value }))}
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {liquidationDraft.items.map((item, idx) => (
+                          <div key={idx} className="grid grid-cols-1 gap-2 lg:grid-cols-[1fr_120px_120px_32px]">
+                            <input
+                              type="text"
+                              className="field-input"
+                              placeholder="Description (e.g., Taxi fare)"
+                              value={item.description}
+                              onChange={(e) => setLiquidationDraft(prev => ({
+                                ...prev,
+                                items: prev.items.map((it, i) => i === idx ? { ...it, description: e.target.value } : it)
+                              }))}
+                            />
+                            <input
+                              type="number"
+                              step="0.01"
+                              className="field-input"
+                              placeholder="Amount"
+                              value={item.amount}
+                              onChange={(e) => setLiquidationDraft(prev => ({
+                                ...prev,
+                                items: prev.items.map((it, i) => i === idx ? { ...it, amount: e.target.value } : it)
+                              }))}
+                            />
+                            <input
+                              type="date"
+                              className="field-input"
+                              value={item.expense_date}
+                              onChange={(e) => setLiquidationDraft(prev => ({
+                                ...prev,
+                                items: prev.items.map((it, i) => i === idx ? { ...it, expense_date: e.target.value } : it)
+                              }))}
+                            />
+                            <button
+                              type="button"
+                              className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              onClick={() => setLiquidationDraft(prev => ({
+                                ...prev,
+                                items: prev.items.filter((_, i) => i !== idx)
+                              }))}
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex justify-between items-center pt-2 border-t border-[var(--role-border)]">
+                          <span className="text-sm font-semibold text-[var(--role-text)]">
+                            Total: {formatMoney(liquidationDraft.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0))}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Cash Return Method Selection */}
+                  {(() => {
+                    const selectedCA = cashAdvances.find((ca: any) => ca.id === liquidationDraft.cash_advance_id);
+                    const totalSpent = liquidationDraft.items.length > 0
+                      ? liquidationDraft.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+                      : Number(liquidationDraft.amount_spent);
+                    const cashReturn = selectedCA ? Math.max(Number(selectedCA.amount_issued) - totalSpent, 0) : 0;
+                    if (cashReturn > 0) return (
+                      <div className="rounded-xl border border-amber-300 bg-amber-50/50 p-4">
+                        <p className="text-sm font-semibold text-amber-700">
+                          Cash Return Required: {formatMoney(cashReturn)}
+                        </p>
+                        <p className="text-xs text-amber-600/70 mt-1 mb-3">
+                          You spent less than the cash advance. Select how you will return the excess.
+                        </p>
+                        <div className="flex gap-3">
+                          <label className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer transition ${liquidationDraft.cash_return_method === 'bank' ? 'border-amber-500 bg-amber-100' : 'border-[var(--role-border)] bg-[var(--role-accent)]'}`}>
+                            <input
+                              type="radio"
+                              name="cash_return_method"
+                              value="bank"
+                              checked={liquidationDraft.cash_return_method === 'bank'}
+                              onChange={(e) => setLiquidationDraft(prev => ({ ...prev, cash_return_method: e.target.value as 'bank' }))}
+                            />
+                            <span className="text-sm font-medium">Bank Transfer</span>
+                          </label>
+                          <label className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer transition ${liquidationDraft.cash_return_method === 'cash' ? 'border-amber-500 bg-amber-100' : 'border-[var(--role-border)] bg-[var(--role-accent)]'}`}>
+                            <input
+                              type="radio"
+                              name="cash_return_method"
+                              value="cash"
+                              checked={liquidationDraft.cash_return_method === 'cash'}
+                              onChange={(e) => setLiquidationDraft(prev => ({ ...prev, cash_return_method: e.target.value as 'cash' }))}
+                            />
+                            <span className="text-sm font-medium">Cash</span>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                    return null;
+                  })()}
+
                   <textarea
                     className="field-input min-h-[120px]"
                     placeholder="Liquidation remarks"
@@ -1301,6 +1442,53 @@ const RequestTracker = () => {
                     Submit Liquidation
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Liquidation approval status display */}
+            {selectedRequest.status === 'released' && selectedRequest.latest_liquidation?.liquidation_status && !['verified', 'returned', 'rejected'].includes(selectedRequest.latest_liquidation.status) && (
+              <div className="panel-muted mt-6 border-blue-500/20 bg-blue-500/5">
+                <p className="text-xs uppercase tracking-[0.16em] text-blue-600 font-bold">
+                  Liquidation Under Review — {selectedRequest.latest_liquidation.liquidation_status.replace(/_/g, ' ')}
+                </p>
+                <div className="mt-3 flex items-center gap-2">
+                  {['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].map((stage, idx) => {
+                    const currentIdx = ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'].indexOf(selectedRequest.latest_liquidation.liquidation_status);
+                    const isDone = idx < currentIdx;
+                    const isCurrent = idx === currentIdx;
+                    return (
+                      <div key={stage} className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${isDone ? 'bg-emerald-500 text-white' : isCurrent ? 'bg-blue-500 text-white animate-pulse' : 'bg-gray-200 text-gray-400'}`}>
+                          {isDone ? '✓' : idx + 1}
+                        </div>
+                        <span className={`text-[10px] ${isCurrent ? 'text-blue-600 font-bold' : isDone ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {stage.replace('pending_', '')}
+                        </span>
+                        {idx < 3 && <div className={`w-4 h-0.5 ${isDone ? 'bg-emerald-400' : 'bg-gray-200'}`} />}
+                      </div>
+                    );
+                  })}
+                </div>
+                {selectedRequest.latest_liquidation.items && selectedRequest.latest_liquidation.items.length > 0 && (
+                  <div className="mt-3 space-y-1">
+                    <p className="text-xs font-semibold text-[var(--role-text)]/70">Expense Items ({selectedRequest.latest_liquidation.items.length}):</p>
+                    {selectedRequest.latest_liquidation.items.map((item: any, i: number) => (
+                      <div key={i} className="flex justify-between text-xs text-[var(--role-text)]/60">
+                        <span>{item.description}</span>
+                        <span className="font-medium">{formatMoney(Number(item.amount))}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-xs font-semibold text-[var(--role-text)] pt-1 border-t border-[var(--role-border)]">
+                      <span>Total Spent</span>
+                      <span>{formatMoney(Number(selectedRequest.latest_liquidation.amount_spent))}</span>
+                    </div>
+                  </div>
+                )}
+                {selectedRequest.latest_liquidation.cash_return_amount > 0 && (
+                  <p className="mt-2 text-xs text-amber-600">
+                    Cash return of {formatMoney(Number(selectedRequest.latest_liquidation.cash_return_amount))} via {selectedRequest.latest_liquidation.cash_return_method || 'cash'} pending after verification.
+                  </p>
+                )}
               </div>
             )}
           </div>

@@ -349,7 +349,7 @@ const appendWorkflowData = async (rows: any[]) => {
       .order('uploaded_at', { ascending: true }),
     supabase
       .from('request_liquidations')
-      .select('id, request_id, liquidation_no, status, due_at, submitted_at, reviewed_at, actual_amount, reimbursable_amount, cash_return_amount, cash_return_status, cash_returned_at, cash_returned_confirmed_by, cash_advance_id, shortage_amount, remarks, created_at, updated_at')
+      .select('id, request_id, liquidation_no, status, liquidation_status, due_at, submitted_at, reviewed_at, actual_amount, amount_spent, reimbursable_amount, cash_return_amount, cash_return_status, cash_return_method, cash_return_reference, cash_returned_at, cash_return_acknowledged_at, cash_returned_confirmed_by, cash_advance_id, shortage_amount, remarks, created_at, updated_at')
       .in('request_id', requestIds)
       .order('created_at', { ascending: false })
   ]);
@@ -2088,17 +2088,32 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
   try {
     const { id } = req.params;
     const cashAdvanceId = req.body?.cash_advance_id;
-    const amountSpent = toNumber(req.body?.amount_spent);
     const remarks = toText(req.body?.remarks);
-    const attachments = req.body?.attachments || []; // Support multiple attachments
+    const attachments = req.body?.attachments || [];
+    const items = req.body?.items || []; // Multiple expense items: [{ description, amount, expense_date, category_id, receipt_attached }]
+    const cashReturnMethod = toText(req.body?.cash_return_method); // 'bank' or 'cash'
 
-    // Validate cash advance selection
+    // Support both new multi-item and legacy single amount_spent
+    let amountSpent: number;
+    if (items.length > 0) {
+      amountSpent = items.reduce((sum: number, item: any) => sum + toNumber(item.amount), 0);
+    } else {
+      amountSpent = toNumber(req.body?.amount_spent);
+    }
+
+    // Validate
     if (!cashAdvanceId) {
       return res.status(400).json({ error: 'Cash advance selection is required for liquidation.' });
     }
-
     if (amountSpent <= 0) {
-      return res.status(400).json({ error: 'Amount spent must be greater than zero.' });
+      return res.status(400).json({ error: 'Total amount spent must be greater than zero.' });
+    }
+    if (items.length > 0) {
+      for (const item of items) {
+        if (!item.description || toNumber(item.amount) <= 0) {
+          return res.status(400).json({ error: 'Each liquidation item must have a description and positive amount.' });
+        }
+      }
     }
 
     // Get cash advance details
@@ -2140,19 +2155,30 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
       return res.status(400).json({ error: `Amount spent cannot exceed cash advance balance of ${effectiveBalance}.` });
     }
 
+    // Calculate cash return amount
+    const cashReturnAmount = Math.max(Number(cashAdvance.amount_issued) - amountSpent, 0);
+
+    // Route through full approval chain: Supervisor → Accounting → VP → President
+    const liquidationStatus = 'pending_supervisor';
+
     let result;
     if (existingLiquidation?.id) {
+      // Delete old liquidation items before re-inserting
+      await supabase.from('liquidation_items').delete().eq('liquidation_id', existingLiquidation.id);
+
       result = await supabase
         .from('request_liquidations')
         .update({
           status: 'submitted',
+          liquidation_status: liquidationStatus,
           submitted_at: new Date(),
           cash_advance_id: cashAdvanceId,
           amount_spent: amountSpent,
-          actual_amount: amountSpent, // Keep for backward compatibility
+          actual_amount: amountSpent,
           reimbursable_amount: Math.max(amountSpent - Number(cashAdvance.amount_issued), 0),
-          cash_return_amount: Math.max(Number(cashAdvance.amount_issued) - amountSpent, 0),
-          receipt_count: attachments.length,
+          cash_return_amount: cashReturnAmount,
+          cash_return_method: cashReturnMethod || null,
+          receipt_count: attachments.length + items.filter((i: any) => i.receipt_attached).length,
           remarks,
           updated_at: new Date()
         })
@@ -2166,13 +2192,15 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
           request_id: id,
           liquidation_no: createLiquidationNumber(cashAdvance.advance_code),
           status: 'submitted',
+          liquidation_status: liquidationStatus,
           submitted_at: new Date(),
           cash_advance_id: cashAdvanceId,
           amount_spent: amountSpent,
-          actual_amount: amountSpent, // Keep for backward compatibility
+          actual_amount: amountSpent,
           reimbursable_amount: Math.max(amountSpent - Number(cashAdvance.amount_issued), 0),
-          cash_return_amount: Math.max(Number(cashAdvance.amount_issued) - amountSpent, 0),
-          receipt_count: attachments.length,
+          cash_return_amount: cashReturnAmount,
+          cash_return_method: cashReturnMethod || null,
+          receipt_count: attachments.length + items.filter((i: any) => i.receipt_attached).length,
           remarks,
           created_by: req.user.id,
           created_at: new Date(),
@@ -2185,6 +2213,22 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
     if (result.error) {
       console.error('Liquidation save error:', result.error);
       return res.status(400).json({ error: result.error.message });
+    }
+
+    // Insert liquidation items if provided
+    if (items.length > 0) {
+      const itemsToInsert = items.map((item: any) => ({
+        liquidation_id: result.data.id,
+        cash_advance_id: cashAdvanceId,
+        description: item.description,
+        amount: toNumber(item.amount),
+        expense_date: item.expense_date || null,
+        category_id: item.category_id || null,
+        receipt_attached: item.receipt_attached || false,
+        created_at: new Date()
+      }));
+      const { error: itemsError } = await supabase.from('liquidation_items').insert(itemsToInsert);
+      if (itemsError) console.error('Liquidation items save error:', itemsError);
     }
 
     // Handle multiple attachments if provided
@@ -2215,7 +2259,7 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
           field_name: 'status',
           old_value: existingLiquidation?.status || 'pending_submission',
           new_value: 'submitted',
-          note: remarks || 'Liquidation submitted'
+          note: remarks || 'Liquidation submitted with ' + items.length + ' items'
         }
       ]);
       await logAuditEvent({
@@ -2224,10 +2268,10 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
         recordType: 'liquidation',
         recordId: result.data.id,
         recordLabel: cashAdvance.advance_code,
-        newValue: { amount_spent: amountSpent, status: 'submitted' },
+        newValue: { amount_spent: amountSpent, status: 'submitted', items: items.length, cash_return: cashReturnAmount, return_method: cashReturnMethod },
         remarks,
       });
-      await notifyAccounting(`Cash advance liquidation submitted for ${cashAdvance.advance_code} — pending review.`);
+      await notifyAccounting(`Cash advance liquidation submitted for ${cashAdvance.advance_code} — pending supervisor review.`);
     } catch (auditErr) {
       console.error('Audit log error during liquidation:', auditErr);
     }
@@ -3735,13 +3779,11 @@ router.patch('/:id/reject', authenticate, authorize('supervisor', 'accounting', 
 
 
 // PATCH /api/requests/:id/liquidation/review
-router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
+router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'accounting', 'vp', 'president', 'admin'), async (req: any, res) => {
   const { id } = req.params;
-  const status = toText(req.body?.status);
+  const action = toText(req.body?.action) || 'approve'; // 'approve' or 'reject'
   const remarks = toText(req.body?.remarks);
-  if (!['verified', 'returned'].includes(status)) {
-    return res.status(400).json({ error: 'Liquidation review status must be verified or returned.' });
-  }
+  const approverRole = req.user.role;
 
   const { data: liquidation, error: liquidationError } = await supabase
     .from('request_liquidations')
@@ -3753,20 +3795,74 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
 
   if (liquidationError || !liquidation) return res.status(400).json({ error: liquidationError || 'Liquidation not found.' });
 
-  const cashReturn = toNumber(liquidation.cash_return_amount);
-  const reimbursable = toNumber(liquidation.reimbursable_amount);
-  const finalStatus = status === 'verified' ? 'verified' : 'returned';
+  const currentStatus = liquidation.liquidation_status || 'pending_supervisor';
+
+  // Validate approver can act at current stage
+  const stageRoleMap: Record<string, string[]> = {
+    pending_supervisor: ['supervisor', 'admin'],
+    pending_accounting: ['accounting', 'admin'],
+    pending_vp: ['vp', 'admin'],
+    pending_president: ['president', 'admin']
+  };
+
+  const allowedRoles = stageRoleMap[currentStatus] || [];
+  if (!allowedRoles.includes(approverRole)) {
+    return res.status(403).json({ error: `This liquidation is at ${currentStatus} stage. You (${approverRole}) cannot act on it.` });
+  }
+
+  if (action === 'reject') {
+    const { data, error } = await supabase
+      .from('request_liquidations')
+      .update({
+        liquidation_status: 'rejected',
+        status: 'returned',
+        reviewed_at: new Date(),
+        remarks: remarks || liquidation.remarks,
+        updated_at: new Date()
+      })
+      .eq('id', liquidation.id)
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error });
+
+    await insertAuditLogs(id, req.user.id, [
+      { entity_type: 'liquidation', action: 'rejected', field_name: 'liquidation_status', old_value: currentStatus, new_value: 'rejected', note: remarks || undefined }
+    ]);
+
+    const { data: parentRequest } = await supabase.from('expense_requests').select('*').eq('id', id).maybeSingle();
+    if (parentRequest) {
+      await notifyEmployee(parentRequest.employee_id, parentRequest.request_code, 'Liquidation Rejected', `Your liquidation has been rejected by ${approverRole}. Remarks: ${remarks || 'None'}`);
+    }
+
+    return res.json(data);
+  }
+
+  // Approve — advance to next stage
+  const flowOrder = ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president'];
+  const currentIdx = flowOrder.indexOf(currentStatus);
+  const nextStatus = currentIdx >= 0 && currentIdx < flowOrder.length - 1 ? flowOrder[currentIdx + 1] : 'verified';
+
+  const updatePayload: Record<string, any> = {
+    liquidation_status: nextStatus,
+    remarks: remarks || liquidation.remarks,
+    updated_at: new Date()
+  };
+
+  if (nextStatus === 'verified') {
+    updatePayload.status = 'verified';
+    updatePayload.reviewed_at = new Date();
+    updatePayload.reviewed_by = req.user.id;
+
+    const cashReturn = toNumber(liquidation.cash_return_amount);
+    if (cashReturn > 0) {
+      updatePayload.cash_return_status = 'pending_return';
+    }
+  }
 
   const { data, error } = await supabase
     .from('request_liquidations')
-    .update({
-      status: finalStatus,
-      reviewed_at: new Date(),
-      reviewed_by: req.user.id,
-      remarks: remarks || liquidation.remarks,
-      cash_return_status: finalStatus === 'verified' && cashReturn > 0 ? 'pending_return' : null,
-      updated_at: new Date()
-    })
+    .update(updatePayload)
     .eq('id', liquidation.id)
     .select()
     .single();
@@ -3774,34 +3870,56 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
   if (error) return res.status(400).json({ error });
 
   await insertAuditLogs(id, req.user.id, [
-    {
-      entity_type: 'liquidation',
-      action: status === 'verified' ? 'verified' : 'returned',
-      field_name: 'status',
-      old_value: liquidation.status,
-      new_value: finalStatus,
-      note: remarks || undefined
-    }
+    { entity_type: 'liquidation', action: 'approved', field_name: 'liquidation_status', old_value: currentStatus, new_value: nextStatus, note: remarks || undefined }
   ]);
 
-  const { data: parentRequest } = await supabase
-    .from('expense_requests')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+  const { data: parentRequest } = await supabase.from('expense_requests').select('*').eq('id', id).maybeSingle();
 
-  if (status === 'verified') {
+  if (nextStatus === 'verified') {
+    const cashReturn = toNumber(liquidation.cash_return_amount);
+    const reimbursable = toNumber(liquidation.reimbursable_amount);
+    const liquidatedAmount = toNumber(liquidation.amount_spent);
+
+    // Update request allocations to reflect actual liquidated amount
+    if (parentRequest && liquidatedAmount > 0) {
+      const { data: existingAllocations } = await supabase
+        .from('request_allocations')
+        .select('id, amount')
+        .eq('request_id', id);
+
+      if (existingAllocations && existingAllocations.length > 0) {
+        const totalAllocated = existingAllocations.reduce((sum: number, a: any) => sum + toNumber(a.amount), 0);
+        if (totalAllocated > 0) {
+          const ratio = liquidatedAmount / totalAllocated;
+          for (const allocation of existingAllocations) {
+            const newAmount = toNumber(allocation.amount) * ratio;
+            await supabase
+              .from('request_allocations')
+              .update({ amount: newAmount, updated_at: new Date() })
+              .eq('id', allocation.id);
+          }
+        }
+      }
+
+      // Also update the request amount to reflect actual liquidated amount
+      await supabase
+        .from('expense_requests')
+        .update({ liquidated_amount: liquidatedAmount, updated_at: new Date() })
+        .eq('id', id);
+    }
+
     await logAuditEvent({
       user: req.user,
       actionType: AUDIT_ACTIONS.CASH_ADVANCE_LIQUIDATED,
       recordType: 'liquidation',
       recordId: liquidation.id,
       recordLabel: parentRequest?.request_code || id,
-      oldValue: { status: liquidation.status, cash_return: cashReturn, reimbursable },
-      newValue: { status: finalStatus },
+      oldValue: { status: currentStatus },
+      newValue: { status: 'verified', cash_return: cashReturn, reimbursable },
       remarks: remarks || (cashReturn > 0 ? `Refund due: ₱${cashReturn.toFixed(2)}` : reimbursable > 0 ? `Excess reimbursement: ₱${reimbursable.toFixed(2)}` : 'Liquidation verified'),
     });
 
+    // Auto-file reimbursement if excess spending
     if (reimbursable > 0 && parentRequest) {
       const reCode = `RE-LIQ-${Date.now()}`;
       await supabase.from('expense_requests').insert({
@@ -3820,34 +3938,32 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
         request_type: 'reimbursement',
         metadata: { source: 'liquidation_excess', parent_request_id: id, liquidation_id: liquidation.id },
       });
-      await notifyEmployee(
-        parentRequest.employee_id,
-        reCode,
-        'Reimbursement Auto-Filed',
-        `Excess spending on ${parentRequest.request_code} generated reimbursement ${reCode} for ₱${reimbursable.toFixed(2)}.`
-      );
+      await notifyEmployee(parentRequest.employee_id, reCode, 'Reimbursement Auto-Filed', `Excess spending on ${parentRequest.request_code} generated reimbursement ${reCode} for ₱${reimbursable.toFixed(2)}.`);
     }
 
     if (cashReturn > 0 && parentRequest) {
-      await notifyEmployee(
-        parentRequest.employee_id,
-        parentRequest.request_code,
-        'Liquidation Refund',
-        `Liquidation verified. Please return ₱${cashReturn.toFixed(2)} in cash to Accounting for ${parentRequest.request_code}.`
-      );
-      await notifyAccounting(`Cash return pending for ${parentRequest.request_code}: ₱${cashReturn.toFixed(2)} needs to be returned by employee.`);
+      const methodLabel = liquidation.cash_return_method === 'bank' ? 'via Bank Transfer' : 'in Cash';
+      await notifyEmployee(parentRequest.employee_id, parentRequest.request_code, 'Liquidation Verified — Cash Return Required', `Liquidation verified. Please return ₱${cashReturn.toFixed(2)} ${methodLabel} to Accounting for ${parentRequest.request_code}.`);
+      await notifyAccounting(`Cash return pending for ${parentRequest.request_code}: ₱${cashReturn.toFixed(2)} ${methodLabel} needs to be returned by employee.`);
+    }
+  } else {
+    // Notify next approver
+    const nextRoleMap: Record<string, string> = { pending_accounting: 'accounting', pending_vp: 'vp', pending_president: 'president' };
+    const nextRole = nextRoleMap[nextStatus];
+    if (nextRole && parentRequest) {
+      // Notify the next role group
+      const { data: nextApprovers } = await supabase.from('users').select('id').eq('role', nextRole);
+      if (nextApprovers && nextApprovers.length > 0) {
+        for (const approver of nextApprovers) {
+          await notifyEmployee(approver.id, parentRequest.request_code, 'Liquidation Pending Review', `Liquidation for ${parentRequest.request_code} is pending your review (${nextRole}).`);
+        }
+      }
     }
   }
 
-  // Also update the related cash_advances record if it exists
-  const { data: cashAdvance } = await supabase
-    .from('cash_advances')
-    .select('id')
-    .eq('request_id', id)
-    .maybeSingle();
-
-  if (cashAdvance) {
-    const { error: recomputeError } = await recomputeCashAdvanceBalance(String(cashAdvance.id));
+  // Recompute cash advance balance
+  if (liquidation.cash_advance_id) {
+    const { error: recomputeError } = await recomputeCashAdvanceBalance(String(liquidation.cash_advance_id));
     if (recomputeError) console.error('Cash advance balance recompute error:', recomputeError);
   }
 
@@ -3858,6 +3974,7 @@ router.patch('/:id/liquidation/review', authenticate, authorize('accounting', 'a
 router.patch('/:id/liquidation/confirm-return', authenticate, authorize('accounting', 'admin'), async (req: any, res) => {
   try {
     const { id } = req.params;
+    const cashReturnReference = toText(req.body?.cash_return_reference);
 
     const { data: liquidation, error: liquidationError } = await supabase
       .from('request_liquidations')
@@ -3880,7 +3997,9 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
       .update({
         cash_return_status: 'returned',
         cash_returned_at: new Date(),
+        cash_return_acknowledged_at: new Date(),
         cash_returned_confirmed_by: req.user.id,
+        cash_return_reference: cashReturnReference || null,
         updated_at: new Date()
       })
       .eq('id', liquidation.id)
@@ -3896,7 +4015,7 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
         field_name: 'cash_return_status',
         old_value: liquidation.cash_return_status || 'pending_return',
         new_value: 'returned',
-        note: 'Accounting confirmed the cash return.'
+        note: `Accounting confirmed the cash return${cashReturnReference ? ' (ref: ' + cashReturnReference + ')' : ''}.`
       }
     ]);
 
@@ -3907,11 +4026,12 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
       .maybeSingle();
 
     if (parentRequest) {
+      const methodLabel = liquidation.cash_return_method === 'bank' ? 'via Bank Transfer' : 'in Cash';
       await notifyEmployee(
         parentRequest.employee_id,
         parentRequest.request_code,
         'Cash Return Confirmed',
-        `Your cash return of ₱${liquidation.cash_return_amount?.toFixed(2) ?? '0.00'} for ${parentRequest.request_code} has been confirmed by Accounting.`
+        `Your cash return of ₱${liquidation.cash_return_amount?.toFixed(2) ?? '0.00'} ${methodLabel} for ${parentRequest.request_code} has been confirmed by Accounting${cashReturnReference ? ' (Ref: ' + cashReturnReference + ')' : ''}.`
       );
     }
 

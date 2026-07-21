@@ -2141,8 +2141,9 @@ const BudgetManagement = () => {
                                     {isInactive && (
                                       <span className="text-[10px] text-[var(--role-text)]/40 border border-[var(--role-border)] rounded-full px-1.5 py-0.5 shrink-0">No activity</span>
                                     )}
-                                    {/* Remaining pill */}
-                                    <span className="text-xs text-emerald-600 font-medium shrink-0">{displayMoney(rem)}</span>
+                                    {/* Budget + Remaining pills */}
+                                    <span className="text-xs text-[var(--role-text)]/60 font-medium shrink-0">Budget: <span className="text-[var(--role-text)] font-semibold">{displayMoney(budget)}</span></span>
+                                    <span className="text-xs text-emerald-600 font-medium shrink-0">Avail: {displayMoney(rem)}</span>
                                     {/* Overflow menu — always visible */}
                                     {canEditMatrix && (
                                       <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
@@ -2212,7 +2213,7 @@ const BudgetManagement = () => {
                                           <div className="h-1.5 bg-gray-300 rounded-r-full" style={{ width: `${Math.max(0, 100 - ((used + committed + toNumber(cat.pending_approval_amount || 0)) / budget) * 100)}%` }} />
                                         </div>
                                         <div className="flex justify-between text-[10px] text-[var(--role-text)]/50">
-                                          <span>Used: <span className="font-medium text-emerald-600">{displayMoney(used)}</span> | Committed: <span className="font-medium text-blue-600">{displayMoney(committed)}</span> | Pending: <span className="font-medium text-amber-600">{displayMoney(toNumber(cat.pending_approval_amount || 0))}</span> | Available: <span className="font-medium text-gray-600">{displayMoney(toNumber(cat.available_amount || rem))}</span></span>
+                                          <span>Budget: <span className="font-medium text-[var(--role-text)]">{displayMoney(budget)}</span> | Used: <span className="font-medium text-emerald-600">{displayMoney(used)}</span> | Committed: <span className="font-medium text-blue-600">{displayMoney(committed)}</span> | Pending: <span className="font-medium text-amber-600">{displayMoney(toNumber(cat.pending_approval_amount || 0))}</span> | Available: <span className="font-medium text-gray-600">{displayMoney(toNumber(cat.available_amount || rem))}</span></span>
                                         </div>
                                       </div>
 
