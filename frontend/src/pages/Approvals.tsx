@@ -637,6 +637,26 @@ const Approvals = () => {
         const res = await api.get('/api/requests');
 
         filtered = (res.data || []).filter((request: any) => {
+
+          if (effectiveView === 'liquidations') {
+            const roleStageMap: Record<string, string[]> = {
+              supervisor: ['pending_supervisor', 'submitted'],
+              accounting: ['pending_accounting', 'pending_cash_return'],
+              vp: ['pending_vp'],
+              president: ['pending_president'],
+              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return', 'submitted']
+            };
+            const allowedStages = roleStageMap[user?.role] || [];
+            const liq = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
+            const effectiveStatus = liq?.liquidation_status === 'submitted' ? 'pending_supervisor' : liq?.liquidation_status;
+            return liq && liq.status === 'submitted' && allowedStages.includes(effectiveStatus || 'pending_supervisor');
+          }
+
+          if (effectiveView === 'cash_returns') {
+            const latest = request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
+            return latest?.cash_return_status === 'pending_return';
+          }
+
           if (role === 'supervisor') {
             return request.status === 'pending_supervisor';
           }
@@ -660,25 +680,6 @@ const Approvals = () => {
 
           if (effectiveView === 'released') {
             return request.status === 'released';
-          }
-
-          if (effectiveView === 'liquidations') {
-            const roleStageMap: Record<string, string[]> = {
-              supervisor: ['pending_supervisor', 'submitted'],
-              accounting: ['pending_accounting', 'pending_cash_return'],
-              vp: ['pending_vp'],
-              president: ['pending_president'],
-              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return', 'submitted']
-            };
-            const allowedStages = roleStageMap[user?.role] || [];
-            const liq = request.latest_liquidation || request.liquidations?.find((l: any) => l.status === 'submitted');
-            const effectiveStatus = liq?.liquidation_status === 'submitted' ? 'pending_supervisor' : liq?.liquidation_status;
-            return liq && liq.status === 'submitted' && allowedStages.includes(effectiveStatus || 'pending_supervisor');
-          }
-
-          if (effectiveView === 'cash_returns') {
-            const latest = request.latest_liquidation || request.liquidations?.find((l: any) => l.cash_return_status === 'pending_return');
-            return latest?.cash_return_status === 'pending_return';
           }
 
           return false;
