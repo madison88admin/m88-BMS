@@ -1799,8 +1799,8 @@ const Approvals = () => {
         </div>
       )}
 
-      {/* Supervisor search + filters — shown before the grouped table */}
-      {user?.role === 'supervisor' && (
+      {/* Supervisor search + filters — shown before the grouped table (not for liquidations/cash_returns which have their own) */}
+      {user?.role === 'supervisor' && view !== 'liquidations' && view !== 'cash_returns' && (
         <div className="mb-6 space-y-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative w-full sm:w-80">
@@ -2799,7 +2799,7 @@ const Approvals = () => {
                                           <p className="text-[var(--role-text)]/70">Reference: {req.latest_liquidation.cash_return_reference}</p>
                                         )}
                                       </div>
-                                      {req.latest_liquidation.cash_return_status === 'pending_return' && (
+                                      {req.latest_liquidation.cash_return_status === 'pending_return' && (user.role === 'accounting' || user.role === 'admin') && (
                                         <button
                                           type="button"
                                           className="btn-primary"
