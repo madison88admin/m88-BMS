@@ -538,6 +538,24 @@ const Approvals = () => {
   const executeReject = async (requestId: string, reason: string) => {
     try {
 
+      if (view === 'liquidations') {
+
+        await api.patch(
+
+          `/api/requests/${requestId}/liquidation/review`,
+
+          { action: 'reject', remarks: reason }
+
+        );
+
+        toast.success('Liquidation rejected successfully!');
+
+        fetchRequests();
+
+        return;
+
+      }
+
       await api.patch(
 
         `/api/requests/${requestId}/reject`,
@@ -3554,13 +3572,24 @@ const Approvals = () => {
 
                     <div className="flex flex-wrap gap-3">
                       {/* VP/President/Supervisor/Admin/Accounting - Approval Actions */}
-                      {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin' || (user.role === 'accounting' && !req.co_approved_by)) && (
+                      {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin' || user.role === 'accounting') && (
                         <>
                           {(() => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
                             // VP always marks budget proposals as viewed (President does final approval)
                             const vpMarkViewed = user.role === 'vp' && req.status === 'pending_vp' && isBudgetFlow;
-                            const canActAtStage =
+                            // Liquidation review: check liquidation_status instead of request status
+                            const isLiquidation = view === 'liquidations' && req.status === 'pending_liquidation_review';
+                            const liqStatus = req.latest_liquidation?.liquidation_status === 'submitted' ? 'pending_supervisor' : req.latest_liquidation?.liquidation_status;
+                            const liquidationStageMap: Record<string, string[]> = {
+                              supervisor: ['pending_supervisor'],
+                              accounting: ['pending_accounting', 'pending_cash_return'],
+                              vp: ['pending_vp'],
+                              president: ['pending_president'],
+                              admin: ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return']
+                            };
+                            const canActLiquidation = isLiquidation && (liquidationStageMap[user.role] || []).includes(liqStatus || 'pending_supervisor');
+                            const canActAtStage = canActLiquidation ||
                               (user.role === 'supervisor' && req.status === 'pending_supervisor') ||
                               (user.role === 'accounting' && req.status === 'pending_accounting' && !req.co_approved_by) ||
                               (user.role === 'vp' && req.status === 'pending_vp') ||
