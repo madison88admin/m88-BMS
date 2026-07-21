@@ -1654,9 +1654,11 @@ const NewRequestForm = () => {
                                 ))}
                               </select>
                             )}
-                            <p className="text-sm text-[var(--role-text)]/70 mt-2">
-                              Original Amount: <span className="font-semibold">{formatMoney(catItem.original_amount)}</span>
-                            </p>
+                            {catItem.original_amount > 0 && (
+                              <p className="text-sm text-[var(--role-text)]/70 mt-2">
+                                Original Amount: <span className="font-semibold">{formatMoney(catItem.original_amount)}</span>
+                              </p>
+                            )}
                           </div>
                           <button
                             type="button"
@@ -1682,7 +1684,7 @@ const NewRequestForm = () => {
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                max={catItem.original_amount}
+                                max={catItem.original_amount > 0 ? catItem.original_amount : undefined}
                                 value={catItem.amount_spent}
                                 onChange={(e) => {
                                   const newItems = [...liquidationForm.categoryItems];
