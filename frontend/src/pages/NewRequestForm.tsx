@@ -1580,22 +1580,90 @@ const NewRequestForm = () => {
 
               {/* Estimated Breakdown with Amount Spent and Receipts */}
               <div className="mb-6">
-                <label className="block text-sm font-medium mb-3">Estimated Breakdown</label>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium">Estimated Breakdown</label>
+                  <button
+                    type="button"
+                    className="btn-secondary !py-1 !px-3 text-xs"
+                    onClick={() => {
+                      setLiquidationForm(prev => ({
+                        ...prev,
+                        categoryItems: [...prev.categoryItems, {
+                          category_id: '',
+                          category_name: '',
+                          original_amount: 0,
+                          item_label: '',
+                          amount_spent: '',
+                          attachments: []
+                        } as LiquidationCategoryItem]
+                      }));
+                    }}
+                  >
+                    + Add Item
+                  </button>
+                </div>
                 {liquidationForm.categoryItems.length === 0 ? (
                   <div className="rounded-xl border border-amber-300/40 bg-amber-50/50 px-4 py-3 text-sm text-amber-700">
-                    Select a cash advance to see the estimated breakdown
+                    Select a cash advance to see the estimated breakdown, or click "Add Item" to add manually.
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {liquidationForm.categoryItems.map((catItem, idx) => (
                       <div key={idx} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
-                        <div className="mb-3">
-                          <h3 className="font-semibold text-[var(--role-text)]">{catItem.item_label}</h3>
-                          <p className="text-xs uppercase tracking-[0.12em] text-[var(--role-text)]/50 mt-1">Category</p>
-                          <p className="text-sm text-[var(--role-text)]/70">{catItem.category_name}</p>
-                          <p className="text-sm text-[var(--role-text)]/70 mt-2">
-                            Original Amount: <span className="font-semibold">{formatMoney(catItem.original_amount)}</span>
-                          </p>
+                        <div className="mb-3 flex items-start justify-between">
+                          <div className="flex-1">
+                            {catItem.item_label ? (
+                              <h3 className="font-semibold text-[var(--role-text)]">{catItem.item_label}</h3>
+                            ) : (
+                              <input
+                                type="text"
+                                placeholder="Item name (e.g., Laptop)"
+                                value={catItem.item_label}
+                                onChange={(e) => {
+                                  const newItems = [...liquidationForm.categoryItems];
+                                  newItems[idx].item_label = e.target.value;
+                                  setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
+                                }}
+                                className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm font-semibold"
+                              />
+                            )}
+                            <p className="text-xs uppercase tracking-[0.12em] text-[var(--role-text)]/50 mt-1">Category</p>
+                            {catItem.category_name ? (
+                              <p className="text-sm text-[var(--role-text)]/70">{catItem.category_name}</p>
+                            ) : (
+                              <select
+                                value={catItem.category_id}
+                                onChange={(e) => {
+                                  const newItems = [...liquidationForm.categoryItems];
+                                  newItems[idx].category_id = e.target.value;
+                                  const selectedOpt = e.target.options[e.target.selectedIndex];
+                                  newItems[idx].category_name = selectedOpt?.text || '';
+                                  setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
+                                }}
+                                className="mt-1 w-full px-3 py-1.5 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm"
+                              >
+                                <option value="">Select category</option>
+                                {categories.map((cat: any) => (
+                                  <option key={cat.id} value={cat.id}>{cat.category_name}</option>
+                                ))}
+                              </select>
+                            )}
+                            <p className="text-sm text-[var(--role-text)]/70 mt-2">
+                              Original Amount: <span className="font-semibold">{formatMoney(catItem.original_amount)}</span>
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-2"
+                            onClick={() => {
+                              const newItems = liquidationForm.categoryItems.filter((_, i) => i !== idx);
+                              setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
+                            }}
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
