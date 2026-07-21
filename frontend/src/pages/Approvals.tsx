@@ -1567,7 +1567,7 @@ const Approvals = () => {
 
 
 
-      {(user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'vp' || user?.role === 'president') && (
+      {(user?.role === 'accounting' || user?.role === 'admin' || user?.role === 'vp' || user?.role === 'president' || user?.role === 'supervisor') && (
         <div className="mb-6 space-y-4">
           {/* View Toggle + Search */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
