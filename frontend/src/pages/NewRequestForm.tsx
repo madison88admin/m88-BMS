@@ -761,21 +761,31 @@ const NewRequestForm = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Department *</label>
-              <select
-                required
-                value={reimbursementForm.department_id}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setReimbursementForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
-                  setReimbursementMainCategory('');
-                }}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                {!reimbursementForm.department_id && <option value="">Select department...</option>}
-                {departments.map(dept => (
-                  <option key={dept.id} value={dept.id}>{dept.name}</option>
-                ))}
-              </select>
+              {isStaffUser ? (
+                <input
+                  type="text"
+                  required
+                  value={departments.find(d => d.id === reimbursementForm.department_id)?.name || '—'}
+                  disabled
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-gray-100 text-[var(--role-text)]"
+                />
+              ) : (
+                <select
+                  required
+                  value={reimbursementForm.department_id}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setReimbursementForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
+                    setReimbursementMainCategory('');
+                  }}
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                >
+                  {!reimbursementForm.department_id && <option value="">Select department...</option>}
+                  {departments.map(dept => (
+                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 
@@ -1154,21 +1164,31 @@ const NewRequestForm = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Department *</label>
-              <select
-                required
-                value={cashAdvanceForm.department_id}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setCashAdvanceForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
-                  setCashAdvanceMainCategory('');
-                }}
-                className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
-              >
-                {!cashAdvanceForm.department_id && <option value="">Select department...</option>}
-                {departments.map(dept => (
-                  <option key={dept.id} value={dept.id}>{dept.name}</option>
-                ))}
-              </select>
+              {isStaffUser ? (
+                <input
+                  type="text"
+                  required
+                  value={departments.find(d => d.id === cashAdvanceForm.department_id)?.name || '—'}
+                  disabled
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-gray-100 text-[var(--role-text)]"
+                />
+              ) : (
+                <select
+                  required
+                  value={cashAdvanceForm.department_id}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCashAdvanceForm(prev => ({ ...prev, department_id: val, main_category: '', item_name: '', cost_center_id: '' }));
+                    setCashAdvanceMainCategory('');
+                  }}
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)]"
+                >
+                  {!cashAdvanceForm.department_id && <option value="">Select department...</option>}
+                  {departments.map(dept => (
+                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 
