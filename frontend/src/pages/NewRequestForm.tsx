@@ -1618,21 +1618,18 @@ const NewRequestForm = () => {
                       <div key={idx} className="rounded-xl border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
                         <div className="mb-3 flex items-start justify-between">
                           <div className="flex-1">
-                            {catItem.item_label ? (
-                              <h3 className="font-semibold text-[var(--role-text)]">{catItem.item_label}</h3>
-                            ) : (
-                              <input
-                                type="text"
-                                placeholder="Item name (e.g., Laptop)"
-                                value={catItem.item_label}
-                                onChange={(e) => {
-                                  const newItems = [...liquidationForm.categoryItems];
-                                  newItems[idx].item_label = e.target.value;
-                                  setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
-                                }}
-                                className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm font-semibold"
-                              />
-                            )}
+                            <input
+                              type="text"
+                              placeholder="Item name (e.g., Laptop)"
+                              value={catItem.item_label}
+                              onChange={(e) => {
+                                const newItems = [...liquidationForm.categoryItems];
+                                newItems[idx].item_label = e.target.value;
+                                setLiquidationForm(prev => ({ ...prev, categoryItems: newItems }));
+                              }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                              className="w-full px-3 py-2 rounded-lg border border-[var(--role-border)] bg-[var(--role-surface)] text-sm font-semibold"
+                            />
                             <p className="text-xs uppercase tracking-[0.12em] text-[var(--role-text)]/50 mt-1">Category</p>
                             {catItem.category_name ? (
                               <p className="text-sm text-[var(--role-text)]/70">{catItem.category_name}</p>
