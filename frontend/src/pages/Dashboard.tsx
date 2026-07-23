@@ -38,6 +38,8 @@ const getStatusLabel = (status: string) => {
       return 'Waiting for Accounting Approval';
     case 'released':
       return 'Released';
+    case 'liquidated':
+      return 'Liquidated';
     case 'approved':
       return 'Approved';
     case 'rejected':
@@ -54,6 +56,7 @@ const getStatusTone = (status: string) => {
     case 'pending_accounting':
       return 'border-[var(--role-primary)]/30 bg-[var(--role-primary)]/10 text-[var(--role-primary)]';
     case 'released':
+    case 'liquidated':
     case 'approved':
       return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600';
     case 'rejected':
@@ -249,33 +252,39 @@ const Dashboard = () => {
         .channel('dashboard-changes')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'expense_requests' },
+          { event: '*', schema: 'M88_BMS', table: 'expense_requests' },
           () => { void refreshDashboard(); }
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'approval_logs' },
+          { event: '*', schema: 'M88_BMS', table: 'approval_logs' },
           () => { void refreshDashboard(); }
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'departments' },
+          { event: '*', schema: 'M88_BMS', table: 'departments' },
           () => { void fetchDepartmentsInternal(); }
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'budget_categories' },
+          { event: '*', schema: 'M88_BMS', table: 'budget_categories' },
           () => { void fetchDepartmentsInternal(); }
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'cost_centers' },
+          { event: '*', schema: 'M88_BMS', table: 'cost_centers' },
           () => { void fetchM88ManilaCostCenter(new Date().getFullYear()); }
         )
         .subscribe();
     }
 
+    const dashboardPollId = window.setInterval(() => { void refreshDashboard(); }, 15_000);
+    const refreshOnFocus = () => { void refreshDashboard(); };
+    window.addEventListener('focus', refreshOnFocus);
+
     return () => {
+      window.clearInterval(dashboardPollId);
+      window.removeEventListener('focus', refreshOnFocus);
       if (channel && supabase) {
         void supabase.removeChannel(channel);
       }
@@ -283,7 +292,16 @@ const Dashboard = () => {
   }, [navigate]);
 
   const isBudgetFlow = (requestType?: string) => requestType === 'budget_request' || requestType === 'budget_revision';
-  const isActualExpenseCommitted = (request: any) => (request.status === 'released' || request.status === 'approved') && !isBudgetFlow(request.request_type);
+  const isActualExpenseCommitted = (request: any) => (request.status === 'released' || request.status === 'liquidated' || request.status === 'approved') && !isBudgetFlow(request.request_type);
+  const isSupervisorApprovedPipeline = (request: any) =>
+    ['pending_accounting', 'pending_vp', 'pending_president'].includes(request.status) &&
+    !isBudgetFlow(request.request_type);
+  const getDashboardExpenseAmount = (request: any) => {
+    if (request.status !== 'liquidated') return toNumber(request.amount);
+    if (toNumber(request.liquidated_amount) > 0) return toNumber(request.liquidated_amount);
+    if (toNumber(request.latest_liquidation?.amount_spent) > 0) return toNumber(request.latest_liquidation.amount_spent);
+    return toNumber(request.amount);
+  };
 
   const stats = useMemo(() => {
     const total = requests.length;
@@ -291,12 +309,16 @@ const Dashboard = () => {
     const pendingAccounting = requests.filter((r: any) => r.status === 'pending_accounting').length;
     const released = requests.filter((r: any) => isActualExpenseCommitted(r)).length;
     const rejected = requests.filter((r: any) => r.status === 'rejected').length;
+    const supervisorApproved = requests.filter((r: any) => isSupervisorApprovedPipeline(r)).length;
     const totalAmount = requests.reduce((sum: number, request: any) => sum + toNumber(request.amount), 0);
     const pendingAmount = requests
       .filter((r: any) => ['pending_supervisor', 'pending_accounting', 'returned_for_revision'].includes(r.status))
       .reduce((sum: number, request: any) => sum + toNumber(request.amount), 0);
     const releasedAmount = requests
       .filter((r: any) => isActualExpenseCommitted(r))
+      .reduce((sum: number, request: any) => sum + getDashboardExpenseAmount(request), 0);
+    const supervisorApprovedAmount = requests
+      .filter((r: any) => isSupervisorApprovedPipeline(r))
       .reduce((sum: number, request: any) => sum + toNumber(request.amount), 0);
     const rejectedAmount = requests
       .filter((r: any) => r.status === 'rejected')
@@ -307,10 +329,12 @@ const Dashboard = () => {
       pendingSupervisor,
       pendingAccounting,
       released,
+      supervisorApproved,
       rejected,
       totalAmount,
       pendingAmount,
       releasedAmount,
+      supervisorApprovedAmount,
       rejectedAmount
     };
   }, [requests]);
@@ -344,25 +368,32 @@ const Dashboard = () => {
     // Budget Utilization
     const latestRequest = requests[0];
     const budgetSummary = latestRequest?.budget_summary;
+    const supervisorBudgetTotals = user?.role === 'supervisor' ? departmentBudget?.totals : null;
     
-    const utilizationData = budgetSummary ? [
-      { name: 'Used', value: toNumber(budgetSummary.used_budget) },
-      { name: 'Remaining', value: Math.max(0, toNumber(budgetSummary.remaining_budget)) }
+    const utilizationSource = supervisorBudgetTotals || budgetSummary;
+    const utilizationData = utilizationSource ? [
+      { name: 'Used', value: toNumber(utilizationSource.used_budget) },
+      { name: 'Remaining', value: Math.max(0, supervisorBudgetTotals
+        ? toNumber(supervisorBudgetTotals.annual_budget) - toNumber(supervisorBudgetTotals.used_budget)
+        : toNumber(budgetSummary.remaining_budget)) }
     ] : [];
 
     // Spending by Category (actual committed expenses only)
     const categoryMap = new Map();
     requests.forEach((req: any) => {
-      if (!isActualExpenseCommitted(req)) return;
+      if (!isActualExpenseCommitted(req) && !(user?.role === 'supervisor' && isSupervisorApprovedPipeline(req))) return;
       const category = req.category || 'Uncategorized';
-      const amount = toNumber(req.amount);
-      categoryMap.set(category, (categoryMap.get(category) || 0) + amount);
+      const current = categoryMap.get(category) || { actual: 0, approved: 0 };
+      if (isActualExpenseCommitted(req)) current.actual += getDashboardExpenseAmount(req);
+      else current.approved += toNumber(req.amount);
+      categoryMap.set(category, current);
     });
 
-    const categoryData = Array.from(categoryMap.entries()).map(([name, value]) => ({
+    const categoryData = Array.from(categoryMap.entries()).map(([name, value]: [string, any]) => ({
       name,
-      value
-    })).sort((a, b) => b.value - a.value);
+      value: value.actual,
+      approved: value.approved,
+    })).sort((a, b) => (b.value + b.approved) - (a.value + a.approved));
 
     // Monthly Spending Trends (last 6 months)
     const monthlyMap = new Map();
@@ -372,28 +403,32 @@ const Dashboard = () => {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = d.toLocaleString('default', { month: 'short', year: '2-digit' });
-      monthlyMap.set(key, 0);
+      monthlyMap.set(key, { actual: 0, approved: 0 });
     }
     
     // Aggregate actual released expenses by month
     requests.forEach((req: any) => {
-      if (isActualExpenseCommitted(req)) {
-        const date = new Date(req.released_at || req.updated_at || req.created_at);
+      if (isActualExpenseCommitted(req) || (user?.role === 'supervisor' && isSupervisorApprovedPipeline(req))) {
+        const isActual = isActualExpenseCommitted(req);
+        const date = new Date(isActual ? (req.released_at || req.updated_at || req.created_at) : (req.supervisor_approved_at || req.updated_at || req.created_at));
         const monthKey = date.toLocaleString('default', { month: 'short', year: '2-digit' });
         if (monthlyMap.has(monthKey)) {
-          monthlyMap.set(monthKey, monthlyMap.get(monthKey) + toNumber(req.amount));
+          const current = monthlyMap.get(monthKey);
+          if (isActual) current.actual += getDashboardExpenseAmount(req);
+          else current.approved += toNumber(req.amount);
         }
       }
     });
 
     const monthlyData = Array.from(monthlyMap.entries()).map(([name, value]) => ({
       name,
-      value,
-      formatted: formatMoney(value)
+      value: value.actual,
+      approved: value.approved,
+      formatted: formatMoney(value.actual)
     }));
 
     return { utilizationData, categoryData, monthlyData };
-  }, [requests]);
+  }, [requests, departmentBudget, user?.role]);
 
   const toggleArchive = async (requestId: string, archived: boolean) => {
     const token = localStorage.getItem('token');
@@ -806,8 +841,9 @@ const Dashboard = () => {
             </div>
             <div className="stat-card group relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-[var(--role-text)]/20 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
-              <p className="stat-label">Pending Accounting</p>
-              <h3 className="stat-value" style={{ color: 'var(--role-text)' }}>{stats.pendingAccounting}</h3>
+              <p className="stat-label">Approved — In Pipeline</p>
+              <h3 className="stat-value" style={{ color: 'var(--role-text)' }}>{stats.supervisorApproved}</h3>
+              <p className="mt-1 text-xs text-[var(--role-text)]/55">{formatMoney(stats.supervisorApprovedAmount)} still in approval pipeline</p>
             </div>
             <div className="stat-card group relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-[var(--role-primary)]/20 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
@@ -911,7 +947,8 @@ const Dashboard = () => {
           </div>
 
           <div className="panel">
-            <h2 className="mb-4 text-xl font-bold text-[var(--role-text)]">Spending by Category</h2>
+            <h2 className="mb-1 text-xl font-bold text-[var(--role-text)]">Spending by Category</h2>
+            {user.role === 'supervisor' && <p className="mb-4 text-xs text-[var(--role-text)]/55">Released spending and expenses you approved that are still in the pipeline.</p>}
             <div className="h-[300px] w-full">
               {chartData.categoryData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -930,6 +967,8 @@ const Dashboard = () => {
                       contentStyle={{ backgroundColor: 'var(--role-surface)', borderColor: 'var(--role-border)', borderRadius: '12px' }}
                     />
                     <Bar dataKey="value" fill="var(--role-primary)" radius={[4, 4, 0, 0]} />
+                    {user.role === 'supervisor' && <Bar dataKey="approved" name="Supervisor approved" fill="var(--role-secondary)" radius={[4, 4, 0, 0]} />}
+                    {user.role === 'supervisor' && <Legend />}
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -974,9 +1013,14 @@ const Dashboard = () => {
                   />
                   <Bar 
                     dataKey="value" 
+                    name="Released"
                     fill="url(#monthlyGradient)" 
                     radius={[4, 4, 0, 0]}
                   />
+                  {user.role === 'supervisor' && (
+                    <Bar dataKey="approved" name="Supervisor approved" fill="var(--role-secondary)" radius={[4, 4, 0, 0]} />
+                  )}
+                  {user.role === 'supervisor' && <Legend />}
                   <defs>
                     <linearGradient id="monthlyGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="var(--role-primary)" />
@@ -1174,9 +1218,9 @@ const Dashboard = () => {
                   <div className="mb-3 h-2 overflow-hidden rounded-full bg-[var(--role-accent)]">
                     <div className="flex h-full w-full">
                       <div className="h-full flex-1 bg-[var(--role-secondary)]" />
-                      <div className={`h-full flex-1 ${request.status === 'pending_supervisor' ? 'bg-[var(--role-text)]/20' : ['pending_accounting', 'approved', 'released', 'rejected'].includes(request.status) ? 'bg-[var(--role-secondary)]' : 'bg-[var(--role-accent)]'}`} />
-                      <div className={`h-full flex-1 ${request.status === 'pending_accounting' ? 'bg-[var(--role-text)]/20' : ['approved', 'released'].includes(request.status) ? 'bg-[var(--role-secondary)]' : 'bg-[var(--role-accent)]'}`} />
-                      <div className={`h-full flex-1 ${request.status === 'released' ? 'bg-[var(--role-text)]/20' : request.status === 'approved' ? 'bg-[var(--role-secondary)]' : 'bg-[var(--role-accent)]'}`} />
+                      <div className={`h-full flex-1 ${request.status === 'pending_supervisor' ? 'bg-[var(--role-text)]/20' : ['pending_accounting', 'approved', 'released', 'liquidated', 'rejected'].includes(request.status) ? 'bg-[var(--role-secondary)]' : 'bg-[var(--role-accent)]'}`} />
+                      <div className={`h-full flex-1 ${request.status === 'pending_accounting' ? 'bg-[var(--role-text)]/20' : ['approved', 'released', 'liquidated'].includes(request.status) ? 'bg-[var(--role-secondary)]' : 'bg-[var(--role-accent)]'}`} />
+                      <div className={`h-full flex-1 ${request.status === 'released' || request.status === 'liquidated' ? 'bg-[var(--role-text)]/20' : request.status === 'approved' ? 'bg-[var(--role-secondary)]' : 'bg-[var(--role-accent)]'}`} />
                     </div>
                   </div>
 
@@ -1200,8 +1244,8 @@ const Dashboard = () => {
                     {
                       key: 'released',
                       label: 'Released',
-                      active: request.status === 'released' || request.status === 'approved',
-                      current: request.status === 'released',
+                      active: request.status === 'released' || request.status === 'liquidated' || request.status === 'approved',
+                      current: request.status === 'released' || request.status === 'liquidated',
                       icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
                     }
                   ].map((step) => (
