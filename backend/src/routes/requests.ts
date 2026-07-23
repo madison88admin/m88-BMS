@@ -2331,6 +2331,24 @@ router.patch('/:id/allocations', authenticate, authorize('accounting', 'admin'),
     return res.status(400).json({ error: 'The total of all department allocations must exactly match the request amount.' });
   }
 
+  const { data: existingAllocations, error: existingAllocationsError } = await supabase
+    .from('request_allocations')
+    .select('id, department_id, amount, departments(name)')
+    .eq('request_id', id);
+  if (existingAllocationsError) return res.status(400).json({ error: existingAllocationsError });
+
+  const currentlyCommittedByDepartment = new Map<string, number>();
+  if ((existingAllocations || []).length > 0) {
+    for (const allocation of existingAllocations || []) {
+      currentlyCommittedByDepartment.set(
+        allocation.department_id,
+        (currentlyCommittedByDepartment.get(allocation.department_id) || 0) + toNumber(allocation.amount)
+      );
+    }
+  } else if (request.department_id) {
+    currentlyCommittedByDepartment.set(request.department_id, toNumber(request.amount));
+  }
+
   // Validate category budget for all allocated departments (if category is specified)
   if (request.category) {
     const categoryName = String(request.category).trim();
@@ -2348,12 +2366,15 @@ router.patch('/:id/allocations', authenticate, authorize('accounting', 'admin'),
         return res.status(400).json({ error: `Category "${categoryName}" not found for department ${allocation.department_id} in fiscal year ${request.fiscal_year}.` });
       }
 
+      // The request's current allocation is already included in committed_amount and
+      // deducted from remaining_amount. Credit it back while validating a reallocation.
       const remaining = toNumber(categoryBudget.remaining_amount);
+      const availableForReallocation = remaining + (currentlyCommittedByDepartment.get(allocation.department_id) || 0);
       const allocationAmount = toNumber(allocation.amount);
       
-      if (remaining < allocationAmount) {
+      if (availableForReallocation < allocationAmount) {
         return res.status(400).json({
-          error: `Insufficient budget in category "${categoryName}" for department. Available: ${remaining.toFixed(2)}, Required: ${allocationAmount.toFixed(2)}`
+          error: `Insufficient budget in category "${categoryName}" for department. Available: ${availableForReallocation.toFixed(2)}, Required: ${allocationAmount.toFixed(2)}`
         });
       }
     }
@@ -2369,12 +2390,6 @@ router.patch('/:id/allocations', authenticate, authorize('accounting', 'admin'),
   if ((validDepartments || []).length !== departmentIds.length) {
     return res.status(400).json({ error: 'One or more selected departments could not be found.' });
   }
-
-  const { data: existingAllocations, error: existingAllocationsError } = await supabase
-    .from('request_allocations')
-    .select('id, department_id, amount, departments(name)')
-    .eq('request_id', id);
-  if (existingAllocationsError) return res.status(400).json({ error: existingAllocationsError });
 
   const { error: deleteError } = await supabase.from('request_allocations').delete().eq('request_id', id);
   if (deleteError) return res.status(400).json({ error: deleteError });
