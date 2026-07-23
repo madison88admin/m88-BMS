@@ -2298,7 +2298,11 @@ const Approvals = () => {
 
             const draftTotal = getDraftTotal(req.id);
 
-            const requestAmount = toNumber(req.amount);
+            const originalRequestAmount = toNumber(req.amount);
+            const isLiquidationView = view === 'liquidations' && Boolean(req.latest_liquidation);
+            const requestAmount = isLiquidationView
+              ? toNumber(req.latest_liquidation?.amount_spent ?? req.latest_liquidation?.actual_amount)
+              : originalRequestAmount;
 
             const requestCurrency = getSupportedCurrency(req.metadata?.currency || req.currency);
 
@@ -3562,13 +3566,21 @@ const Approvals = () => {
 
                     <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
 
-                      {(req.allocations || []).map((allocation: any) => (
+                      {(req.allocations || []).map((allocation: any) => {
+                        const originalAllocationAmount = toNumber(allocation.amount);
+                        const displayedAllocationAmount = isLiquidationView && originalRequestAmount > 0
+                          ? originalAllocationAmount * (requestAmount / originalRequestAmount)
+                          : originalAllocationAmount;
+                        const displayedProjectedRemaining = isLiquidationView
+                          ? toNumber(allocation.remaining_budget) - displayedAllocationAmount
+                          : toNumber(allocation.projected_remaining_budget);
+                        return (
 
                         <div key={`${req.id}-${allocation.department_id}`} className="panel-muted !p-4">
 
                           <p className="text-xs uppercase tracking-[0.14em] text-[var(--role-text)]/50">{allocation.department_name}</p>
 
-                          <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(toNumber(allocation.amount), requestCurrency)}</p>
+                          <p className="mt-2 text-lg font-semibold text-[var(--role-text)]">{displayMoney(displayedAllocationAmount, requestCurrency)}</p>
 
                           <p className="mt-1 text-xs text-[var(--role-text)]/60">
 
@@ -3578,13 +3590,14 @@ const Approvals = () => {
 
                           <p className="mt-1 text-xs text-[var(--role-text)]/60">
 
-                            Projected {displayMoney(toNumber(allocation.projected_remaining_budget), 'PHP')}
+                            Projected {displayMoney(displayedProjectedRemaining, 'PHP')}
 
                           </p>
 
                         </div>
 
-                      ))}
+                        );
+                      })}
 
                     </div>
 

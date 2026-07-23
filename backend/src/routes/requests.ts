@@ -1299,16 +1299,16 @@ const buildOfficialListForDepartment = async (
     return baseList;
   }
 
-  const allowedCategories = budgetCategories.map((bc) => bc.category_name);
-  const filteredList = baseList.filter((item) => allowedCategories.includes(item.category));
-
   const nameById = new Map((budgetCategories || []).map((bc: any) => [bc.id, bc.category_name]));
   const enrichedCategories = (budgetCategories || []).map((bc: any) => ({
     ...bc,
     parent_category_name: bc.parent_category_id ? nameById.get(bc.parent_category_id) || null : null,
   }));
 
-  return mergeBudgetCategoriesIntoOfficialList(filteredList, enrichedCategories, departmentName);
+  // The request catalog is intentionally office-wide. The department matrix
+  // enriches matching rows with the user's department/category hierarchy, but
+  // must not hide valid expense categories that are absent from that matrix.
+  return mergeBudgetCategoriesIntoOfficialList(baseList, enrichedCategories, departmentName);
 };
 
 // GET /api/requests/official-list - filtered expense catalog for request forms
@@ -3824,6 +3824,24 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
   const allowedRoles = stageRoleMap[currentStatus] || [];
   if (!allowedRoles.includes(approverRole)) {
     return res.status(403).json({ error: `This liquidation is at ${currentStatus} stage. You (${approverRole}) cannot act on it.` });
+  }
+
+  // Final Accounting settlement has two mutually exclusive actions:
+  // cash returns must use confirm-return; zero-return liquidations use release.
+  // Preventing the generic review path for a positive return also ensures the
+  // unused CA balance can only be refunded to the budget once.
+  if (currentStatus === 'pending_cash_return') {
+    const cashReturnAmount = toNumber(liquidation.cash_return_amount);
+    if (cashReturnAmount > 0) {
+      return res.status(400).json({
+        error: 'Cash return confirmation is required. Use the Cash Return action.'
+      });
+    }
+    if (action !== 'approve') {
+      return res.status(400).json({
+        error: 'Only Release Funds is allowed at final Accounting settlement.'
+      });
+    }
   }
 
   if (action === 'reject') {

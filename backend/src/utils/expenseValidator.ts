@@ -176,12 +176,30 @@ export function mergeBudgetCategoriesIntoOfficialList(
         entry.itemName === itemName &&
         entry.code === code
     );
-    if (alreadyAdded) continue;
+    if (alreadyAdded) {
+      // The department-specific budget matrix is authoritative. An expense may
+      // exist in the static catalog with an old department assignment, so make
+      // sure the scoped result carries the employee's actual department.
+      const index = merged.findIndex(
+        (entry) => entry.category === groupCategory && entry.itemName === itemName && entry.code === code
+      );
+      merged[index] = { ...merged[index], dept: departmentName || 'All Dept' };
+      continue;
+    }
 
-    // Also skip if an entry with the same code already exists
-    // (prevents duplicates when official list and budget_categories use different category names)
-    const alreadyAddedByCode = merged.some((entry) => entry.code === code);
-    if (alreadyAddedByCode) continue;
+    // When the same code exists in the static catalog, enrich that entry from
+    // the department matrix instead of discarding the matrix row. This keeps
+    // all main/sub-category mappings visible to employees in every department.
+    const existingIndex = merged.findIndex((entry) => entry.code === code);
+    if (existingIndex >= 0) {
+      merged[existingIndex] = {
+        ...merged[existingIndex],
+        itemName: parentName ? itemName : merged[existingIndex].itemName,
+        category: parentName || merged[existingIndex].category,
+        dept: departmentName || 'All Dept',
+      };
+      continue;
+    }
 
     if (!parentName && topLevelWithOfficialItems.has(categoryName)) continue;
 

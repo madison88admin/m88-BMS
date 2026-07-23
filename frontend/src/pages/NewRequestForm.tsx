@@ -98,29 +98,13 @@ const NewRequestForm = () => {
 
   const isStaffUser = !user?.role || user.role !== 'super_admin';
 
-  const departmentNameForFilter = () =>
-    departments.find((d) => d.id === (activeTab === 'reimbursement' ? reimbursementForm.department_id : cashAdvanceForm.department_id))?.name || '';
-
-  const matchesDepartment = (item: OfficialExpense) => {
-    const userDeptName = departmentNameForFilter();
-    if (!userDeptName) return true;
-    const allowedDepts = Array.isArray(item.dept) ? item.dept : [item.dept];
-    return allowedDepts.includes('All Dept') || allowedDepts.some((d) => {
-      const allowedCore = d.toLowerCase().replace(/\s+department$/i, '').trim();
-      const userCore = userDeptName.toLowerCase().replace(/\s+department$/i, '').trim();
-      return d.toLowerCase() === userDeptName.toLowerCase() || allowedCore === userCore || userDeptName.toLowerCase().includes(allowedCore);
-    });
-  };
-
-  const isVisibleForRequestForm = (item: OfficialExpense, canUse: 'canRE' | 'canCA') => {
-    return matchesDepartment(item);
-  };
-
   // Helper: Filter items by main category
   const getItemsByMainCategory = (mainCategory: string, canUse: 'canRE' | 'canCA') => {
+    // Reimbursement and cash-advance catalogs are office-wide. Department
+    // assignment controls budgeting/approval ownership, not category visibility.
+    void canUse;
     return officialList.filter(item => 
-      item.category === mainCategory && 
-      isVisibleForRequestForm(item, canUse)
+      item.category === mainCategory
     );
   };
 
