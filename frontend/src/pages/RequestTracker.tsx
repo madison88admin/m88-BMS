@@ -58,8 +58,8 @@ const buildFlow = (status: string, requestType?: string) => {
       {
         key: 'approved',
         label: 'Approved',
-        description: status === 'approved' || status === 'released' ? 'Budget has been approved.' : 'Approval pending.',
-        state: status === 'approved' || status === 'released' ? 'done' : 'idle'
+        description: status === 'approved' || status === 'released' || status === 'liquidated' ? 'Budget has been approved.' : 'Approval pending.',
+        state: status === 'approved' || status === 'released' || status === 'liquidated' ? 'done' : 'idle'
       }
     ];
   } else {
@@ -98,8 +98,8 @@ const buildFlow = (status: string, requestType?: string) => {
       {
         key: 'released',
         label: 'Release',
-        description: status === 'released' || status === 'approved' ? 'Budget has been released.' : 'Pending final release.',
-        state: status === 'released' || status === 'approved' ? 'done' : 'idle'
+        description: status === 'released' || status === 'liquidated' || status === 'approved' ? 'Budget has been released.' : 'Pending final release.',
+        state: status === 'released' || status === 'liquidated' || status === 'approved' ? 'done' : 'idle'
       }
     ];
   }
@@ -512,6 +512,7 @@ const RequestTracker = () => {
       'off_hold': 'Resumed',
       'status_changed': 'Status Update',
       'liquidation_submitted': 'Liquidation Sent',
+      'cash_return_confirmed': 'Cash Return Confirmed',
       'co_approved': 'Co-Approved',
       'archived': 'Archived',
       'unarchived': 'Unarchived'
@@ -542,6 +543,7 @@ const RequestTracker = () => {
           </svg>
         );
       case 'released':
+      case 'cash_return_confirmed':
         return (
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1181,14 +1183,14 @@ const RequestTracker = () => {
               </div>
             )}
 
-            {selectedRequest.status === 'released' && selectedRequest.latest_liquidation?.status === 'submitted' && (
+            {(selectedRequest.status === 'released' || selectedRequest.status === 'liquidated') && selectedRequest.latest_liquidation?.status === 'submitted' && (
               <div className="panel-muted mt-6 border-blue-500/20 bg-blue-500/5">
                 <p className="text-xs uppercase tracking-[0.16em] text-blue-600 font-bold">Liquidation Under Review</p>
                 <p className="mt-2 text-sm text-blue-700">Your liquidation has been submitted and is being reviewed by accounting. Actual amount: <strong>{selectedRequest.latest_liquidation.actual_amount}</strong></p>
               </div>
             )}
 
-            {selectedRequest.status === 'released' && selectedRequest.latest_liquidation?.status === 'verified' && (
+            {(selectedRequest.status === 'released' || selectedRequest.status === 'liquidated') && selectedRequest.latest_liquidation?.status === 'verified' && (
               <div className="panel-muted mt-6 border-green-500/20 bg-green-500/5">
                 <p className="text-xs uppercase tracking-[0.16em] text-green-600 font-bold">Liquidation Verified</p>
                 <p className="mt-2 text-sm text-green-700">Your liquidation has been verified by accounting.</p>
@@ -1198,7 +1200,7 @@ const RequestTracker = () => {
               </div>
             )}
 
-            {selectedRequest.status === 'released' && selectedRequest.latest_liquidation?.status === 'returned' && (
+            {(selectedRequest.status === 'released' || selectedRequest.status === 'liquidated') && selectedRequest.latest_liquidation?.status === 'returned' && (
               <div className="panel-muted mt-6 border-orange-500/20 bg-orange-500/5">
                 <p className="text-xs uppercase tracking-[0.16em] text-orange-600 font-bold">Liquidation Returned for Correction</p>
                 {selectedRequest.latest_liquidation.remarks && (
@@ -1207,7 +1209,7 @@ const RequestTracker = () => {
               </div>
             )}
 
-            {selectedRequest.status === 'released' && (!selectedRequest.latest_liquidation || selectedRequest.latest_liquidation.status === 'returned') && (
+            {(selectedRequest.status === 'released' || selectedRequest.status === 'liquidated') && (!selectedRequest.latest_liquidation || selectedRequest.latest_liquidation.status === 'returned') && (
               <div className="panel-muted mt-6 bg-white/40">
                 <p className="text-xs uppercase tracking-[0.16em] text-[var(--role-text)]/50 font-bold">
                   {selectedRequest.latest_liquidation?.status === 'returned' ? 'Resubmit Liquidation' : 'Submit Liquidation'}
@@ -1446,7 +1448,7 @@ const RequestTracker = () => {
             )}
 
             {/* Liquidation approval status display */}
-            {selectedRequest.status === 'released' && selectedRequest.latest_liquidation?.liquidation_status && !['verified', 'returned', 'rejected'].includes(selectedRequest.latest_liquidation.status) && (
+            {(selectedRequest.status === 'released' || selectedRequest.status === 'liquidated') && selectedRequest.latest_liquidation?.liquidation_status && !['verified', 'returned', 'rejected'].includes(selectedRequest.latest_liquidation.status) && (
               <div className="panel-muted mt-6 border-blue-500/20 bg-blue-500/5">
                 <p className="text-xs uppercase tracking-[0.16em] text-blue-600 font-bold">
                   Liquidation Under Review — {selectedRequest.latest_liquidation.liquidation_status.replace(/_/g, ' ')}

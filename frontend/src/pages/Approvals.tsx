@@ -679,7 +679,7 @@ const Approvals = () => {
           }
 
           if (effectiveView === 'released') {
-            return request.status === 'released';
+            return request.status === 'released' || request.status === 'liquidated';
           }
 
           return false;
@@ -932,12 +932,29 @@ const Approvals = () => {
         {}
       );
 
-      toast.success('Cash return confirmed.');
+      toast.success('Cash return confirmed. Funds released.');
       await fetchRequests();
     } catch (err: any) {
       const errorMsg = typeof err.response?.data?.error === 'string'
         ? err.response.data.error
         : (err.response?.data?.error?.message || err.message || 'Failed to confirm cash return');
+      toast.error(errorMsg);
+    }
+  };
+
+  const handleReleaseFunds = async (requestId: string) => {
+    try {
+      await api.patch(
+        `/api/requests/${requestId}/liquidation/review`,
+        { action: 'approve', remarks: 'Finalized by Accounting - no cash return required.' }
+      );
+
+      toast.success('Funds released successfully.');
+      await fetchRequests();
+    } catch (err: any) {
+      const errorMsg = typeof err.response?.data?.error === 'string'
+        ? err.response.data.error
+        : (err.response?.data?.error?.message || err.message || 'Failed to release funds');
       toast.error(errorMsg);
     }
   };
@@ -2590,13 +2607,28 @@ const Approvals = () => {
                         </div>
 
                         {req.latest_liquidation.cash_return_status === 'pending_return' && (
-                          <div className="mt-4">
+                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
                             <button
                               type="button"
-                              className="btn-primary"
+                              className="btn-primary px-6 py-3 text-base font-bold"
                               onClick={() => void handleConfirmCashReturn(req.id)}
                             >
                               Confirm Cash Return
+                              <span className="block text-xs font-normal opacity-80">
+                                {displayMoney(toNumber(req.latest_liquidation.cash_return_amount), requestCurrency)} to be returned
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="px-6 py-3 text-base font-bold rounded-2xl bg-emerald-500 text-white hover:bg-emerald-600 transition shadow-lg shadow-emerald-500/20"
+                              onClick={() => void handleReleaseFunds(req.id)}
+                              disabled
+                              title="Confirm cash return first before releasing funds"
+                            >
+                              Release Funds
+                              <span className="block text-xs font-normal opacity-80">
+                                {displayMoney(requestAmount, requestCurrency)}
+                              </span>
                             </button>
                           </div>
                         )}
@@ -2604,7 +2636,6 @@ const Approvals = () => {
                     )}
 
                     {view === 'liquidations' && req.latest_liquidation && (
-
                       <div className="mb-6 space-y-4">
 
                         {/* Approval stage indicator */}
@@ -2619,8 +2650,8 @@ const Approvals = () => {
                             {(() => {
                               const liqAmount = Number(req.latest_liquidation.amount_spent || 0);
                               const stages = liqAmount >= 30000
-                                ? ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return']
-                                : ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_cash_return'];
+                                ? ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_president', 'pending_cash_return', 'verified']
+                                : ['pending_supervisor', 'pending_accounting', 'pending_vp', 'pending_cash_return', 'verified'];
                               const currentStatus = req.latest_liquidation.liquidation_status || 'pending_supervisor';
                               const currentIdx = stages.indexOf(currentStatus === 'submitted' ? 'pending_supervisor' : currentStatus);
                               return stages.map((stage, idx) => {
@@ -2799,15 +2830,6 @@ const Approvals = () => {
                                           <p className="text-[var(--role-text)]/70">Reference: {req.latest_liquidation.cash_return_reference}</p>
                                         )}
                                       </div>
-                                      {req.latest_liquidation.cash_return_status === 'pending_return' && (user.role === 'accounting' || user.role === 'admin') && (
-                                        <button
-                                          type="button"
-                                          className="btn-primary"
-                                          onClick={() => void handleConfirmCashReturn(req.id)}
-                                        >
-                                          Confirm Cash Return
-                                        </button>
-                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -2819,8 +2841,48 @@ const Approvals = () => {
 
                       </div>
 
-                      </div>
+                        {/* Accounting final settlement: cash return OR fund release only. */}
+                        {req.latest_liquidation?.liquidation_status === 'pending_cash_return' && (user.role === 'accounting' || user.role === 'admin') && (
+                          <div className="mt-2 rounded-2xl border-2 border-emerald-300 bg-emerald-50/80 p-5">
+                            <div className="mb-4">
+                              <h3 className="text-lg font-bold text-emerald-700">Accounting Final Settlement</h3>
+                              <p className="mt-1 text-sm text-emerald-700/70">
+                                {toNumber(req.latest_liquidation.cash_return_amount) > 0
+                                  ? 'Confirm the cash returned by the employee to finalize this liquidation.'
+                                  : 'No cash return is due. Release the settlement to finalize this liquidation.'}
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
+                              {toNumber(req.latest_liquidation.cash_return_amount) > 0 && req.latest_liquidation.cash_return_status === 'pending_return' && (
+                                <button
+                                  type="button"
+                                  className="btn-primary px-6 py-3 text-base font-bold"
+                                  onClick={() => void handleConfirmCashReturn(req.id)}
+                                >
+                                  Cash Return
+                                  <span className="block text-xs font-normal opacity-80">
+                                    {displayMoney(toNumber(req.latest_liquidation.cash_return_amount), requestCurrency)} to be returned
+                                  </span>
+                                </button>
+                              )}
+                              {toNumber(req.latest_liquidation.cash_return_amount) <= 0 && (
+                                <button
+                                type="button"
+                                className="px-6 py-3 text-base font-bold rounded-2xl bg-emerald-500 text-white hover:bg-emerald-600 transition shadow-lg shadow-emerald-500/20"
+                                onClick={() => void handleReleaseFunds(req.id)}
+                                title="Release funds and finalize liquidation"
+                              >
+                                Release Funds
+                                <span className="block text-xs font-normal opacity-80">
+                                  {displayMoney(toNumber(req.latest_liquidation.reimbursable_amount), requestCurrency)}
+                                </span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
+                      </div>
                     )}
 
 
@@ -2997,7 +3059,7 @@ const Approvals = () => {
 
 
 
-                    {(user.role === 'accounting' || user.role === 'admin') && view !== 'cash_returns' && (
+                    {(user.role === 'accounting' || user.role === 'admin') && view !== 'cash_returns' && view !== 'liquidations' && (
 
                       <div className="mb-5 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
 
@@ -3314,7 +3376,7 @@ const Approvals = () => {
 
 
 
-                    {(user.role === 'accounting' || user.role === 'admin') && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision' && (
+                    {(user.role === 'accounting' || user.role === 'admin') && view !== 'liquidations' && req.request_type !== 'budget_request' && req.request_type !== 'budget_revision' && (
 
                       <div className="mb-5 rounded-[24px] border border-[var(--role-border)] bg-[var(--role-accent)] p-4">
 
@@ -3528,7 +3590,7 @@ const Approvals = () => {
 
                     )}
 
-                    {req.status === 'released' && (
+                    {(req.status === 'released' || req.status === 'liquidated') && (
                       <div className="mb-5 rounded-[24px] border border-emerald-200 bg-emerald-50/30 p-4">
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-lg font-semibold text-[var(--role-text)]">Disbursement Records</h3>
@@ -3573,7 +3635,8 @@ const Approvals = () => {
 
                     <div className="flex flex-wrap gap-3">
                       {/* VP/President/Supervisor/Admin/Accounting - Approval Actions */}
-                      {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin' || user.role === 'accounting') && (
+                      {/* Hide Approve/Reject/Return/OnHold when liquidation is at pending_cash_return (final stage — only Release Funds + Confirm Cash Return) */}
+                      {(user.role === 'vp' || user.role === 'president' || user.role === 'supervisor' || user.role === 'admin' || user.role === 'accounting') && !(view === 'liquidations' && req.latest_liquidation?.liquidation_status === 'pending_cash_return') && (
                         <>
                           {(() => {
                             const isBudgetFlow = req.request_type === 'budget_request' || req.request_type === 'budget_revision';
@@ -3701,7 +3764,7 @@ const Approvals = () => {
                     {(() => {
                       const canRelease = !!req.co_approved_by;
                       
-                      if ((user.role === 'accounting' || user.role === 'admin') && canRelease) {
+                      if (view !== 'liquidations' && (user.role === 'accounting' || user.role === 'admin') && canRelease) {
                         return (
                           <button 
                             onClick={() => void handleApprove(req)} 

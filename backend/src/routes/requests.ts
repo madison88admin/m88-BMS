@@ -1498,7 +1498,7 @@ router.get('/', authenticate, async (req: any, res) => {
     }
   }
 
-  const { data, error } = await query.order('submitted_at', { ascending: true });
+  const { data, error } = await query.order('updated_at', { ascending: false });
   if (error) return res.status(400).json({ error });
 
   try {
@@ -1871,7 +1871,7 @@ router.get('/audit-logs', authenticate, authorize('accounting', 'vp', 'president
   }));
 
   const combinedLogs = [...dedicatedLogs, ...approvalLogs, ...allocationLogs, ...requestAuditLogs]
-    .sort((left: any, right: any) => new Date(left.event_time).getTime() - new Date(right.event_time).getTime())
+    .sort((left: any, right: any) => new Date(right.event_time).getTime() - new Date(left.event_time).getTime())
     .slice(0, 200);
 
   const actorIds = Array.from(new Set(combinedLogs.map((log: any) => log.actor_id || log.user_id).filter(Boolean)));
@@ -1939,7 +1939,7 @@ router.get('/:id/audit-logs', authenticate, async (req: any, res) => {
   }));
 
   const combinedLogs = [...approvalLogs, ...allocationLogs, ...auditLogs]
-    .sort((left: any, right: any) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime());
+    .sort((left: any, right: any) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
 
   const actorIds = Array.from(new Set(combinedLogs.map((log: any) => log.actor_id).filter(Boolean)));
   const { data: actors } = actorIds.length
@@ -3859,8 +3859,8 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
   } else if (currentStatus === 'pending_accounting') {
     nextStatus = 'pending_vp';
   } else if (currentStatus === 'pending_vp') {
-    // VP: if amount >= 30k → President, else → Accounting for cash return
-    nextStatus = liqAmount >= 30000 ? 'pending_president' : 'pending_cash_return';
+    // VP: if amount >= VP_THRESHOLD → President, else → Accounting for cash return
+    nextStatus = liqAmount >= VP_THRESHOLD ? 'pending_president' : 'pending_cash_return';
   } else if (currentStatus === 'pending_president') {
     // President → Accounting for cash return
     nextStatus = 'pending_cash_return';
@@ -3903,8 +3903,11 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
 
   if (error) return res.status(400).json({ error });
 
+  const liquidationAuditAction = currentStatus === 'pending_cash_return' && nextStatus === 'verified'
+    ? 'released'
+    : 'approved';
   await insertAuditLogs(id, req.user.id, [
-    { entity_type: 'liquidation', action: 'approved', field_name: 'liquidation_status', old_value: currentStatus, new_value: nextStatus, note: remarks || undefined }
+    { entity_type: 'liquidation', action: liquidationAuditAction, field_name: 'liquidation_status', old_value: currentStatus, new_value: nextStatus, note: remarks || undefined }
   ]);
 
   const { data: parentRequest } = await supabase.from('expense_requests').select('*').eq('id', id).maybeSingle();
@@ -3936,14 +3939,31 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
       }
 
       // Also update the request amount to reflect actual liquidated amount
+      // and mark the expense request as 'liquidated' when no cash return is pending
+      const cashReturnPending = cashReturn > 0;
       await supabase
         .from('expense_requests')
-        .update({ liquidated_amount: liquidatedAmount, updated_at: new Date() })
+        .update({
+          liquidated_amount: liquidatedAmount,
+          status: cashReturnPending ? 'released' : 'liquidated',
+          updated_at: new Date()
+        })
         .eq('id', id);
+    } else {
+      // Even if liquidatedAmount is 0, still update the expense request status
+      const cashReturnPending = cashReturn > 0;
+      await supabase
+        .from('expense_requests')
+        .update({
+          status: cashReturnPending ? 'released' : 'liquidated',
+          updated_at: new Date()
+        })
+        .eq('id', id);
+    }
 
-      // Return unused CA balance back to budget category
-      // E.g. CA issued 33222, liquidated 33000 → refund 222 to budget
-      if (parentRequest && cashReturn > 0) {
+    // Return unused CA balance back to budget category
+    // E.g. CA issued 33222, liquidated 33000 → refund 222 to budget
+    if (parentRequest && cashReturn > 0) {
         const categoryId = parentRequest.category_id;
         if (categoryId) {
           const { data: catBudget } = await supabase
@@ -3972,7 +3992,6 @@ router.patch('/:id/liquidation/review', authenticate, authorize('supervisor', 'a
           }
         }
       }
-    }
 
     await logAuditEvent({
       user: req.user,
@@ -4134,6 +4153,14 @@ router.patch('/:id/liquidation/confirm-return', authenticate, authorize('account
         console.error('Unable to recompute cash advance after cash return:', recomputeError);
         throw recomputeError;
       }
+    }
+
+    // Mark the expense request as 'liquidated' now that cash return is confirmed
+    if (parentRequest) {
+      await supabase
+        .from('expense_requests')
+        .update({ status: 'liquidated', updated_at: new Date() })
+        .eq('id', id);
     }
 
     // Invalidate caches and sync department/cost center budgets
