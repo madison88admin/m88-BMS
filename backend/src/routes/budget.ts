@@ -215,6 +215,11 @@ router.post('/categories/restore-all', authenticate, authorize('accounting', 'ad
 router.get('/categories', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (req: any, res) => {
   try {
     const { department_id, fiscal_year, all_years } = req.query;
+    const staffRoles = new Set(['employee', 'manager', 'supervisor']);
+    const isStaffUser = staffRoles.has(String(req.user?.role || '').toLowerCase());
+    const effectiveDepartmentId = isStaffUser
+      ? String(req.user?.department_id || '')
+      : String(department_id || '');
     const activeFiscalYear = await getLatestConfiguredFiscalYear(supabase);
     const targetFiscalYear = fiscal_year ? parseInt(fiscal_year as string) : activeFiscalYear;
 
@@ -228,15 +233,18 @@ router.get('/categories', authenticate, cacheResponse(CACHE_TTL.MEDIUM), async (
       query = query.eq('fiscal_year', targetFiscalYear);
     }
 
-    if (department_id && department_id !== '') {
-      // Query for specific department only (department_id is UUID, no 'All' value exists)
-      query = query.eq('department_id', department_id);
+    if (effectiveDepartmentId) {
+      // Staff are always scoped to their assigned department. Once scoped, return
+      // the complete approved matrix, including every main and sub-category.
+      query = query.eq('department_id', effectiveDepartmentId);
     }
 
     const { data, error } = await query.order('category_name');
     if (error) throw error;
 
-    const rows = await filterBudgetCategoriesForUser(supabase, data || [], { userRole: req.user?.role });
+    const rows = effectiveDepartmentId
+      ? (data || [])
+      : await filterBudgetCategoriesForUser(supabase, data || [], { userRole: req.user?.role });
     const nameById = new Map(rows.map((row: any) => [row.id, row.category_name]));
     const enriched = rows.map((row: any) => ({
       ...row,

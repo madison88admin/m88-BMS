@@ -1338,21 +1338,26 @@ router.get('/official-list', authenticate, async (req: any, res) => {
       }
       return res.json(baseList);
     }
-    let list = baseList;
+    let list = departmentId
+      ? await buildOfficialListForDepartment(departmentId, activeFiscalYear, baseList)
+      : baseList;
 
-    // Also merge in budget_categories from DB so all chart of accounts are visible
-    const { data: allBudgetCats } = await supabase
-      .from('budget_categories')
-      .select('id, category_code, category_name, parent_category_id, department_id')
-      .eq('fiscal_year', activeFiscalYear);
+    // Users without an assigned department (for example super-admin) retain the
+    // office-wide catalog. Department users only receive their own approved matrix.
+    if (!departmentId) {
+      const { data: allBudgetCats } = await supabase
+        .from('budget_categories')
+        .select('id, category_code, category_name, parent_category_id, department_id')
+        .eq('fiscal_year', activeFiscalYear);
 
-    if (allBudgetCats && allBudgetCats.length > 0) {
-      const nameById = new Map(allBudgetCats.map((bc: any) => [bc.id, bc.category_name]));
-      const enrichedCats = allBudgetCats.map((bc: any) => ({
-        ...bc,
-        parent_category_name: bc.parent_category_id ? nameById.get(bc.parent_category_id) || null : null,
-      }));
-      list = mergeBudgetCategoriesIntoOfficialList(list, enrichedCats, 'All Dept');
+      if (allBudgetCats && allBudgetCats.length > 0) {
+        const nameById = new Map(allBudgetCats.map((bc: any) => [bc.id, bc.category_name]));
+        const enrichedCats = allBudgetCats.map((bc: any) => ({
+          ...bc,
+          parent_category_name: bc.parent_category_id ? nameById.get(bc.parent_category_id) || null : null,
+        }));
+        list = mergeBudgetCategoriesIntoOfficialList(list, enrichedCats, 'All Dept');
+      }
     }
 
     list = filterOfficialExpenseList(list, {
