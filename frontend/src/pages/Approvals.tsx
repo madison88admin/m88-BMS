@@ -40,6 +40,7 @@ const Approvals = () => {
   const [departments, setDepartments] = useState<any[]>([]);
 
   const [budgetCategories, setBudgetCategories] = useState<any[]>([]);
+  const [cashReturnReferences, setCashReturnReferences] = useState<Record<string, string>>({});
 
   const [costCenters, setCostCenters] = useState<any[]>([]);
 
@@ -925,14 +926,24 @@ const Approvals = () => {
 
   };
 
-  const handleConfirmCashReturn = async (requestId: string) => {
+  const handleConfirmCashReturn = async (requestId: string, method?: string) => {
+    const reference = String(cashReturnReferences[requestId] || '').trim();
+    if (method === 'bank' && !reference) {
+      toast.error('Bank transfer reference number is required before confirming the cash return.');
+      return;
+    }
     try {
       await api.patch(
         `/api/requests/${requestId}/liquidation/confirm-return`,
-        {}
+        { cash_return_reference: reference || undefined }
       );
 
       toast.success('Cash return confirmed. Funds released.');
+      setCashReturnReferences((current) => {
+        const next = { ...current };
+        delete next[requestId];
+        return next;
+      });
       await fetchRequests();
     } catch (err: any) {
       const errorMsg = typeof err.response?.data?.error === 'string'
@@ -2303,6 +2314,9 @@ const Approvals = () => {
             const requestAmount = isLiquidationView
               ? toNumber(req.latest_liquidation?.amount_spent ?? req.latest_liquidation?.actual_amount)
               : originalRequestAmount;
+            const liquidationDifference = isLiquidationView
+              ? requestAmount - originalRequestAmount
+              : 0;
 
             const requestCurrency = getSupportedCurrency(req.metadata?.currency || req.currency);
 
@@ -2611,11 +2625,22 @@ const Approvals = () => {
                         </div>
 
                         {req.latest_liquidation.cash_return_status === 'pending_return' && (
-                          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
+                          <div className="mt-4">
+                            <label className="mx-auto block max-w-md text-xs text-[var(--role-text)]/60">
+                              {req.latest_liquidation.cash_return_method === 'bank' ? 'Bank transfer reference *' : 'Receipt / acknowledgment reference'}
+                              <input
+                                type="text"
+                                value={cashReturnReferences[req.id] || ''}
+                                onChange={(event) => setCashReturnReferences((current) => ({ ...current, [req.id]: event.target.value }))}
+                                placeholder={req.latest_liquidation.cash_return_method === 'bank' ? 'Enter transfer reference' : 'Optional reference'}
+                                className="mt-1 w-full rounded-xl border border-yellow-300 bg-white px-3 py-2 text-sm text-[var(--role-text)]"
+                              />
+                            </label>
+                          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
                             <button
                               type="button"
                               className="btn-primary px-6 py-3 text-base font-bold"
-                              onClick={() => void handleConfirmCashReturn(req.id)}
+                              onClick={() => void handleConfirmCashReturn(req.id, req.latest_liquidation.cash_return_method)}
                             >
                               Confirm Cash Return
                               <span className="block text-xs font-normal opacity-80">
@@ -2634,6 +2659,7 @@ const Approvals = () => {
                                 {displayMoney(requestAmount, requestCurrency)}
                               </span>
                             </button>
+                          </div>
                           </div>
                         )}
                       </div>
@@ -2697,11 +2723,11 @@ const Approvals = () => {
 
                               <div className="flex justify-between">
 
-                                <span className="text-[var(--role-text)]/60">Difference:</span>
+                                <span className="text-[var(--role-text)]/60">Difference (Actual − Cash Advance):</span>
 
                                 <span className={`font-bold ${toNumber(req.latest_liquidation.actual_amount) > toNumber(req.amount) ? 'text-orange-600' : 'text-emerald-600'}`}>
 
-                                  {displayMoney(toNumber(req.latest_liquidation.actual_amount) - requestAmount, requestCurrency)}
+                                  {displayMoney(liquidationDifference, requestCurrency)}
 
                                 </span>
 
@@ -2717,24 +2743,40 @@ const Approvals = () => {
 
                               {req.latest_liquidation.items?.length > 0 && (
                                 <div className="mt-4 rounded-2xl border border-[var(--role-border)] bg-[var(--role-surface)] p-4">
-                                  <p className="text-sm font-semibold mb-3">Liquidation Breakdown</p>
-                                  <div className="overflow-hidden rounded-xl border border-[var(--role-border)]/10 bg-[var(--role-accent)]">
+                                  <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-semibold">Item Breakdown</p>
+                                      <p className="text-xs text-[var(--role-text)]/50">{req.latest_liquidation.items.length} submitted item{req.latest_liquidation.items.length === 1 ? '' : 's'}</p>
+                                    </div>
+                                    <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-700">
+                                      {displayMoney(requestAmount, requestCurrency)} total
+                                    </span>
+                                  </div>
+                                  <div className="overflow-x-auto rounded-xl border border-[var(--role-border)]/10 bg-[var(--role-accent)]">
                                     <table className="w-full text-left text-sm">
                                       <thead className="bg-[var(--role-border)]/5 text-[var(--role-text)]/70">
                                         <tr>
                                           <th className="px-4 py-2 font-semibold">Date</th>
                                           <th className="px-4 py-2 font-semibold">Description</th>
+                                          <th className="px-4 py-2 font-semibold">Category</th>
+                                          <th className="px-4 py-2 text-center font-semibold">Receipt</th>
                                           <th className="px-4 py-2 text-right font-semibold">Amount</th>
                                         </tr>
                                       </thead>
                                       <tbody>
                                         {req.latest_liquidation.items.map((item: any, index: number) => (
                                           <tr key={index} className="border-b border-[var(--role-border)]/10 last:border-0">
-                                            <td className="px-4 py-2 text-[var(--role-text)]/80">{item.expense_date ? formatDateTime(item.expense_date) : '-'}</td>
-                                            <td className="px-4 py-2 text-[var(--role-text)]/80">{item.description || item.item_name || item.category_id || 'Item'}</td>
+                                            <td className="whitespace-nowrap px-4 py-3 text-[var(--role-text)]/70">{item.expense_date ? new Date(item.expense_date).toLocaleDateString() : '—'}</td>
+                                            <td className="min-w-[180px] px-4 py-3 font-medium text-[var(--role-text)]">{item.description || item.item_name || 'Item'}</td>
+                                            <td className="min-w-[150px] px-4 py-3 text-[var(--role-text)]/70">{budgetCategories.find((category: any) => category.id === item.category_id)?.category_name || 'Uncategorized'}</td>
+                                            <td className="px-4 py-3 text-center">{item.receipt_attached ? <span className="text-emerald-600">Attached</span> : <span className="text-[var(--role-text)]/40">None</span>}</td>
                                             <td className="px-4 py-2 text-right font-semibold">{displayMoney(toNumber(item.amount), requestCurrency)}</td>
                                           </tr>
                                         ))}
+                                        <tr className="bg-[var(--role-border)]/5">
+                                          <td colSpan={4} className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-[var(--role-text)]/60">Total liquidated</td>
+                                          <td className="px-4 py-3 text-right font-bold text-emerald-700">{displayMoney(requestAmount, requestCurrency)}</td>
+                                        </tr>
                                       </tbody>
                                     </table>
                                   </div>
@@ -2856,12 +2898,38 @@ const Approvals = () => {
                                   : 'No cash return is due. Release the settlement to finalize this liquidation.'}
                               </p>
                             </div>
+                            {toNumber(req.latest_liquidation.cash_return_amount) > 0 && (
+                              <div className="mb-4 rounded-2xl border border-amber-200 bg-white/80 p-4">
+                                <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Cash Return Information</p>
+                                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                                  <div>
+                                    <p className="text-xs text-[var(--role-text)]/50">Amount to return</p>
+                                    <p className="mt-1 font-bold text-[var(--role-text)]">{displayMoney(toNumber(req.latest_liquidation.cash_return_amount), requestCurrency)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-[var(--role-text)]/50">Return method</p>
+                                    <p className="mt-1 font-semibold capitalize text-[var(--role-text)]">{req.latest_liquidation.cash_return_method === 'bank' ? 'Bank Transfer' : 'Cash'}</p>
+                                  </div>
+                                  <label className="text-xs text-[var(--role-text)]/60">
+                                    {req.latest_liquidation.cash_return_method === 'bank' ? 'Bank transfer reference *' : 'Receipt / acknowledgment reference'}
+                                    <input
+                                      type="text"
+                                      value={cashReturnReferences[req.id] || ''}
+                                      onChange={(event) => setCashReturnReferences((current) => ({ ...current, [req.id]: event.target.value }))}
+                                      placeholder={req.latest_liquidation.cash_return_method === 'bank' ? 'Enter transfer reference' : 'Optional reference'}
+                                      className="mt-1 w-full rounded-xl border border-[var(--role-border)] bg-[var(--role-surface)] px-3 py-2 text-sm text-[var(--role-text)]"
+                                    />
+                                  </label>
+                                </div>
+                                <p className="mt-2 text-xs text-[var(--role-text)]/50">The reference and Accounting user will be recorded in the audit trail.</p>
+                              </div>
+                            )}
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
                               {toNumber(req.latest_liquidation.cash_return_amount) > 0 && req.latest_liquidation.cash_return_status === 'pending_return' && (
                                 <button
                                   type="button"
                                   className="btn-primary px-6 py-3 text-base font-bold"
-                                  onClick={() => void handleConfirmCashReturn(req.id)}
+                                  onClick={() => void handleConfirmCashReturn(req.id, req.latest_liquidation.cash_return_method)}
                                 >
                                   Cash Return
                                   <span className="block text-xs font-normal opacity-80">
@@ -2877,9 +2945,6 @@ const Approvals = () => {
                                 title="Release funds and finalize liquidation"
                               >
                                 Release Funds
-                                <span className="block text-xs font-normal opacity-80">
-                                  {displayMoney(toNumber(req.latest_liquidation.reimbursable_amount), requestCurrency)}
-                                </span>
                                 </button>
                               )}
                             </div>

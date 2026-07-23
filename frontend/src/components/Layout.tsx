@@ -36,12 +36,15 @@ const Layout = ({ children }: LayoutProps) => {
   const [user, setUser] = useState<any>(null);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [notificationConnection, setNotificationConnection] = useState<'connecting' | 'live' | 'polling'>('connecting');
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const notificationRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | null>(null);
+  const notificationsInitializedRef = useRef(false);
 
   // Idle session timeout — auto-logout after 15 minutes of inactivity
   const handleIdleTimeout = useCallback(() => {
@@ -78,7 +81,11 @@ const Layout = ({ children }: LayoutProps) => {
     try {
       const res = await api.get('/api/notifications');
       setNotifications(Array.isArray(res.data) ? res.data : []);
-    } catch { /* silent */ }
+    } catch { /* polling/realtime will retry */ }
+    finally {
+      setNotificationsLoading(false);
+      notificationsInitializedRef.current = true;
+    }
   }, []);
 
   const prefetchCategories = useCallback(async () => {
@@ -193,30 +200,62 @@ const Layout = ({ children }: LayoutProps) => {
         } else {
           setPendingApprovalsCount(0);
         }
+        return currentUser;
       } catch {
         if (!cancelled) { localStorage.removeItem('token'); navigate('/login'); }
+        return null;
       }
     };
 
-    void bootstrap();
+    void bootstrap().then((currentUser) => {
+      if (!currentUser || cancelled || !supabase) {
+        setNotificationConnection('polling');
+        return;
+      }
+      channel = supabase
+        .channel(`notifications-${currentUser.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'M88_BMS',
+            table: 'notifications',
+            filter: `user_id=eq.${currentUser.id}`,
+          },
+          (payload: any) => {
+            if (payload.eventType === 'INSERT' && notificationsInitializedRef.current) {
+              toast(payload.new?.message || 'You have a new notification.', {
+                id: `notification-${payload.new?.id || Date.now()}`,
+                icon: '🔔',
+                duration: 5000,
+              });
+            }
+            void fetchNotifications();
+          }
+        )
+        .on('postgres_changes', { event: '*', schema: 'M88_BMS', table: 'expense_requests' }, () => { void bootstrap(); })
+        .subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') setNotificationConnection('live');
+          else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') setNotificationConnection('polling');
+          else setNotificationConnection('connecting');
+        });
+    });
     void fetchNotifications();
     void prefetchCategories();
 
-    // Poll notifications every 30 seconds as a fallback
-    const notifPollId = setInterval(() => void fetchNotifications(), 30_000);
+    // Poll every 10 seconds as a reliable fallback when Realtime is unavailable.
+    const notifPollId = setInterval(() => void fetchNotifications(), 10_000);
+    const refreshOnFocus = () => void fetchNotifications();
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnFocus);
 
     let channel: any;
-    if (supabase) {
-      channel = supabase
-        .channel('layout-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => { void fetchNotifications(); })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'expense_requests' }, () => { void bootstrap(); })
-        .subscribe();
-    }
 
     return () => {
       cancelled = true;
       clearInterval(notifPollId);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
       if (channel) void supabase?.removeChannel(channel);
     };
   }, [navigate, fetchNotifications, prefetchCategories]);
@@ -229,6 +268,23 @@ const Layout = ({ children }: LayoutProps) => {
   const getNavClassName = (path: string) => location.pathname === path ? 'nav-link-accent' : 'nav-link';
   const unreadCount = notifications.filter(n => !n.is_read).length;
   const unreadLabel = unreadCount > 99 ? '99+' : String(unreadCount);
+
+  const getNotificationPresentation = (notification: any) => {
+    const message = String(notification?.message || '').toLowerCase();
+    if (message.includes('cash return') || message.includes('liquidation')) {
+      return { label: 'Liquidation', dot: 'bg-amber-500' };
+    }
+    if (message.includes('budget') || message.includes('allocation')) {
+      return { label: 'Budget', dot: 'bg-violet-500' };
+    }
+    if (message.includes('approved') || message.includes('rejected') || message.includes('returned')) {
+      return { label: 'Request update', dot: 'bg-emerald-500' };
+    }
+    if (message.includes('requires') || message.includes('pending') || message.includes('submitted')) {
+      return { label: 'Approval needed', dot: 'bg-blue-500' };
+    }
+    return { label: 'System update', dot: 'bg-slate-400' };
+  };
 
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -438,7 +494,13 @@ const Layout = ({ children }: LayoutProps) => {
                 {showNotifications && (
                   <div className="absolute right-0 top-12 z-50 w-80 max-h-96 overflow-y-auto rounded-2xl border border-[var(--role-border)] bg-[var(--bms-bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
                     <div className="sticky top-0 flex items-center justify-between border-b border-[var(--role-border)] bg-[var(--bms-bg-2)] p-4 rounded-t-2xl">
-                      <h3 className="font-bold text-[var(--role-text)]">Notifications</h3>
+                      <div>
+                        <h3 className="font-bold text-[var(--role-text)]">Notifications</h3>
+                        <p className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--bms-muted)]">
+                          <span className={`h-1.5 w-1.5 rounded-full ${notificationConnection === 'live' ? 'bg-emerald-500' : notificationConnection === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`} />
+                          {notificationConnection === 'live' ? 'Live updates' : notificationConnection === 'connecting' ? 'Connecting…' : 'Auto-refreshing'}
+                        </p>
+                      </div>
                       <div className="flex items-center gap-2">
                         {unreadCount > 0 && (
                           <button onClick={markAllRead} className="text-xs font-medium text-[var(--role-primary)] hover:underline">Mark all read</button>
@@ -451,7 +513,9 @@ const Layout = ({ children }: LayoutProps) => {
                       </div>
                     </div>
                     <div className="divide-y divide-black/5">
-                      {notifications.length === 0 ? (
+                      {notificationsLoading ? (
+                        <div className="p-6 text-center text-sm text-[var(--bms-muted)]">Loading notifications…</div>
+                      ) : notifications.length === 0 ? (
                         <div className="p-6 text-center">
                           <svg className="mx-auto h-10 w-10 text-[var(--role-border)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                           <p className="mt-2 text-sm text-[var(--bms-muted)]">No notifications yet</p>
@@ -463,6 +527,13 @@ const Layout = ({ children }: LayoutProps) => {
                             onClick={() => handleNotificationClick(notification)}
                             className={`p-4 transition hover:bg-black/5 cursor-pointer ${!notification.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}
                           >
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--bms-muted)]">
+                                <span className={`h-1.5 w-1.5 rounded-full ${getNotificationPresentation(notification).dot}`} />
+                                {getNotificationPresentation(notification).label}
+                              </span>
+                              {!notification.is_read && <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--role-primary)]">New</span>}
+                            </div>
                             <p className="text-sm text-[var(--role-text)]">{notification.message}</p>
                             <p className="mt-1 text-xs text-[var(--bms-muted)]">{notification.created_at ? formatDateTime(notification.created_at) : 'Just now'}</p>
                             {notification.link && <p className="mt-1 text-[10px] text-[var(--role-primary)] font-medium">Click to view →</p>}
@@ -497,7 +568,13 @@ const Layout = ({ children }: LayoutProps) => {
               {showNotifications && (
                 <div className="absolute right-0 top-12 z-50 w-80 max-h-80 overflow-y-auto rounded-2xl border border-[var(--role-border)] bg-[var(--bms-bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
                   <div className="sticky top-0 flex items-center justify-between border-b border-[var(--role-border)] bg-[var(--bms-bg-2)] p-3 rounded-t-2xl">
-                    <h3 className="font-bold text-sm text-[var(--role-text)]">Notifications</h3>
+                    <div>
+                      <h3 className="font-bold text-sm text-[var(--role-text)]">Notifications</h3>
+                      <p className="mt-0.5 flex items-center gap-1 text-[9px] text-[var(--bms-muted)]">
+                        <span className={`h-1.5 w-1.5 rounded-full ${notificationConnection === 'live' ? 'bg-emerald-500' : notificationConnection === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`} />
+                        {notificationConnection === 'live' ? 'Live' : notificationConnection === 'connecting' ? 'Connecting…' : 'Auto-refresh'}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-2">
                       {unreadCount > 0 && (
                         <button onClick={markAllRead} className="text-xs font-medium text-[var(--role-primary)] hover:underline">Mark all read</button>
@@ -505,11 +582,20 @@ const Layout = ({ children }: LayoutProps) => {
                     </div>
                   </div>
                   <div className="divide-y divide-black/5">
-                    {notifications.length === 0 ? (
+                    {notificationsLoading ? (
+                      <p className="p-4 text-center text-sm text-[var(--bms-muted)]">Loading notifications…</p>
+                    ) : notifications.length === 0 ? (
                       <p className="p-4 text-center text-sm text-[var(--bms-muted)]">No notifications</p>
                     ) : (
                       notifications.slice(0, 10).map((n: any) => (
                         <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 text-xs cursor-pointer hover:bg-black/5 transition ${!n.is_read ? 'bg-[var(--role-accent)]/30 border-l-2 border-l-[var(--role-primary)]' : ''}`}>
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider text-[var(--bms-muted)]">
+                              <span className={`h-1.5 w-1.5 rounded-full ${getNotificationPresentation(n).dot}`} />
+                              {getNotificationPresentation(n).label}
+                            </span>
+                            {!n.is_read && <span className="text-[9px] font-semibold uppercase text-[var(--role-primary)]">New</span>}
+                          </div>
                           <p className="text-[var(--role-text)]">{n.message}</p>
                           <p className="mt-0.5 text-[var(--bms-muted)]">{n.created_at ? formatDateTime(n.created_at) : 'Just now'}</p>
                           {n.link && <p className="mt-1 text-[10px] text-[var(--role-primary)] font-medium">Click to view →</p>}

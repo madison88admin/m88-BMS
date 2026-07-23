@@ -2173,7 +2173,12 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
     const cashReturnAmount = Math.max(Number(cashAdvance.amount_issued) - amountSpent, 0);
 
     // Route through full approval chain: Supervisor → Accounting → VP → President
-    const liquidationStatus = 'pending_supervisor';
+    // Supervisor submission counts as the supervisor review, so it starts at
+    // Accounting. Employee/manager submissions retain the full approval chain.
+    const submitterRole = String(req.user.role || '').trim().toLowerCase();
+    const liquidationStatus = submitterRole === 'supervisor'
+      ? 'pending_accounting'
+      : 'pending_supervisor';
 
     let result;
     if (existingLiquidation?.id) {
@@ -2270,9 +2275,9 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
         {
           entity_type: 'liquidation',
           action: 'submitted',
-          field_name: 'status',
-          old_value: existingLiquidation?.status || 'pending_submission',
-          new_value: 'submitted',
+          field_name: 'liquidation_status',
+          old_value: existingLiquidation?.liquidation_status || 'pending_submission',
+          new_value: liquidationStatus,
           note: remarks || 'Liquidation submitted with ' + items.length + ' items'
         }
       ]);
@@ -2282,10 +2287,12 @@ router.patch('/:id/liquidation', authenticate, authorize('employee', 'manager', 
         recordType: 'liquidation',
         recordId: result.data.id,
         recordLabel: cashAdvance.advance_code,
-        newValue: { amount_spent: amountSpent, status: 'submitted', items: items.length, cash_return: cashReturnAmount, return_method: cashReturnMethod },
+        newValue: { amount_spent: amountSpent, status: liquidationStatus, items: items.length, cash_return: cashReturnAmount, return_method: cashReturnMethod },
         remarks,
       });
-      await notifyAccounting(`Cash advance liquidation submitted for ${cashAdvance.advance_code} — pending supervisor review.`);
+      if (liquidationStatus === 'pending_accounting') {
+        await notifyAccounting(`Cash advance liquidation submitted by Supervisor for ${cashAdvance.advance_code} — pending Accounting review.`);
+      }
     } catch (auditErr) {
       console.error('Audit log error during liquidation:', auditErr);
     }

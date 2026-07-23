@@ -5,5 +5,7 @@ const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 export const supabase =
   supabaseUrl && supabasePublishableKey
-    ? createClient(supabaseUrl, supabasePublishableKey)
+    ? createClient(supabaseUrl, supabasePublishableKey, {
+        db: { schema: 'M88_BMS' },
+      })
     : null;
