@@ -279,6 +279,8 @@ export const buildDepartmentBudgetSummaryMap = async () => {
     const usedBudget = releasedRequestsTotal + directExpensesTotal - cashReturnsTotal;
     const monthlySpent = releasedRequestsMonthly + directExpensesMonthly + pettyCashMonthly;
     const projectedCommittedTotal = usedBudget + pendingSupervisorTotal + pendingAccountingTotal + pendingVpTotal + pendingPresidentTotal;
+    const remainingBudget = fromCents(toCents(annualBudget) - toCents(usedBudget));
+    const projectedRemainingBudget = fromCents(toCents(annualBudget) - toCents(projectedCommittedTotal));
     const currentDepartment =
       groupedDepartments.sort((left, right) => {
         const leftUpdatedAt = new Date(String(left.updated_at || left.created_at || 0)).getTime();
@@ -300,8 +302,8 @@ export const buildDepartmentBudgetSummaryMap = async () => {
       on_hold_total: onHoldTotal,
       monthly_spent: monthlySpent,
       projected_committed_total: projectedCommittedTotal,
-      remaining_budget: annualBudget - usedBudget,
-      projected_remaining_budget: annualBudget - projectedCommittedTotal
+      remaining_budget: remainingBudget,
+      projected_remaining_budget: projectedRemainingBudget
     });
   });
 

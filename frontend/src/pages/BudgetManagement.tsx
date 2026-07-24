@@ -1656,7 +1656,7 @@ const BudgetManagement = () => {
           <div className="space-y-0.5 max-h-[600px] overflow-y-auto pl-3 border-l-2 border-[var(--role-border)]">
             {filteredDepts.map(dept => {
               const annual = toNumber(dept.annual_budget), used = toNumber(dept.used_budget);
-              const remaining = toNumber(dept.remaining_budget || (annual - used));
+              const remaining = toNumber(dept.remaining_budget ?? (annual - used));
               const utilization = annual > 0 ? (used / annual) * 100 : 0;
               const health = getBudgetHealth(dept);
               const isSelected = dept.id === selectedDepartmentId;

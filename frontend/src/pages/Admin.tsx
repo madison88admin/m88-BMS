@@ -1480,8 +1480,8 @@ return (
                 const isSelected = dept.id === selectedDepartmentId;
                 const annualBudget = toNumber(dept.annual_budget);
                 const usedBudget = toNumber(dept.used_budget);
-                const remaining = toNumber(dept.remaining_budget || (annualBudget - usedBudget));
-                const projectedRemaining = toNumber(dept.projected_remaining_budget || remaining);
+                const remaining = toNumber(dept.remaining_budget ?? (annualBudget - usedBudget));
+                const projectedRemaining = toNumber(dept.projected_remaining_budget ?? remaining);
                 const utilization = annualBudget > 0 ? (usedBudget / annualBudget) * 100 : 0;
                 const budgetHealth = getBudgetHealth(dept);
 
