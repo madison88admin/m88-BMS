@@ -1,6 +1,36 @@
 import { supabase } from './supabase';
 import { sendEmail } from './email';
 
+export const shouldSendWorkflowEmail = (subject: string, message: string) => {
+  const normalizedSubject = String(subject || '').trim().toLowerCase();
+  const normalizedMessage = String(message || '').trim().toLowerCase();
+
+  const importantOutcomeSubjects = [
+    'approved',
+    'rejected',
+    'denied',
+    'released',
+    'overdue',
+    'cash return',
+    'auto-filed'
+  ];
+  if (importantOutcomeSubjects.some((keyword) => normalizedSubject.includes(keyword))) {
+    return true;
+  }
+
+  const actionRequiredPatterns = [
+    /\brequires? (?:your |accounting |vp |president )?(?:approval|review)\b/,
+    /\bpending (?:your |accounting |vp |president )?review\b/,
+    /\bsubmitted for review\b/,
+    /\bready for (?:fund release|final approval)\b/,
+    /\bcash return (?:required|pending)\b/,
+    /\bbudget unlock request\b/,
+    /\bnew document upload submitted\b/
+  ];
+
+  return actionRequiredPatterns.some((pattern) => pattern.test(normalizedMessage));
+};
+
 export const createInAppNotification = async (userId: string, message: string, link?: string) => {
   try {
     await supabase.from('notifications').insert({
@@ -19,7 +49,7 @@ export const notifyUser = async (userId: string, subject: string, message: strin
   if (!userId) return;
   await createInAppNotification(userId, message, link);
   const { data: user } = await supabase.from('users').select('email, name').eq('id', userId).maybeSingle();
-  if (user?.email) {
+  if (user?.email && shouldSendWorkflowEmail(subject, message)) {
     sendEmail(user.email, subject, message).catch((err) => console.error('Email failed:', err?.message));
   }
 };
@@ -33,7 +63,7 @@ export const notifyUsersByRole = async (roles: string[], message: string, depart
   await Promise.all(
     (users || []).map(async (u) => {
       await createInAppNotification(u.id, message, link);
-      if (u.email) {
+      if (u.email && shouldSendWorkflowEmail('BMS Notification', message)) {
         sendEmail(u.email, 'BMS Notification', message).catch(() => undefined);
       }
     })

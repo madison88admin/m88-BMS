@@ -31,6 +31,7 @@ import {
   notifyPresident,
   notifyUser,
   notifyVp,
+  shouldSendWorkflowEmail,
   checkBudgetUtilizationWarning,
 } from '../utils/workflowNotify';
 import { invalidateCache } from '../middleware/cache';
@@ -1267,7 +1268,7 @@ const notifyEmployee = async (employeeId: string, requestCode: string, subject: 
     
     // Send email
     const { data: employee } = await supabase.from('users').select('email, name').eq('id', employeeId).maybeSingle();
-    if (employee?.email) {
+    if (employee?.email && shouldSendWorkflowEmail(subject, message)) {
       const emailContent = buildRequestStatusEmail(employee.name || 'there', requestCode, subject, message);
       // Don't await sendEmail to avoid blocking the main flow
       sendEmail(employee.email, subject, emailContent.text, emailContent.html).catch(err => {
