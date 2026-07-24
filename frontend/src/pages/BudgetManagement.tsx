@@ -871,9 +871,25 @@ const BudgetManagement = () => {
   const fetchAnalyticsData = async () => {
     setAnalyticsLoading(true);
     try {
+      const selectedAnalyticsDepartment = analyticsDeptId
+        ? departments.find((department: any) => department.id === analyticsDeptId)
+        : null;
+      const selectedDepartmentName = String(selectedAnalyticsDepartment?.name || '').trim().toLowerCase();
+      const getDepartmentIdForFiscalYear = (fiscalYear: number) => {
+        if (!selectedDepartmentName) return '';
+        return String(
+          departments.find(
+            (department: any) =>
+              Number(department.fiscal_year) === fiscalYear &&
+              String(department.name || '').trim().toLowerCase() === selectedDepartmentName
+          )?.id || ''
+        );
+      };
+
       // Fetch all requests for the selected fiscal year and department
       const params: any = { fiscal_year: analyticsFiscalYear };
-      if (analyticsDeptId) params.department_id = analyticsDeptId;
+      const selectedYearDepartmentId = getDepartmentIdForFiscalYear(analyticsFiscalYear) || analyticsDeptId;
+      if (selectedYearDepartmentId) params.department_id = selectedYearDepartmentId;
       const res = await api.get('/api/requests', { params });
       const requests = Array.isArray(res.data) ? res.data : [];
 
@@ -881,7 +897,9 @@ const BudgetManagement = () => {
       const allFiscalYears = [2022, 2023, 2024, 2025, 2026];
       const allRequestsPromises = allFiscalYears.map(fy => {
         const fyParams: any = { fiscal_year: fy };
-        if (analyticsDeptId) fyParams.department_id = analyticsDeptId;
+        const fiscalYearDepartmentId = getDepartmentIdForFiscalYear(fy);
+        if (selectedDepartmentName && !fiscalYearDepartmentId) return Promise.resolve({ data: [] });
+        if (fiscalYearDepartmentId) fyParams.department_id = fiscalYearDepartmentId;
         return api.get('/api/requests', { params: fyParams });
       });
       const allRequestsResponses = await Promise.all(allRequestsPromises);
@@ -889,14 +907,16 @@ const BudgetManagement = () => {
 
       // Fetch direct expenses (Budget Expense Upload) for the selected fiscal year and department
       const directExpenseParams: any = { fiscal_year: analyticsFiscalYear };
-      if (analyticsDeptId) directExpenseParams.department_id = analyticsDeptId;
+      if (selectedYearDepartmentId) directExpenseParams.department_id = selectedYearDepartmentId;
       const directRes = await api.get('/api/expenses', { params: directExpenseParams });
       const directExpenses = Array.isArray(directRes.data) ? directRes.data : [];
 
       // Fetch direct expenses for all fiscal years for the trend chart
       const allDirectExpensesPromises = allFiscalYears.map(fy => {
         const fyParams: any = { fiscal_year: fy };
-        if (analyticsDeptId) fyParams.department_id = analyticsDeptId;
+        const fiscalYearDepartmentId = getDepartmentIdForFiscalYear(fy);
+        if (selectedDepartmentName && !fiscalYearDepartmentId) return Promise.resolve({ data: [] });
+        if (fiscalYearDepartmentId) fyParams.department_id = fiscalYearDepartmentId;
         return api.get('/api/expenses', { params: fyParams });
       });
       const allDirectExpensesResponses = await Promise.all(allDirectExpensesPromises);
@@ -930,6 +950,9 @@ const BudgetManagement = () => {
 
       // Chart 2: Expense trend by fiscal year (use all requests and direct expenses for all FYs)
       const fyGroups: Record<number, { expense: number; budget: number }> = {};
+      allFiscalYears.forEach((fiscalYear) => {
+        fyGroups[fiscalYear] = { expense: 0, budget: 0 };
+      });
       allRequests.forEach((r: any) => {
         const fy = Number(r.fiscal_year || new Date(r.created_at).getFullYear());
         if (!fyGroups[fy]) fyGroups[fy] = { expense: 0, budget: 0 };
@@ -948,9 +971,12 @@ const BudgetManagement = () => {
         const fy = Number(d.fiscal_year || 0);
         if (fy > 0 && fyGroups[fy]) {
           // If specific department is selected, use that department's budget
-          if (analyticsDeptId && d.id === analyticsDeptId) {
+          if (
+            selectedDepartmentName &&
+            String(d.name || '').trim().toLowerCase() === selectedDepartmentName
+          ) {
             fyGroups[fy].budget = toNumber(d.annual_budget);
-          } else if (!analyticsDeptId) {
+          } else if (!selectedDepartmentName) {
             // If no specific department selected, sum all departments' budgets for that FY
             fyGroups[fy].budget += toNumber(d.annual_budget);
           }
@@ -968,16 +994,20 @@ const BudgetManagement = () => {
       // Chart 3: Monthly comparison 2025 vs 2026
       const monthlyComparison = months.map((month, idx) => {
         const get = (yr: number) => {
-          const requestTotal = requests
+          const requestTotal = allRequests
             .filter((r: any) => {
               const d = new Date(r.submitted_at || r.created_at);
-              return d.getMonth() === idx && d.getFullYear() === yr && ['released', 'approved'].includes(r.status);
+              return (
+                d.getMonth() === idx &&
+                Number(r.fiscal_year || d.getFullYear()) === yr &&
+                ['released', 'approved'].includes(r.status)
+              );
             })
             .reduce((sum: number, r: any) => sum + convertRequestAmount(r.amount, r.metadata?.currency), 0);
           const directTotal = allDirectExpenses
             .filter((de: any) => {
               const d = new Date(de.expense_date);
-              return d.getMonth() === idx && d.getFullYear() === yr;
+              return d.getMonth() === idx && Number(de.fiscal_year || d.getFullYear()) === yr;
             })
             .reduce((sum: number, de: any) => sum + convertRequestAmount(de.amount, 'PHP'), 0);
           return requestTotal + directTotal;
